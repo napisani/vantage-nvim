@@ -1,4 +1,6 @@
 import {
+  Diagnostic,
+  DiagnosticSeverity,
   createConnection,
   DidChangeTextDocumentParams,
   DidCloseTextDocumentParams,
@@ -9,17 +11,18 @@ import {
 } from "vscode-languageserver/node";
 import { TextDocument } from "vscode-languageserver-textdocument";
 import { createWriteStream } from "node:fs";
-
-const logStream = createWriteStream("/tmp/learn-ls.log", { flags: "a" });
+import OpenAI from "openai";
+const openai = new OpenAI({
+  apiKey: process.env.OPENAI_API_KEY,
+});
 
 const connection = createConnection();
-
+const logStream = createWriteStream("/tmp/learn-ls.log", { flags: "a" });
 const log = (message: string) => {
   const line = `[${new Date().toISOString()}] ${message}\n`;
   logStream.write(line);
   connection.console.log(message);
 };
-
 const getFileNameFromUri = (uri: string): string => {
   try {
     const parsed = new URL(uri);
@@ -50,6 +53,55 @@ const buildCurrentContext = () => {
   };
 };
 
+// Function to call ChatGPT completion API
+async function getChatGPTCompletion(
+  fileContent: string,
+  cursorPosition: Position,
+  fileName: string
+): Promise<string> {
+  try {
+    const prompt = `You are an expert programming assistant. A developer is working on this file and is currently learning the nix programming language.
+Do not provide solutions. Your goal is to TEACH the developer by providing documentation exerpts, explanations and guidance in small digestible pieces that 
+are most relevant to the to the current cursor position. Do not provide suggestions for modifications. Only provide educational information that helps the developer understand the code better
+especially relevant nix concepts. For example, if the cursor is on a nix derivation, briefly explain derivation concept in nix, how it works, and syntax of how it can be defined.
+
+
+    
+File: ${fileName}
+Cursor Position: Line ${cursorPosition.line + 1}, Character ${cursorPosition.character + 1}
+
+File Content:
+${fileContent}`;
+
+    log(`Calling ChatGPT API for ${fileName}...`);
+    
+    const completion = await openai.chat.completions.create({
+      model: "gpt-4o-mini",
+      messages: [
+        {
+          role: "user",
+          content: prompt,
+        },
+      ],
+      max_tokens: 256,
+      temperature: 0.7,
+    });
+
+    const result = completion.choices[0]?.message?.content ?? "No response from ChatGPT";
+    log(`ChatGPT response: ${result}`);
+    return result;
+  } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    log(`Error calling ChatGPT API: ${errorMessage}`);
+    return `Error: ${errorMessage}`;
+  }
+}
+
+// Debounce timer for ChatGPT API calls
+let debounceTimer: NodeJS.Timeout | null = null;
+const DEBOUNCE_DELAY = 5000; // 5 seconds
+
+
 connection.onDidOpenTextDocument((event: DidOpenTextDocumentParams) => {
   const { textDocument } = event;
   const doc = TextDocument.create(
@@ -64,6 +116,7 @@ connection.onDidOpenTextDocument((event: DidOpenTextDocumentParams) => {
 
 connection.onDidCloseTextDocument((event: DidCloseTextDocumentParams) => {
   documents.delete(event.textDocument.uri);
+  connection.sendDiagnostics({ uri: event.textDocument.uri, diagnostics: [] });
   log(`Document closed: ${event.textDocument.uri}`);
 });
 
@@ -105,12 +158,48 @@ connection.onDidChangeTextDocument((event: DidChangeTextDocumentParams) => {
   log(
     `Cursor updated: ${fileName} @ line ${position.line} character ${position.character}`
   );
+
+  // Clear any existing debounce timer
+  if (debounceTimer) {
+    clearTimeout(debounceTimer);
+    log(`Debounce timer cleared for ${fileName}`);
+  }
+
+  // Set up debounced ChatGPT API call
+  debounceTimer = setTimeout(async () => {
+    log(`Debounce delay elapsed, calling ChatGPT API for ${fileName}...`);
+    
+    const fileContent = updated.getText();
+    const chatGPTResponse = await getChatGPTCompletion(fileContent, position, fileName);
+
+    // Display the ChatGPT response as an info diagnostic at the cursor position
+    const documentLines = updated.getText().split(/\r?\n/);
+    const lineText = documentLines[position.line] ?? "";
+    const infoDiagnostics: Diagnostic[] = [
+      {
+        range: {
+          start: { line: position.line, character: 0 },
+          end: { line: position.line, character: lineText.length },
+        },
+        message: chatGPTResponse,
+        severity: DiagnosticSeverity.Information,
+        source: "learn-ls",
+      },
+    ];
+
+    connection.sendDiagnostics({
+      uri: textDocument.uri,
+      diagnostics: infoDiagnostics,
+    });
+  }, DEBOUNCE_DELAY);
 });
 
-connection.onInitialize((params) => {
+connection.onInitialize(async(params) => {
   log(
     `Initialize request (rootUri=${params.rootUri ?? "unknown"}, locale=${params.locale ?? "unknown"})`
   );
+
+
 
   const result: InitializeResult = {
     capabilities: {
@@ -134,27 +223,11 @@ connection.languages.inlayHint.on((params) => {
     log(`Inlay hint skipped: missing document for ${params.textDocument.uri}`);
     return [];
   }
-  if (lastCursorContext){
+
+  // Noop for now
   return [
-      {
-        position: lastCursorContext.position,
-        label: "updated cursor hint",
-        paddingLeft: true,
-        paddingRight: true,
-      }
     ]; 
-  }
-
-  return [
-    {
-      position: params.range.start,
-      label: "Constant test hint",
-      paddingLeft: true,
-      paddingRight: true,
-    },
-  ];
 });
-
 connection.onRequest(CURRENT_CONTEXT_REQUEST, () => {
   const context = buildCurrentContext();
   if (!context) {

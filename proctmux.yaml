@@ -1,0 +1,79 @@
+general:
+  kill_existing_session: true
+layout:
+  # hide or show the window second from the bottom that shows the full command name and the description
+  hide_process_description_panel: false
+  # the prompt_toolkit width of the sidebar (containing all the process names)
+  processes_list_width: 31
+  # whether to sort the process list alphabetically
+  sort_process_list_alpha: false 
+
+  # whether to sort the process list with running processes first 
+  sort_process_list_running_first: true
+  # whether to show debug infomration in the process list itself 
+  enable_debug_process_info: false 
+style:
+  #foreground color of the process in the process list when it is selected
+  selected_process_color: 'ansiblack'
+  #background color of the process in the process list when it is selected
+  selected_process_bg_color: 'ansimagenta'
+  #foregroud color of the process in the process list when it is not selected
+  unselected_process_color: 'ansiblue'
+  #foregroud color of the process list status when the status is RUNNING
+  status_running_color: 'ansigreen'
+  #foregroud color of the process list status when the status is STOPPED
+  status_stopped_color: 'ansired'
+  #the color of the right panel (terminal panel) when no terminal is created/selected yet
+  placeholder_terminal_bg_color: '#1a1b26'
+  #character used to indicate the current selection
+  pointer_char: '▶'
+  #override default style classes
+  #https://github.com/prompt-toolkit/python-prompt-toolkit/blob/master/src/prompt_toolkit/styles/defaults.py
+  style_classes:
+    cursor-line: 'underline'
+  #one of: monochrome | ansicolors | 256colors | truecolors
+  color_level: 'truecolors'
+keybinding:
+  # a map of app actions to their respective key bindings.
+  # each key combo in an action list is an alias for the same action.
+  # IE up is fired when 'j' or the 'up arrow' is pressed
+  # All modifiers for a keybinding should be included in the same list element IE: switch focus - 'c-w' (Control-W)
+  quit:
+    - q
+  filter:
+    - /
+  submit_filter:
+    - enter
+  start:
+    - s
+  stop:
+    - x
+  up:
+    - up
+    - k
+  down:
+    - down
+    - j
+  toggle_running:
+    - 'R'
+  toggle_help:
+    - '?'
+shell_cmd:
+  # this is the command used for all 'procs' that are defined with a 'shell' property.
+  # by default the configured "$SHELL" environment variable will be used.
+  - '/bin/bash'
+  - '-c'
+
+# if this property is defined, the app will log all debug, info, error level logs to the designated file
+enable_mouse: true
+procs:
+  "dev":
+    shell: "npm run dev"
+    description: 'start nodemon dev server'
+  "tail log":
+    shell: "tail -f /tmp/learn-ls.log"
+    autostart: false
+    description: 'tail the app log'
+
+signal_server:
+  enable: true
