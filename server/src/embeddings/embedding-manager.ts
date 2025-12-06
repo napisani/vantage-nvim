@@ -7,12 +7,13 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { OllamaEmbeddingClient } from './ollama-client';
 import { VectorStore } from './vector-store';
+import { TextChunker } from './text-chunker';
 import type { EmbeddingConfig, DocumentChunk, EmbeddingStats } from './types';
-import { pipeline } from '@huggingface/transformers';
 
 export class EmbeddingManager {
 	private ollamaClient: OllamaEmbeddingClient;
 	private vectorStore: VectorStore;
+	private textChunker: TextChunker;
 	private config: Required<EmbeddingConfig>;
 
 	constructor(config: EmbeddingConfig = {}) {
@@ -23,10 +24,18 @@ export class EmbeddingManager {
 			embeddingDims: config.embeddingDims || 768,
 			chunkSize: config.chunkSize || 2048,
 			chunkOverlap: config.chunkOverlap || 100,
+			tokenizerModel: config.tokenizerModel || 'Xenova/gemma-tokenizer',
+			maxTokensPerChunk: config.maxTokensPerChunk || 512,
+			chunkOverlapSentences: config.chunkOverlapSentences || 1,
 		};
 
 		this.ollamaClient = new OllamaEmbeddingClient(this.config.ollamaHost, this.config.embeddingModel);
 		this.vectorStore = new VectorStore(this.config.dbPath, 'documents', this.config.embeddingDims);
+		this.textChunker = new TextChunker({
+			tokenizerModel: this.config.tokenizerModel,
+			maxTokensPerChunk: this.config.maxTokensPerChunk,
+			chunkOverlapSentences: this.config.chunkOverlapSentences,
+		});
 	}
 
 	/**
@@ -40,27 +49,12 @@ export class EmbeddingManager {
 	}
 
 	/**
-	 * Simple character-based chunking
-	 * Note: Token-based chunking would be more accurate but requires the model's tokenizer
+	 * Chunk text using sentence-level token-aware chunking
+	 * Falls back to character-based chunking for backward compatibility
 	 */
-	private chunkText(text: string): string[] {
-		const chunks: string[] = [];
-		const { chunkSize, chunkOverlap } = this.config;
-
-		let start = 0;
-		while (start < text.length) {
-			const end = Math.min(start + chunkSize, text.length);
-			const chunk = text.slice(start, end).trim();
-			
-			if (chunk.length > 0) {
-				chunks.push(chunk);
-			}
-
-			if (end >= text.length) {break;}
-			start = end - chunkOverlap;
-		}
-
-		return chunks;
+	private async chunkText(text: string, source: string): Promise<DocumentChunk[]> {
+    // Use new sentence-level token-aware chunking
+    return await this.textChunker.chunkText(text, source);
 	}
 
 	/**
@@ -110,18 +104,18 @@ export class EmbeddingManager {
 		for (const [fileName, content] of files.entries()) {
 			console.log(`📝 Processing: ${fileName}`);
 
-			// Chunk the content
-			const chunks = this.chunkText(content);
+			// Chunk the content using sentence-level token-aware chunking
+			const chunks = await this.chunkText(content, fileName);
 			console.log(`  └─ Created ${chunks.length} chunks`);
 
 			// Generate embeddings for chunks
-			const embeddings = await this.ollamaClient.generateEmbeddings(chunks);
+			const chunkTexts = chunks.map(c => c.text);
+			const embeddings = await this.ollamaClient.generateEmbeddings(chunkTexts);
 
-			// Create document chunks
+			// Add embeddings to document chunks
 			for (let i = 0; i < chunks.length; i++) {
 				allChunks.push({
-					text: chunks[i],
-					source: fileName,
+					...chunks[i],
 					embedding: this.truncateEmbedding(embeddings[i], this.config.embeddingDims),
 				});
 			}

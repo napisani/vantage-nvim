@@ -17,8 +17,10 @@
     "@tanstack/ai": "^0.0.1",
     "@types/better-sqlite3": "^7.6.13",
     "better-sqlite3": "^12.5.0",
+    "natural": "^8.1.0",
     "ollama": "^0.6.3",
     "openai": "^6.9.1",
+    "playwright": "^1.57.0",
     "sqlite-vec": "^0.1.7-alpha.2",
     "vscode-languageserver": "^9.0.1",
     "vscode-languageserver-textdocument": "^1.0.11"
@@ -26,6 +28,9 @@
   "scripts": {
     "compile": "tsc -b",
     "watch": "tsc -b -w",
-    "example:embeddings": "npm run compile && node out/embeddings/example.js"
+    "example:embeddings": "npm run compile && node out/embeddings/example.js",
+    "example:scraper": "npm run compile && node out/embeddings/example-scraper.js",
+    "example:rag": "npm run compile && node out/embeddings/example-rag.js",
+    "search": "npm run compile && node out/embeddings/search.js"
   }
 }

@@ -10,15 +10,17 @@
 import { EmbeddingManager } from './index';
 
 async function main() {
-	// Create an embedding manager with default config
+	// Create an embedding manager with token-based chunking config
 	// embeddingDims: 768 (full), 256 (3x faster with truncation), 512, or 128
 	const embeddingManager = new EmbeddingManager({
 		ollamaHost: 'http://localhost:11434',
 		embeddingModel: 'embeddinggemma:300m',
 		dbPath: './data/embeddings.db',
 		embeddingDims: 256,  // Using 256 dimensions for faster performance
-		chunkSize: 2048,
-		chunkOverlap: 100,
+		// New token-based chunking options
+		tokenizerModel: 'Xenova/gemma-tokenizer',
+		maxTokensPerChunk: 512,
+		chunkOverlapSentences: 1,
 	});
 
 	try {

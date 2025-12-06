@@ -14,9 +14,12 @@ A TypeScript module for creating and searching embeddings using Ollama's embeddi
 
 ```
 embeddings/
-├── index.ts           # Main EmbeddingManager class
+├── index.ts           # Exports for the embeddings module
+├── embedding-manager.ts  # Main EmbeddingManager class
 ├── ollama-client.ts   # Ollama API client for embeddings
 ├── vector-store.ts    # SQLite-vec storage implementation
+├── text-chunker.ts    # Sentence-level token-aware chunking
+├── types.ts           # Type definitions
 ├── example.ts         # Usage examples
 └── README.md          # This file
 ```
@@ -34,6 +37,8 @@ embeddings/
    - `ollama` - Ollama Node.js client
    - `better-sqlite3` - SQLite database
    - `sqlite-vec` - Vector similarity extension
+   - `@huggingface/transformers` - Local tokenizer for token counting
+   - `natural` - NLP library for sentence tokenization
 
 ## Usage
 
@@ -42,12 +47,16 @@ embeddings/
 ```typescript
 import { EmbeddingManager } from './embeddings';
 
-// Create an embedding manager
+// Create an embedding manager with token-based chunking
 const manager = new EmbeddingManager({
   ollamaHost: 'http://localhost:11434',
   embeddingModel: 'embeddinggemma:300m',
   dbPath: './embeddings.db',
   embeddingDims: 256,
+  // Token-based chunking options
+  tokenizerModel: 'Xenova/gemma-tokenizer',
+  maxTokensPerChunk: 512,
+  chunkOverlapSentences: 1,
 });
 
 // Process a directory of text files
@@ -93,12 +102,19 @@ const results = await manager.search('query text', 5);
 
 ```typescript
 interface EmbeddingConfig {
-  ollamaHost?: string;      // Default: 'http://localhost:11434'
-  embeddingModel?: string;  // Default: 'embeddinggemma:300m'
-  dbPath?: string;          // Default: './embeddings.db'
-  embeddingDims?: number;   // Default: 256
-  chunkSize?: number;       // Default: 2048 characters
-  chunkOverlap?: number;    // Default: 100 characters
+  ollamaHost?: string;           // Default: 'http://localhost:11434'
+  embeddingModel?: string;       // Default: 'embeddinggemma:300m'
+  dbPath?: string;               // Default: './embeddings.db'
+  embeddingDims?: number;        // Default: 768 (or 256 for faster performance)
+  
+  // Token-based chunking options (NEW)
+  tokenizerModel?: string;       // Default: 'Xenova/gemma-tokenizer'
+  maxTokensPerChunk?: number;    // Default: 512 tokens
+  chunkOverlapSentences?: number; // Default: 1 sentence
+  
+  // Legacy character-based chunking (deprecated)
+  chunkSize?: number;            // Default: 2048 characters
+  chunkOverlap?: number;         // Default: 100 characters
 }
 ```
 
@@ -106,12 +122,26 @@ interface EmbeddingConfig {
 
 ### Chunking Strategy
 
-Currently uses character-based chunking:
-- **Chunk Size**: 2048 characters (default)
-- **Overlap**: 100 characters (default)
-- Prevents information loss at chunk boundaries
+**Sentence-Level Token-Based Chunking** (Current Implementation):
+- **Sentence Splitting**: Uses `natural` library's SentenceTokenizer
+- **Token Counting**: Uses HuggingFace transformers for accurate token counting
+- **Chunk Size**: 512 tokens (default) - respects model's context window
+- **Overlap**: 1 sentence (default) - maintains context between chunks
+- **Smart Handling**:
+  - Recognizes abbreviations (Dr., Prof., Ph.D., e.g., i.e., etc.)
+  - Handles decimal numbers (3.14159)
+  - Preserves URLs and email addresses
+  - Respects quotation marks
 
-**Note**: Token-based chunking (as shown in the Python notebook) would be more accurate but requires access to the model's tokenizer. This is a future enhancement.
+**Why Sentence-Level Token-Based?**
+- More accurate than character-based chunking
+- Respects natural language boundaries
+- Ensures chunks don't exceed model's token limit
+- Better semantic coherence within chunks
+- Prevents splitting mid-sentence
+
+**Legacy Character-Based Chunking**:
+Still available via the `useTokenChunking` parameter for backward compatibility, but not recommended.
 
 ### Vector Dimensions
 
@@ -187,13 +217,14 @@ node out/embeddings/example.js
 
 ## Future Enhancements
 
-- [ ] Token-based chunking using the model's tokenizer
 - [ ] Support for different file formats (PDF, Markdown, etc.)
 - [ ] Incremental updates (only process new/changed files)
 - [ ] Metadata filtering in search
 - [ ] Support for other embedding models
 - [ ] Batch embedding generation for better performance
 - [ ] Progress callbacks for long-running operations
+- [ ] Configurable sentence tokenizer abbreviations
+- [ ] Multi-language sentence tokenization support
 
 ## Comparison with Python Notebook
 
@@ -202,7 +233,9 @@ This implementation mirrors the Python RAG notebook with these differences:
 | Feature | Python Notebook | This Implementation |
 |---------|----------------|---------------------|
 | Embedding Model | sentence-transformers | Ollama embeddinggemma:300m |
-| Chunking | Token-based | Character-based |
+| Chunking | Token-based | ✅ Sentence-level token-based |
+| Sentence Splitting | Unknown | natural's SentenceTokenizer |
+| Token Counting | sentence-transformers | HuggingFace transformers |
 | Vector Store | sqlite-vec (Python) | sqlite-vec (Node.js) |
 | Language | Python | TypeScript |
 | LLM Integration | Ollama (Qwen) | Not yet implemented |
