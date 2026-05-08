@@ -9,3 +9,4 @@ server/out
 data/
 docs/
 embeddings.db
+.superpowers/
