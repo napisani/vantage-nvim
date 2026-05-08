@@ -9,9 +9,28 @@ local function eq(actual, expected)
 	assert(vim.deep_equal(actual, expected), "expected " .. vim.inspect(expected) .. " but got " .. vim.inspect(actual))
 end
 
+local function close_floating_windows()
+	for _, win in ipairs(vim.api.nvim_list_wins()) do
+		if vim.api.nvim_win_get_config(win).relative ~= "" then
+			pcall(vim.api.nvim_win_close, win, true)
+		end
+	end
+end
+
 local function fresh_buffer()
+	close_floating_windows()
 	vim.cmd("silent! %bwipeout!")
 	vim.cmd("enew!")
+	vim.api.nvim_win_set_cursor(0, { 1, 0 })
+end
+
+local function last_float_text()
+	local float_buf = require("learn.ui").last_float_buf()
+	if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
+		return nil
+	end
+
+	return table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
 end
 
 test("state stores and clears a lens", function()
@@ -155,7 +174,10 @@ test("toggle_annotations renders and clears extmarks", function()
 	})
 
 	commands.toggle_annotations()
-	assert(#annotations.current_marks(0) > 0, "expected annotation marks")
+	local marks = annotations.current_marks(0)
+	assert(#marks > 0, "expected annotation marks")
+	local virt_text = marks[1][4].virt_text
+	assert(virt_text and virt_text[1] and virt_text[1][1]:match("Fake annotation"), vim.inspect(marks))
 	commands.toggle_annotations()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
 end)
@@ -218,19 +240,112 @@ test("stdio backend opens a float through explain_current_line", function()
 
 		commands.explain_current_line()
 		vim.wait(2000, function()
-			local float_buf = require("learn.ui").last_float_buf()
-			if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
-				return false
-			end
-			local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
-			return text:match("Fake provider") ~= nil
+			local text = last_float_text()
+			return text and text:match("Fake provider") ~= nil
 		end)
 
-		local float_buf = require("learn.ui").last_float_buf()
-		assert(float_buf ~= nil, "expected stdio float buffer")
-		assert(vim.api.nvim_buf_is_valid(float_buf), "expected stdio float buffer to be valid")
-		local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
+		local text = last_float_text()
+		assert(text ~= nil, "expected stdio float buffer")
 		assert(text:match("Fake provider"), text)
+	end)
+
+	backend.stop()
+	assert(ok, err)
+end)
+
+test("stdio backend renders non-empty annotation virtual text", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+	local backend = require("learn.backend")
+
+	local ok, err = pcall(function()
+		backend.stop()
+		annotations.clear(0)
+		learn.setup({
+			backend = {
+				mode = "stdio",
+				command = { "node", "server/out/neovim/stdio-server.js" },
+			},
+		})
+
+		fresh_buffer()
+		vim.bo.filetype = "lua"
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+			"local a = 1",
+			"local b = a + 1",
+		})
+
+		commands.toggle_annotations()
+		vim.wait(2000, function()
+			local marks = annotations.current_marks(0)
+			if #marks == 0 or not marks[1][4] or not marks[1][4].virt_text then
+				return false
+			end
+			local text = marks[1][4].virt_text[1] and marks[1][4].virt_text[1][1]
+			return text and text:match("Fake provider annotation") ~= nil
+		end)
+
+		local marks = annotations.current_marks(0)
+		assert(#marks > 0, "expected stdio annotation marks")
+		local virt_text = marks[1][4].virt_text
+		assert(virt_text and virt_text[1] and virt_text[1][1]:match("Fake provider annotation"), vim.inspect(marks))
+	end)
+
+	annotations.clear(0)
+	backend.stop()
+	assert(ok, err)
+end)
+
+test("stdio backend error float shows readable message", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local backend = require("learn.backend")
+
+	local ok, err = pcall(function()
+		backend.stop()
+		learn.setup({
+			backend = {
+				mode = "stdio",
+				command = {
+					"node",
+					"-e",
+					[=[
+process.stdin.setEncoding('utf8');
+let pending = '';
+process.stdin.on('data', (chunk) => {
+  pending += chunk;
+  const lines = pending.split('\n');
+  pending = lines.pop() || '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: false,
+      error: { code: 'bad_request', message: 'Readable backend error' }
+    }));
+  }
+});
+]=],
+				},
+			},
+		})
+
+		fresh_buffer()
+		vim.bo.filetype = "lua"
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
+
+		commands.explain_current_line()
+		vim.wait(2000, function()
+			local text = last_float_text()
+			return text and text:match("Readable backend error") ~= nil
+		end)
+
+		local text = last_float_text()
+		assert(text ~= nil, "expected error float buffer")
+		assert(text:match("Readable backend error"), text)
+		assert(not text:match("table: 0x"), text)
 	end)
 
 	backend.stop()

@@ -36,8 +36,15 @@ export class FakeProvider {
 					endLine: baseLine + index,
 					endCharacter: line.length,
 				},
-				markdown: `Fake provider annotation for ${formatLanguage(params.language)}: ${line.trim()}`,
+				text: `Fake provider annotation for ${formatLanguage(params.language)}: ${line.trim()}`,
 				severity: 'info' as const,
+				detailMarkdown: [
+					'## Annotation detail',
+					'',
+					`Fake provider annotation for ${formatLanguage(params.language)}.`,
+					'',
+					`Line: \`${line.trim()}\``,
+				].join('\n'),
 			}));
 
 		return {

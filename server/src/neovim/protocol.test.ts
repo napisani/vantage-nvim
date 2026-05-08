@@ -35,3 +35,40 @@ test('parseBackendRequest rejects an unknown method', () => {
 		/unsupported method/
 	);
 });
+
+test('parseBackendRequest rejects negative cursor coordinates', () => {
+	assert.throws(
+		() =>
+			parseBackendRequest({
+				id: 'req-1',
+				method: 'explainSelection',
+				params: {
+					filePath: '/repo/example.ex',
+					language: 'elixir',
+					text: 'defmodule Example do\nend',
+					cursor: { line: -1, character: 0 },
+					selectedText: 'defmodule Example do\nend',
+				},
+			}),
+		/params.cursor.line must be a non-negative integer/
+	);
+});
+
+test('parseBackendRequest rejects floating range coordinates', () => {
+	assert.throws(
+		() =>
+			parseBackendRequest({
+				id: 'req-1',
+				method: 'annotateRange',
+				params: {
+					filePath: '/repo/example.ts',
+					language: 'typescript',
+					text: 'const value = 1;',
+					cursor: { line: 0, character: 0 },
+					visibleRange: { startLine: 1.5, startCharacter: 0, endLine: 1, endCharacter: 16 },
+					scopeText: 'const value = 1;',
+				},
+			}),
+		/params.visibleRange.startLine must be a non-negative integer/
+	);
+});

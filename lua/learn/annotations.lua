@@ -23,7 +23,7 @@ function M.render(bufnr, annotations)
 		end
 
 		vim.api.nvim_buf_set_extmark(bufnr, namespace, line, 0, {
-			virt_text = { { annotation.message or "", "Comment" } },
+			virt_text = { { annotation.text or "", "Comment" } },
 			virt_text_pos = "eol",
 		})
 	end
@@ -32,7 +32,7 @@ function M.render(bufnr, annotations)
 end
 
 function M.current_marks(bufnr)
-	return vim.api.nvim_buf_get_extmarks(bufnr or 0, namespace, 0, -1, {})
+	return vim.api.nvim_buf_get_extmarks(bufnr or 0, namespace, 0, -1, { details = true })
 end
 
 return M

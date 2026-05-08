@@ -61,8 +61,9 @@ export interface ExplanationResult {
 
 export interface Annotation {
 	range: Range;
-	markdown: string;
+	text: string;
 	severity: 'info' | 'warning';
+	detailMarkdown?: string;
 }
 
 export interface AnnotationResult {
@@ -169,8 +170,8 @@ function parseOptionalLens(value: unknown, label: string): Lens | undefined {
 function parsePosition(value: unknown, label: string): Position {
 	const record = asRecord(value, label);
 	return {
-		line: requireNumber(record.line, `${label}.line`),
-		character: requireNumber(record.character, `${label}.character`),
+		line: requireCoordinate(record.line, `${label}.line`),
+		character: requireCoordinate(record.character, `${label}.character`),
 	};
 }
 
@@ -181,10 +182,10 @@ function parseOptionalRange(value: unknown, label: string): Range | undefined {
 
 	const record = asRecord(value, label);
 	return {
-		startLine: requireNumber(record.startLine, `${label}.startLine`),
-		startCharacter: requireNumber(record.startCharacter, `${label}.startCharacter`),
-		endLine: requireNumber(record.endLine, `${label}.endLine`),
-		endCharacter: requireNumber(record.endCharacter, `${label}.endCharacter`),
+		startLine: requireCoordinate(record.startLine, `${label}.startLine`),
+		startCharacter: requireCoordinate(record.startCharacter, `${label}.startCharacter`),
+		endLine: requireCoordinate(record.endLine, `${label}.endLine`),
+		endCharacter: requireCoordinate(record.endCharacter, `${label}.endCharacter`),
 	};
 }
 
@@ -251,9 +252,9 @@ function parseOptionalString(value: unknown, label: string): string | undefined 
 	return requireString(value, label);
 }
 
-function requireNumber(value: unknown, label: string): number {
-	if (typeof value !== 'number' || !Number.isFinite(value)) {
-		throw new Error(`${label} must be a finite number`);
+function requireCoordinate(value: unknown, label: string): number {
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+		throw new Error(`${label} must be a non-negative integer`);
 	}
 
 	return value;

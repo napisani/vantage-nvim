@@ -9,7 +9,11 @@ local M = {}
 local function error_markdown(response)
 	local message = "Unknown backend error."
 	if response and response.error then
-		message = response.error
+		if type(response.error) == "table" and response.error.message then
+			message = response.error.message
+		else
+			message = response.error
+		end
 	end
 	return "## Error\n\n" .. tostring(message)
 end

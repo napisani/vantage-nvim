@@ -48,4 +48,6 @@ test('handleBackendRequest returns capped annotations', async () => {
 	assert.equal(response.result.kind, 'annotations');
 	assert.equal(response.result.annotations.length, 3);
 	assert.equal(response.result.annotations[0].range.startLine, 0);
+	assert.match(response.result.annotations[0].text, /Fake provider annotation/);
+	assert.match(response.result.annotations[0].detailMarkdown ?? '', /Annotation detail/);
 });

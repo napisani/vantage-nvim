@@ -49,7 +49,9 @@ local function fake_response(method, params)
 			kind = "annotations",
 			annotations = {
 				{
-					message = "Fake annotation.",
+					text = "Fake annotation.",
+					detailMarkdown = "## Annotation\n\nFake annotation detail.",
+					severity = "info",
 					range = {
 						startLine = start_line,
 						startCharacter = 0,
@@ -105,7 +107,11 @@ local function handle_stdout_line(line)
 	end
 end
 
-local function handle_stdout(_, data)
+local function handle_stdout(job, data)
+	if job_id ~= job then
+		return
+	end
+
 	if not data then
 		return
 	end
@@ -155,7 +161,11 @@ local function start_stdio()
 	local started = vim.fn.jobstart(command, {
 		stdout_buffered = false,
 		on_stdout = handle_stdout,
-		on_exit = function()
+		on_exit = function(job)
+			if job_id ~= job then
+				return
+			end
+
 			job_id = nil
 			pending = {}
 			stdout_buffer = ""
