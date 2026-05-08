@@ -110,24 +110,35 @@ local function handle_stdout(_, data)
 		return
 	end
 
-	for _, chunk in ipairs(data) do
-		if chunk == "" then
-			if stdout_buffer ~= "" then
-				handle_stdout_line(stdout_buffer)
-				stdout_buffer = ""
-			end
-		else
-			stdout_buffer = stdout_buffer .. chunk
-			while true do
-				local newline = stdout_buffer:find("\n", 1, true)
-				if not newline then
-					break
-				end
-				local line = stdout_buffer:sub(1, newline - 1)
-				stdout_buffer = stdout_buffer:sub(newline + 1)
-				handle_stdout_line(line)
-			end
+	local function flush_line()
+		if stdout_buffer ~= "" then
+			handle_stdout_line(stdout_buffer)
+			stdout_buffer = ""
 		end
+	end
+
+	local function append_chunk(chunk)
+		stdout_buffer = stdout_buffer .. chunk
+		while true do
+			local newline = stdout_buffer:find("\n", 1, true)
+			if not newline then
+				break
+			end
+			local line = stdout_buffer:sub(1, newline - 1)
+			stdout_buffer = stdout_buffer:sub(newline + 1)
+			handle_stdout_line(line)
+		end
+	end
+
+	for index, chunk in ipairs(data) do
+		if index > 1 then
+			flush_line()
+		end
+		append_chunk(chunk)
+	end
+
+	if data[#data] == "" then
+		flush_line()
 	end
 end
 

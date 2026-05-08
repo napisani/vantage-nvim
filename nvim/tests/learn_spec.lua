@@ -160,32 +160,37 @@ test("toggle_annotations renders and clears extmarks", function()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
 end)
 
-test("stdio backend handles line-split stdout callbacks", function()
+test("stdio backend handles multiple line-split stdout callbacks", function()
 	local learn = require("learn")
 	local backend = require("learn.backend")
-	local response = nil
+	local responses = {}
 	learn.setup({
 		backend = {
 			mode = "stdio",
 			command = {
 				"sh",
 				"-c",
-				[[printf '%s\n' '{"id":"1","ok":true,"result":{"kind":"explanation","markdown":"ok"}}']],
+				[[printf '%s\n%s\n' '{"id":"1","ok":true,"result":{"kind":"explanation","markdown":"one"}}' '{"id":"2","ok":true,"result":{"kind":"explanation","markdown":"two"}}']],
 			},
 		},
 	})
 
 	backend.request("explainSelection", {}, function(result)
-		response = result
+		responses[result.id] = result
+	end)
+	backend.request("explainSelection", {}, function(result)
+		responses[result.id] = result
 	end)
 
 	vim.wait(1000, function()
-		return response ~= nil
+		return responses["1"] ~= nil and responses["2"] ~= nil
 	end)
 	backend.stop()
 
-	assert(response ~= nil, "expected stdio callback to fire")
-	eq(response.result, { kind = "explanation", markdown = "ok" })
+	assert(responses["1"] ~= nil, "expected first stdio callback to fire")
+	assert(responses["2"] ~= nil, "expected second stdio callback to fire")
+	eq(responses["1"].result, { kind = "explanation", markdown = "one" })
+	eq(responses["2"].result, { kind = "explanation", markdown = "two" })
 end)
 
 function M.run()
