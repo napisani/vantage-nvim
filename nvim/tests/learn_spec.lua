@@ -123,6 +123,43 @@ test("selection normalizes reversed multi-line marks", function()
 	})
 end)
 
+test("explain_current_line opens a markdown float", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	learn.setup({ backend = { mode = "fake" } })
+	learn.set_lens("learning", "I am learning Lua syntax")
+
+	fresh_buffer()
+	vim.bo.filetype = "lua"
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
+
+	commands.explain_current_line()
+	local float_buf = require("learn.ui").last_float_buf()
+	assert(float_buf ~= nil, "expected a float buffer")
+	local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
+	assert(text:match("Explanation"), text)
+	assert(text:match("Lua"), text)
+end)
+
+test("toggle_annotations renders and clears extmarks", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+	learn.setup({ backend = { mode = "fake" } })
+
+	fresh_buffer()
+	vim.bo.filetype = "lua"
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+		"local a = 1",
+		"local b = a + 1",
+	})
+
+	commands.toggle_annotations()
+	assert(#annotations.current_marks(0) > 0, "expected annotation marks")
+	commands.toggle_annotations()
+	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
+end)
+
 function M.run()
 	local failures = {}
 	for _, item in ipairs(tests) do
