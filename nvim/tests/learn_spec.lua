@@ -193,6 +193,50 @@ test("stdio backend handles multiple line-split stdout callbacks", function()
 	eq(responses["2"].result, { kind = "explanation", markdown = "two" })
 end)
 
+test("stdio backend opens a float through explain_current_line", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local backend = require("learn.backend")
+
+	local ok, err = pcall(function()
+		backend.stop()
+		vim.wait(100, function()
+			return false
+		end)
+
+		learn.setup({
+			backend = {
+				mode = "stdio",
+				command = { "node", "server/out/neovim/stdio-server.js" },
+			},
+		})
+		learn.set_lens("learning", "I am learning Lua syntax")
+
+		fresh_buffer()
+		vim.bo.filetype = "lua"
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
+
+		commands.explain_current_line()
+		vim.wait(2000, function()
+			local float_buf = require("learn.ui").last_float_buf()
+			if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
+				return false
+			end
+			local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
+			return text:match("Fake provider") ~= nil
+		end)
+
+		local float_buf = require("learn.ui").last_float_buf()
+		assert(float_buf ~= nil, "expected stdio float buffer")
+		assert(vim.api.nvim_buf_is_valid(float_buf), "expected stdio float buffer to be valid")
+		local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
+		assert(text:match("Fake provider"), text)
+	end)
+
+	backend.stop()
+	assert(ok, err)
+end)
+
 function M.run()
 	local failures = {}
 	for _, item in ipairs(tests) do
@@ -202,11 +246,12 @@ function M.run()
 		end
 	end
 
+	vim.cmd("silent! bufdo setlocal nomodified")
+
 	if #failures > 0 then
 		error(table.concat(failures, "\n"))
 	end
 
-	vim.cmd("silent! bufdo setlocal nomodified")
 	print("learn.nvim tests passed: " .. tostring(#tests))
 end
 
