@@ -160,6 +160,34 @@ test("toggle_annotations renders and clears extmarks", function()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
 end)
 
+test("stdio backend handles line-split stdout callbacks", function()
+	local learn = require("learn")
+	local backend = require("learn.backend")
+	local response = nil
+	learn.setup({
+		backend = {
+			mode = "stdio",
+			command = {
+				"sh",
+				"-c",
+				[[printf '%s\n' '{"id":"1","ok":true,"result":{"kind":"explanation","markdown":"ok"}}']],
+			},
+		},
+	})
+
+	backend.request("explainSelection", {}, function(result)
+		response = result
+	end)
+
+	vim.wait(1000, function()
+		return response ~= nil
+	end)
+	backend.stop()
+
+	assert(response ~= nil, "expected stdio callback to fire")
+	eq(response.result, { kind = "explanation", markdown = "ok" })
+end)
+
 function M.run()
 	local failures = {}
 	for _, item in ipairs(tests) do

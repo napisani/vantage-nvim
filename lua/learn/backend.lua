@@ -111,7 +111,12 @@ local function handle_stdout(_, data)
 	end
 
 	for _, chunk in ipairs(data) do
-		if chunk ~= "" then
+		if chunk == "" then
+			if stdout_buffer ~= "" then
+				handle_stdout_line(stdout_buffer)
+				stdout_buffer = ""
+			end
+		else
 			stdout_buffer = stdout_buffer .. chunk
 			while true do
 				local newline = stdout_buffer:find("\n", 1, true)
