@@ -16,12 +16,45 @@ local function range_for_lines(start_line, end_line, lines)
 	}
 end
 
-local function normalize_range(start_line, start_character, end_line, end_character)
-	if start_line > end_line or (start_line == end_line and start_character > end_character) then
-		return end_line, end_character, start_line, start_character
+local function utf8_char_end(line, start_character)
+	local first_byte = string.byte(line, start_character + 1)
+	if first_byte == nil then
+		return start_character
 	end
 
-	return start_line, start_character, end_line, end_character
+	local length = 1
+	if first_byte >= 0xF0 then
+		length = 4
+	elseif first_byte >= 0xE0 then
+		length = 3
+	elseif first_byte >= 0xC0 then
+		length = 2
+	end
+
+	return math.min(start_character + length, #line)
+end
+
+local function mark_range(mark)
+	local line = mark[2] - 1
+	local start_character = mark[3] - 1
+	local line_text = vim.api.nvim_buf_get_lines(0, line, line + 1, false)[1] or ""
+
+	return {
+		line = line,
+		startCharacter = start_character,
+		endCharacter = utf8_char_end(line_text, start_character),
+	}
+end
+
+local function normalize_range(start_mark, end_mark)
+	if
+		start_mark.line > end_mark.line
+		or (start_mark.line == end_mark.line and start_mark.startCharacter > end_mark.startCharacter)
+	then
+		return end_mark.line, end_mark.startCharacter, start_mark.line, start_mark.endCharacter
+	end
+
+	return start_mark.line, start_mark.startCharacter, end_mark.line, end_mark.endCharacter
 end
 
 local function selected_text(lines, start_character, end_character)
@@ -54,15 +87,9 @@ function M.visible()
 end
 
 function M.selection()
-	local start_pos = vim.fn.getpos("'<")
-	local end_pos = vim.fn.getpos("'>")
-	local start_line = start_pos[2] - 1
-	local end_line = end_pos[2] - 1
-	local start_character = start_pos[3] - 1
-	local end_character = end_pos[3]
-
-	start_line, start_character, end_line, end_character =
-		normalize_range(start_line, start_character, end_line, end_character)
+	local start_mark = mark_range(vim.fn.getpos("'<"))
+	local end_mark = mark_range(vim.fn.getpos("'>"))
+	local start_line, start_character, end_line, end_character = normalize_range(start_mark, end_mark)
 
 	local lines = vim.api.nvim_buf_get_lines(0, start_line, end_line + 1, false)
 	local visible = M.visible()

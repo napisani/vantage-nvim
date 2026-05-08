@@ -78,6 +78,28 @@ test("selection captures only selected text within a line", function()
 	})
 end)
 
+test("selection includes the full final multibyte character", function()
+	local learn = require("learn")
+	local context = require("learn.context")
+	learn.setup({ backend = { mode = "fake" } })
+
+	fresh_buffer()
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+		"drink café today",
+	})
+	vim.fn.setpos("'<", { 0, 1, 7, 0 })
+	vim.fn.setpos("'>", { 0, 1, 10, 0 })
+
+	local captured = context.selection()
+	eq(captured.selectedText, "café")
+	eq(captured.range, {
+		startLine = 0,
+		startCharacter = 6,
+		endLine = 0,
+		endCharacter = 11,
+	})
+end)
+
 test("selection normalizes reversed multi-line marks", function()
 	local learn = require("learn")
 	local context = require("learn.context")
