@@ -16,13 +16,35 @@ local function range_for_lines(start_line, end_line, lines)
 	}
 end
 
+local function normalize_range(start_line, start_character, end_line, end_character)
+	if start_line > end_line or (start_line == end_line and start_character > end_character) then
+		return end_line, end_character, start_line, start_character
+	end
+
+	return start_line, start_character, end_line, end_character
+end
+
+local function selected_text(lines, start_character, end_character)
+	if #lines == 0 then
+		return ""
+	end
+
+	if #lines == 1 then
+		return string.sub(lines[1], start_character + 1, end_character)
+	end
+
+	lines[1] = string.sub(lines[1], start_character + 1)
+	lines[#lines] = string.sub(lines[#lines], 1, end_character)
+	return table.concat(lines, "\n")
+end
+
 function M.visible()
 	local start_line = vim.fn.line("w0") - 1
 	local end_line = vim.fn.line("w$") - 1
 	local lines = vim.api.nvim_buf_get_lines(0, start_line, end_line + 1, false)
 
 	return {
-		filePath = vim.fn.bufname(0),
+		filePath = vim.api.nvim_buf_get_name(0),
 		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
 		text = table.concat(lines, "\n"),
 		cursor = cursor(),
@@ -36,12 +58,22 @@ function M.selection()
 	local end_pos = vim.fn.getpos("'>")
 	local start_line = start_pos[2] - 1
 	local end_line = end_pos[2] - 1
+	local start_character = start_pos[3] - 1
+	local end_character = end_pos[3]
+
+	start_line, start_character, end_line, end_character =
+		normalize_range(start_line, start_character, end_line, end_character)
+
 	local lines = vim.api.nvim_buf_get_lines(0, start_line, end_line + 1, false)
-	local selected = table.concat(lines, "\n")
 	local visible = M.visible()
 
-	visible.range = range_for_lines(start_line, end_line, lines)
-	visible.selectedText = selected
+	visible.range = {
+		startLine = start_line,
+		startCharacter = start_character,
+		endLine = end_line,
+		endCharacter = end_character,
+	}
+	visible.selectedText = selected_text(lines, start_character, end_character)
 	return visible
 end
 

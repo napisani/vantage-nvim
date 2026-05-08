@@ -9,6 +9,11 @@ local function eq(actual, expected)
 	assert(vim.deep_equal(actual, expected), "expected " .. vim.inspect(expected) .. " but got " .. vim.inspect(actual))
 end
 
+local function fresh_buffer()
+	vim.cmd("silent! %bwipeout!")
+	vim.cmd("enew!")
+end
+
 test("state stores and clears a lens", function()
 	local learn = require("learn")
 	learn.setup({ backend = { mode = "fake" } })
@@ -23,9 +28,9 @@ test("context captures visible buffer text", function()
 	local context = require("learn.context")
 	learn.setup({ backend = { mode = "fake" } })
 
-	vim.cmd("enew")
+	fresh_buffer()
 	vim.bo.filetype = "lua"
-	vim.api.nvim_buf_set_name(0, "/tmp/learn-context.lua")
+	vim.api.nvim_buf_set_name(0, vim.fn.getcwd() .. "/nvim/tests/learn-context.lua")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
 		"local x = 1",
 		"local y = x + 1",
@@ -34,9 +39,66 @@ test("context captures visible buffer text", function()
 
 	local captured = context.visible()
 	eq(captured.language, "lua")
-	eq(captured.filePath, "/tmp/learn-context.lua")
+	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/learn-context.lua")
 	eq(captured.text, "local x = 1\nlocal y = x + 1\nreturn y")
 	eq(captured.visibleRange.startLine, 0)
+end)
+
+test("context uses absolute file path for relative buffer name", function()
+	local learn = require("learn")
+	local context = require("learn.context")
+	learn.setup({ backend = { mode = "fake" } })
+
+	fresh_buffer()
+	vim.api.nvim_buf_set_name(0, "nvim/tests/relative-context.lua")
+
+	local captured = context.visible()
+	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/relative-context.lua")
+end)
+
+test("selection captures only selected text within a line", function()
+	local learn = require("learn")
+	local context = require("learn.context")
+	learn.setup({ backend = { mode = "fake" } })
+
+	fresh_buffer()
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+		"local value = compute_result()",
+	})
+	vim.fn.setpos("'<", { 0, 1, 7, 0 })
+	vim.fn.setpos("'>", { 0, 1, 11, 0 })
+
+	local captured = context.selection()
+	eq(captured.selectedText, "value")
+	eq(captured.range, {
+		startLine = 0,
+		startCharacter = 6,
+		endLine = 0,
+		endCharacter = 11,
+	})
+end)
+
+test("selection normalizes reversed multi-line marks", function()
+	local learn = require("learn")
+	local context = require("learn.context")
+	learn.setup({ backend = { mode = "fake" } })
+
+	fresh_buffer()
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+		"abcDEFG",
+		"HIJKLmn",
+	})
+	vim.fn.setpos("'<", { 0, 2, 5, 0 })
+	vim.fn.setpos("'>", { 0, 1, 4, 0 })
+
+	local captured = context.selection()
+	eq(captured.selectedText, "DEFG\nHIJKL")
+	eq(captured.range, {
+		startLine = 0,
+		startCharacter = 3,
+		endLine = 1,
+		endCharacter = 5,
+	})
 end)
 
 function M.run()
