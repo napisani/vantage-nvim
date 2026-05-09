@@ -24,7 +24,7 @@ npm install
 Run the MVP tests:
 
 ```bash
-npm run test:mvp
+make test
 ```
 
 Run backend tests only:
@@ -47,7 +47,19 @@ Compile the backend:
 npm run compile
 ```
 
-Open this repo in Neovim with the repo root on `runtimepath`, then run:
+Open Neovim with only the repo-local development config:
+
+```bash
+make run
+```
+
+Open a specific file:
+
+```bash
+make run FILE=path/to/file.lua
+```
+
+Then run:
 
 ```vim
 :LearnSetLens learning I am learning Lua syntax
