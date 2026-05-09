@@ -1,6 +1,6 @@
 {
-  "name": "learn-lsp",
-  "description": "An LSP for help learn new concepts, libraries, frameworks, and languages using AI assistance.",
+  "name": "learn.nvim",
+  "description": "A Neovim-first AI review and learning assistant with a local TypeScript backend.",
   "author": "Nick Pisani",
   "license": "MIT",
   "version": "0.0.1",
@@ -8,40 +8,28 @@
     "type": "git",
     "url": "https://github.com/napisani/learn-lsp"
   },
-  "publisher": "napisani",
-  "categories": [],
+  "private": true,
   "keywords": [
-    "learn assistance LSP AI"
+    "neovim",
+    "ai",
+    "code-review",
+    "learning"
   ],
-  "engines": {
-    "vscode": "^1.100.0"
-  },
-  "activationEvents": [
-    "onLanguage"
-  ],
-  "main": "./client/out/extension",
-  "contributes": {
-    "configuration": {}
-  },
   "scripts": {
-    "vscode:prepublish": "npm run compile",
-    "compile": "tsc -b",
-    "watch": "tsc -b -w",
-    "lint": "eslint",
-    "postinstall": "cd client && npm install && cd ../server && npm install && cd ..",
-    "test": "sh ./scripts/e2e.sh",
-    "dev": "nodemon --watch server/src --watch client/src --exec \"npm run compile\"",
-    "test:backend": "npm run compile --prefix server && node --test server/out/neovim/*.test.js",
+    "compile": "tsc -b server",
+    "watch": "tsc -b server -w",
+    "lint": "eslint \"server/src/neovim/**/*.ts\"",
+    "test": "npm run test:mvp",
+    "dev": "nodemon --watch server/src --exec \"npm run compile\"",
+    "test:backend": "npm run compile && node --test server/out/neovim/*.test.js",
     "test:nvim": "nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('learn_spec').run()\" -c qa",
     "test:mvp": "npm run test:backend && npm run test:nvim"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
     "@stylistic/eslint-plugin": "^2.9.0",
-    "@types/mocha": "^10.0.6",
     "@types/node": "^22",
     "eslint": "^9.13.0",
-    "mocha": "^10.3.0",
     "nodemon": "^3.1.11",
     "typescript": "^5.9.2",
     "typescript-eslint": "^8.39.0"

@@ -1,8 +1,8 @@
-# Learn LSP
+# learn.nvim
 
 This project is being reworked into a Neovim-first AI review and learning tool.
 
-The v1 architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and provider behavior. The current implementation uses a deterministic fake provider so the developer experience can be tuned before real model integrations are added.
+The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and provider behavior. The current implementation uses a deterministic fake provider so the developer experience can be tuned before real model integrations are added.
 
 ## Commands
 
@@ -44,7 +44,7 @@ npm run test:nvim
 Compile the backend:
 
 ```bash
-npm run compile --prefix server
+npm run compile
 ```
 
 Open this repo in Neovim with the repo root on `runtimepath`, then run:

@@ -11,8 +11,10 @@ import stylistic from '@stylistic/eslint-plugin';
 export default tseslint.config(
 	{
 		ignores: [
-			'**/.vscode-test',
+			'**/node_modules',
 			'**/out',
+			'.superpowers',
+			'.worktrees',
 		]
 	},
 	js.configs.recommended,

@@ -1,13 +1,7 @@
 out
 node_modules/
-.vscode-test
-
-client/node_modules
-client/out
 server/node_modules
 server/out
-data/
-docs/
-embeddings.db
+*.tsbuildinfo
 .superpowers/
 .worktrees/
