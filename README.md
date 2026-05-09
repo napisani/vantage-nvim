@@ -53,6 +53,8 @@ Open Neovim with only the repo-local development config:
 make run
 ```
 
+The repo-local development config uses the in-process fake provider by default so command plumbing is visible without starting a model or backend process.
+
 Open a specific file:
 
 ```bash

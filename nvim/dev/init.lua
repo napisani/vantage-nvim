@@ -14,7 +14,6 @@ vim.g.loaded_learn_nvim = true
 
 require("learn").setup({
 	backend = {
-		mode = "stdio",
-		command = { "node", root .. "/server/out/neovim/stdio-server.js" },
+		mode = "fake",
 	},
 })
