@@ -1,6 +1,7 @@
 import * as test from 'node:test';
 import * as assert from 'node:assert/strict';
 import { handleBackendRequest } from './handlers';
+import type { BackendProvider } from './provider';
 
 test('handleBackendRequest returns a fake explanation', async () => {
 	const response = await handleBackendRequest({
@@ -50,4 +51,35 @@ test('handleBackendRequest returns capped annotations', async () => {
 	assert.equal(response.result.annotations[0].range.startLine, 0);
 	assert.match(response.result.annotations[0].text, /Fake provider annotation/);
 	assert.match(response.result.annotations[0].detailMarkdown ?? '', /Annotation detail/);
+});
+
+test('handleBackendRequest can use an injected provider', async () => {
+	const provider: BackendProvider = {
+		explainSelection: () => ({ kind: 'explanation', markdown: 'Injected explanation' }),
+		annotateRange: () => ({ kind: 'annotations', annotations: [] }),
+		reviewCurrentHunk: () => ({ kind: 'review', markdown: 'Injected review', findings: [] }),
+	};
+
+	const response = await handleBackendRequest(
+		{
+			id: 'req-injected',
+			method: 'explainSelection',
+			params: {
+				filePath: '/repo/example.ts',
+				language: 'typescript',
+				text: 'const value = 1;',
+				cursor: { line: 0, character: 0 },
+				selectedText: 'const value = 1;',
+			},
+		},
+		provider
+	);
+
+	assert.equal(response.id, 'req-injected');
+	assert.ok(response.ok);
+	if (!response.ok) {
+		assert.fail('expected successful response');
+	}
+	assert.equal(response.result.kind, 'explanation');
+	assert.equal(response.result.markdown, 'Injected explanation');
 });

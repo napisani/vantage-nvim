@@ -6,8 +6,9 @@ import {
 	ReviewCurrentHunkParams,
 	ReviewResult,
 } from './protocol';
+import type { BackendProvider } from './provider';
 
-export class FakeProvider {
+export class FakeProvider implements BackendProvider {
 	explainSelection(params: ExplainSelectionParams): ExplanationResult {
 		return {
 			kind: 'explanation',
