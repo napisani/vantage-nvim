@@ -29,11 +29,20 @@ test('createProviderFromEnv passes Codex command and model overrides', () => {
 		LEARN_PROVIDER: 'codex',
 		LEARN_CODEX_COMMAND: '/custom/codex',
 		LEARN_CODEX_MODEL: 'gpt-5.4-mini-test',
+		LEARN_CODEX_TIMEOUT_MS: '900000',
 	});
 
 	assert.ok(provider instanceof CodexProvider);
 	assert.equal(provider.model, 'gpt-5.4-mini-test');
 	assert.equal(provider.command, '/custom/codex');
+	assert.equal(provider.timeoutMs, 900_000);
+});
+
+test('createProviderFromEnv rejects invalid Codex timeout overrides', () => {
+	assert.throws(
+		() => createProviderFromEnv({ LEARN_PROVIDER: 'codex', LEARN_CODEX_TIMEOUT_MS: 'nope' }),
+		/LEARN_CODEX_TIMEOUT_MS must be a positive integer/
+	);
 });
 
 test('createProviderFromEnv rejects unknown providers', () => {

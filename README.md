@@ -61,7 +61,11 @@ Open Neovim with the Codex CLI provider:
 make run-codex
 ```
 
-`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini`; override it with `CODEX_MODEL=...` when needed.
+`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini` and a five-minute request timeout. Override them when needed:
+
+```bash
+make run-codex CODEX_MODEL=gpt-5.4-mini CODEX_TIMEOUT_MS=600000
+```
 
 Open a specific file:
 

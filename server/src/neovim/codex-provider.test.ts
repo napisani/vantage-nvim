@@ -176,3 +176,9 @@ test('CodexProvider reports non-zero Codex exits', async () => {
 		await stub.cleanup();
 	}
 });
+
+test('CodexProvider exposes a five-minute default timeout', () => {
+	const provider = new CodexProvider();
+
+	assert.equal(provider.timeoutMs, 300_000);
+});

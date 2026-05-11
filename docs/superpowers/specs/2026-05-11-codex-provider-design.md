@@ -20,6 +20,7 @@ Codex provider configuration:
 
 - `LEARN_CODEX_COMMAND`: command to run, default `codex`.
 - `LEARN_CODEX_MODEL`: model to pass to `codex exec`, default `gpt-5.4-mini`.
+- `LEARN_CODEX_TIMEOUT_MS`: request timeout in milliseconds, default `300000`.
 
 `gpt-5.4-mini` is the default because OpenAI's current model docs describe it as the strongest mini model for coding-oriented lower-latency workloads. `codex-mini-latest` is Codex-CLI-optimized, but the requested default was the latest GPT mini model.
 

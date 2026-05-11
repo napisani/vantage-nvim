@@ -24,14 +24,14 @@ export interface CodexProviderOptions {
 export class CodexProvider implements BackendProvider {
 	readonly command: string;
 	readonly model: string;
+	readonly timeoutMs: number;
 	private readonly env: NodeJS.ProcessEnv;
-	private readonly timeoutMs: number;
 
 	constructor(options: CodexProviderOptions = {}) {
 		this.command = options.command ?? 'codex';
 		this.model = options.model ?? 'gpt-5.4-mini';
 		this.env = { ...process.env, ...(options.env ?? {}) };
-		this.timeoutMs = options.timeoutMs ?? 120_000;
+		this.timeoutMs = options.timeoutMs ?? 300_000;
 	}
 
 	async explainSelection(params: ExplainSelectionParams): Promise<ExplanationResult> {
