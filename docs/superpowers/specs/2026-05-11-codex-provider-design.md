@@ -31,7 +31,6 @@ Each backend request invokes:
 codex exec \
   --model gpt-5.4-mini \
   --sandbox read-only \
-  --ask-for-approval never \
   --ephemeral \
   --ignore-rules \
   --skip-git-repo-check \

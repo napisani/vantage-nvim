@@ -66,6 +66,7 @@ test('CodexProvider explainSelection returns final Codex message markdown', asyn
 		assert.equal(result.kind, 'explanation');
 		assert.equal(result.markdown, '## Codex explanation\n\nThis is real model text.');
 		assert.deepEqual(capture.argv.slice(0, 3), ['exec', '--model', 'gpt-5.4-mini-test']);
+		assert.equal(capture.argv.includes('--ask-for-approval'), false, capture.argv.join(' '));
 		assert.ok(capture.argv.includes('--ephemeral'), capture.argv.join(' '));
 		assert.ok(capture.argv.includes('--skip-git-repo-check'), capture.argv.join(' '));
 		assert.match(capture.stdin, /explain the selected code/i);

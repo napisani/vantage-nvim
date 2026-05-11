@@ -68,8 +68,6 @@ export class CodexProvider implements BackendProvider {
 			this.model,
 			'--sandbox',
 			'read-only',
-			'--ask-for-approval',
-			'never',
 			'--ephemeral',
 			'--ignore-rules',
 			'--skip-git-repo-check',
