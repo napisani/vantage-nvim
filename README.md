@@ -55,6 +55,14 @@ make run
 
 The repo-local development config uses the in-process fake provider by default so command plumbing is visible without starting a model or backend process.
 
+Open Neovim with the Codex CLI provider:
+
+```bash
+make run-codex
+```
+
+`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini`; override it with `CODEX_MODEL=...` when needed.
+
 Open a specific file:
 
 ```bash

@@ -12,8 +12,17 @@ vim.opt.updatecount = 0
 
 vim.g.loaded_learn_nvim = true
 
-require("learn").setup({
+local backend = {
+	mode = "fake",
+}
+
+if vim.env.LEARN_DEV_PROVIDER == "codex" then
 	backend = {
-		mode = "fake",
-	},
+		mode = "stdio",
+		command = { "node", root .. "/server/out/neovim/stdio-server.js" },
+	}
+end
+
+require("learn").setup({
+	backend = backend,
 })
