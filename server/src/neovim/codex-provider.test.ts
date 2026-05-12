@@ -65,10 +65,16 @@ test('CodexProvider explainSelection returns final Codex message markdown', asyn
 
 		assert.equal(result.kind, 'explanation');
 		assert.equal(result.markdown, '## Codex explanation\n\nThis is real model text.');
-		assert.deepEqual(capture.argv.slice(0, 3), ['exec', '--model', 'gpt-5.4-mini-test']);
+		assert.equal(capture.argv[0], 'exec');
+		const modelIndex = capture.argv.indexOf('--model');
+		assert.equal(capture.argv[modelIndex + 1], 'gpt-5.4-mini-test');
 		assert.equal(capture.argv.includes('--ask-for-approval'), false, capture.argv.join(' '));
 		assert.ok(capture.argv.includes('--ephemeral'), capture.argv.join(' '));
+		assert.ok(capture.argv.includes('--ignore-user-config'), capture.argv.join(' '));
 		assert.ok(capture.argv.includes('--skip-git-repo-check'), capture.argv.join(' '));
+		const cdIndex = capture.argv.indexOf('-C');
+		assert.notEqual(cdIndex, -1, capture.argv.join(' '));
+		assert.match(capture.argv[cdIndex + 1], /learn-codex-/);
 		assert.match(capture.stdin, /explain the selected code/i);
 		assert.match(capture.stdin, /const value = 1;/);
 	} finally {
@@ -86,7 +92,7 @@ test('CodexProvider annotateRange parses strict annotation JSON', async () => {
 				LEARN_CODEX_OUTPUT: JSON.stringify({
 					annotations: [
 						{
-							range: { startLine: 4, startCharacter: 0, endLine: 4, endCharacter: 16 },
+							line: 0,
 							text: 'Codex annotation',
 							severity: 'warning',
 							detailMarkdown: '## Detail\n\nCodex detail.',
@@ -103,6 +109,7 @@ test('CodexProvider annotateRange parses strict annotation JSON', async () => {
 			cursor: { line: 4, character: 0 },
 			visibleRange: { startLine: 4, startCharacter: 0, endLine: 4, endCharacter: 16 },
 			scopeText: 'const value = 1;',
+			candidateLines: [{ line: 0, text: 'const value = 1;' }],
 		});
 		const capture = await readCapture(stub.capturePath);
 
@@ -117,8 +124,99 @@ test('CodexProvider annotateRange parses strict annotation JSON', async () => {
 		]);
 		assert.match(capture.stdin, /Return only JSON/i);
 		assert.match(capture.stdin, /annotations/);
+		assert.match(capture.stdin, /Candidate lines to annotate/i);
 	} finally {
 		await stub.cleanup();
+	}
+});
+
+test('CodexProvider converts candidate annotation lines to file lines', async () => {
+	const stub = await createCodexStub();
+	try {
+		const provider = new CodexProvider({
+			command: stub.command,
+			env: {
+				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
+				LEARN_CODEX_OUTPUT: JSON.stringify({
+					annotations: [
+						{
+							line: 1,
+							text: 'Visible snippet annotation',
+							severity: 'info',
+						},
+					],
+				}),
+			},
+		});
+
+		const result = await provider.annotateRange({
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const first = 1;\nconst second = first + 1;',
+			cursor: { line: 40, character: 0 },
+			visibleRange: { startLine: 40, startCharacter: 0, endLine: 41, endCharacter: 25 },
+			scopeText: 'const first = 1;\nconst second = first + 1;',
+			candidateLines: [
+				{ line: 0, text: 'const first = 1;' },
+				{ line: 1, text: 'const second = first + 1;' },
+			],
+		});
+		const capture = await readCapture(stub.capturePath);
+
+		assert.deepEqual(result.annotations[0].range, {
+			startLine: 41,
+			startCharacter: 0,
+			endLine: 41,
+			endCharacter: 25,
+		});
+		assert.match(capture.stdin, /Candidate lines to annotate/i);
+		assert.match(capture.stdin, /0\| const first = 1;/);
+	} finally {
+		await stub.cleanup();
+	}
+});
+
+test('CodexProvider writes prompt and raw response traces when configured', async () => {
+	const stub = await createCodexStub();
+	const traceDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-codex-trace-'));
+	const tracePromptPath = path.join(traceDirectory, 'prompt.txt');
+	const traceResponsePath = path.join(traceDirectory, 'response.txt');
+	try {
+		const rawResponse = JSON.stringify({
+			annotations: [
+				{
+					range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+					text: 'Trace annotation',
+					severity: 'info',
+				},
+			],
+		});
+		const provider = new CodexProvider({
+			command: stub.command,
+			tracePromptPath,
+			traceResponsePath,
+			env: {
+				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
+				LEARN_CODEX_OUTPUT: rawResponse,
+			},
+		});
+
+		await provider.annotateRange({
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			scopeText: 'const value = 1;',
+		});
+
+		const prompt = await fs.readFile(tracePromptPath, 'utf8');
+		const response = await fs.readFile(traceResponsePath, 'utf8');
+		assert.match(prompt, /Return only JSON/i);
+		assert.match(prompt, /const value = 1;/);
+		assert.equal(response, rawResponse);
+	} finally {
+		await stub.cleanup();
+		await fs.rm(traceDirectory, { recursive: true, force: true });
 	}
 });
 
@@ -181,4 +279,10 @@ test('CodexProvider exposes a five-minute default timeout', () => {
 	const provider = new CodexProvider();
 
 	assert.equal(provider.timeoutMs, 300_000);
+});
+
+test('CodexProvider exposes a shorter annotation timeout', () => {
+	const provider = new CodexProvider();
+
+	assert.equal(provider.annotationTimeoutMs, 30_000);
 });

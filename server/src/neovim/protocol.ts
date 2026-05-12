@@ -17,6 +17,11 @@ export interface Range {
 	endCharacter: number;
 }
 
+export interface AnnotationCandidateLine {
+	line: number;
+	text: string;
+}
+
 export interface GitContext {
 	branch?: string;
 	repositoryRoot?: string;
@@ -41,6 +46,7 @@ export interface AnnotateRangeParams extends BaseRequestParams {
 	visibleRange?: Range;
 	range?: Range;
 	scopeText: string;
+	candidateLines?: AnnotationCandidateLine[];
 }
 
 export interface ReviewCurrentHunkParams extends BaseRequestParams {
@@ -69,6 +75,18 @@ export interface Annotation {
 export interface AnnotationResult {
 	kind: 'annotations';
 	annotations: Annotation[];
+	telemetry?: ProviderTelemetry;
+}
+
+export interface ProviderTelemetry {
+	provider: string;
+	model?: string;
+	promptChars?: number;
+	promptLines?: number;
+	elapsedMs?: number;
+	totalDurationMs?: number;
+	promptEvalCount?: number;
+	evalCount?: number;
 }
 
 export interface ReviewFinding {
@@ -117,6 +135,7 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 					visibleRange: parseOptionalRange(params.visibleRange, 'params.visibleRange'),
 					range: parseOptionalRange(params.range, 'params.range'),
 					scopeText: requireString(params.scopeText, 'params.scopeText'),
+					candidateLines: parseOptionalCandidateLines(params.candidateLines, 'params.candidateLines'),
 				},
 			};
 		case 'reviewCurrentHunk':
@@ -129,6 +148,24 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 				},
 			};
 	}
+}
+
+function parseOptionalCandidateLines(value: unknown, label: string): AnnotationCandidateLine[] | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (!Array.isArray(value)) {
+		throw new Error(`${label} must be an array`);
+	}
+
+	return value.map((item, index) => {
+		const record = asRecord(item, `${label}[${index}]`);
+		return {
+			line: requireCoordinate(record.line, `${label}[${index}].line`),
+			text: requireString(record.text, `${label}[${index}].text`),
+		};
+	});
 }
 
 function parseBaseRequestParams(params: UnknownRecord): BaseRequestParams {

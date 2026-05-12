@@ -4,27 +4,54 @@ import * as os from 'node:os';
 import * as path from 'node:path';
 import type {
 	AnnotateRangeParams,
-	Annotation,
 	AnnotationResult,
 	ExplainSelectionParams,
 	ExplanationResult,
-	Range,
 	ReviewCurrentHunkParams,
 	ReviewResult,
 } from './protocol';
-import type { BackendProvider } from './provider';
+import type { BackendProvider, ProviderRequestContext } from './provider';
+import {
+	annotationLineOffset,
+	buildAnnotationPrompt,
+	buildExplainPrompt,
+	buildReviewPrompt,
+	parseAnnotationResponse,
+} from './model-contract';
 
 export interface CodexProviderOptions {
 	command?: string;
 	model?: string;
 	env?: NodeJS.ProcessEnv;
 	timeoutMs?: number;
+	annotationTimeoutMs?: number;
+	tracePromptPath?: string;
+	traceResponsePath?: string;
+}
+
+interface RunCodexOptions {
+	timeoutMs?: number;
+	signal?: AbortSignal;
+}
+
+interface RunCodexResult {
+	content: string;
+	telemetry: {
+		provider: 'codex';
+		model: string;
+		promptChars: number;
+		promptLines: number;
+		elapsedMs: number;
+	};
 }
 
 export class CodexProvider implements BackendProvider {
 	readonly command: string;
 	readonly model: string;
 	readonly timeoutMs: number;
+	readonly annotationTimeoutMs: number;
+	readonly tracePromptPath?: string;
+	readonly traceResponsePath?: string;
 	private readonly env: NodeJS.ProcessEnv;
 
 	constructor(options: CodexProviderOptions = {}) {
@@ -32,26 +59,33 @@ export class CodexProvider implements BackendProvider {
 		this.model = options.model ?? 'gpt-5.4-mini';
 		this.env = { ...process.env, ...(options.env ?? {}) };
 		this.timeoutMs = options.timeoutMs ?? 300_000;
+		this.annotationTimeoutMs = options.annotationTimeoutMs ?? 30_000;
+		this.tracePromptPath = options.tracePromptPath;
+		this.traceResponsePath = options.traceResponsePath;
 	}
 
-	async explainSelection(params: ExplainSelectionParams): Promise<ExplanationResult> {
-		const markdown = await this.runCodex(buildExplainPrompt(params));
+	async explainSelection(params: ExplainSelectionParams, context: ProviderRequestContext = {}): Promise<ExplanationResult> {
+		const { content: markdown } = await this.runCodex(buildExplainPrompt(params), { signal: context.signal });
 		return {
 			kind: 'explanation',
 			markdown,
 		};
 	}
 
-	async annotateRange(params: AnnotateRangeParams): Promise<AnnotationResult> {
-		const content = await this.runCodex(buildAnnotationPrompt(params));
+	async annotateRange(params: AnnotateRangeParams, context: ProviderRequestContext = {}): Promise<AnnotationResult> {
+		const { content, telemetry } = await this.runCodex(buildAnnotationPrompt(params), {
+			timeoutMs: this.annotationTimeoutMs,
+			signal: context.signal,
+		});
 		return {
 			kind: 'annotations',
-			annotations: parseAnnotationResponse(content),
+			annotations: parseAnnotationResponse(content, annotationLineOffset(params), 'Codex', params.candidateLines),
+			telemetry,
 		};
 	}
 
-	async reviewCurrentHunk(params: ReviewCurrentHunkParams): Promise<ReviewResult> {
-		const markdown = await this.runCodex(buildReviewPrompt(params));
+	async reviewCurrentHunk(params: ReviewCurrentHunkParams, context: ProviderRequestContext = {}): Promise<ReviewResult> {
+		const { content: markdown } = await this.runCodex(buildReviewPrompt(params), { signal: context.signal });
 		return {
 			kind: 'review',
 			markdown,
@@ -59,13 +93,16 @@ export class CodexProvider implements BackendProvider {
 		};
 	}
 
-	private async runCodex(prompt: string): Promise<string> {
+	private async runCodex(prompt: string, options: RunCodexOptions = {}): Promise<RunCodexResult> {
 		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-codex-'));
 		const outputPath = path.join(tempDir, 'last-message.md');
 		const args = [
 			'exec',
+			'--ignore-user-config',
 			'--model',
 			this.model,
+			'-C',
+			tempDir,
 			'--sandbox',
 			'read-only',
 			'--ephemeral',
@@ -77,24 +114,46 @@ export class CodexProvider implements BackendProvider {
 		];
 
 		try {
+			await writeOptionalTrace(this.tracePromptPath, prompt);
+			const startedAt = Date.now();
 			await runCommand({
 				command: this.command,
 				args,
 				env: this.env,
 				input: prompt,
-				timeoutMs: this.timeoutMs,
+				timeoutMs: options.timeoutMs ?? this.timeoutMs,
+				signal: options.signal,
 			});
 
 			const content = await fs.readFile(outputPath, 'utf8');
+			await writeOptionalTrace(this.traceResponsePath, content);
 			if (content.trim().length === 0) {
 				throw new Error('Codex produced an empty response.');
 			}
 
-			return content.trim();
+			return {
+				content: content.trim(),
+				telemetry: {
+					provider: 'codex',
+					model: this.model,
+					promptChars: prompt.length,
+					promptLines: prompt.split('\n').length,
+					elapsedMs: Date.now() - startedAt,
+				},
+			};
 		} finally {
 			await fs.rm(tempDir, { recursive: true, force: true });
 		}
 	}
+}
+
+async function writeOptionalTrace(filePath: string | undefined, content: string): Promise<void> {
+	if (!filePath || filePath.trim() === '') {
+		return;
+	}
+
+	await fs.mkdir(path.dirname(filePath), { recursive: true });
+	await fs.writeFile(filePath, content, 'utf8');
 }
 
 interface RunCommandOptions {
@@ -103,6 +162,7 @@ interface RunCommandOptions {
 	env: NodeJS.ProcessEnv;
 	input: string;
 	timeoutMs: number;
+	signal?: AbortSignal;
 }
 
 async function runCommand(options: RunCommandOptions): Promise<void> {
@@ -125,6 +185,21 @@ async function runCommand(options: RunCommandOptions): Promise<void> {
 			child.kill();
 			reject(new Error(`Codex command timed out after ${options.timeoutMs}ms.`));
 		}, options.timeoutMs);
+		const abort = (): void => {
+			if (settled) {
+				return;
+			}
+
+			settled = true;
+			clearTimeout(timeout);
+			child.kill();
+			reject(new Error('Codex command cancelled.'));
+		};
+		if (options.signal?.aborted) {
+			abort();
+			return;
+		}
+		options.signal?.addEventListener('abort', abort, { once: true });
 
 		const settle = (callback: () => void): void => {
 			if (settled) {
@@ -133,6 +208,7 @@ async function runCommand(options: RunCommandOptions): Promise<void> {
 
 			settled = true;
 			clearTimeout(timeout);
+			options.signal?.removeEventListener('abort', abort);
 			callback();
 		};
 
@@ -166,146 +242,4 @@ async function runCommand(options: RunCommandOptions): Promise<void> {
 
 		child.stdin.end(options.input);
 	});
-}
-
-function buildExplainPrompt(params: ExplainSelectionParams): string {
-	return [
-		'You are powering a Neovim code-learning command.',
-		'Explain the selected code in concise Markdown.',
-		'Focus on the active lens when it is provided.',
-		renderRequestContext(params),
-		'Selected code:',
-		codeBlock(params.language, params.selectedText),
-	].join('\n\n');
-}
-
-function buildAnnotationPrompt(params: AnnotateRangeParams): string {
-	return [
-		'You are powering Neovim inline code annotations.',
-		'Return only JSON. Do not wrap it in Markdown.',
-		'The JSON must be an object with an annotations array.',
-		'Each annotation must have range, text, severity, and optional detailMarkdown.',
-		'Ranges use zero-based line and character offsets from the file.',
-		'Severity must be "info" or "warning".',
-		renderRequestContext(params),
-		'Code to annotate:',
-		codeBlock(params.language, params.scopeText),
-		'Expected JSON shape:',
-		'{"annotations":[{"range":{"startLine":0,"startCharacter":0,"endLine":0,"endCharacter":10},"text":"Short virtual text","severity":"info","detailMarkdown":"Optional Markdown detail"}]}',
-	].join('\n\n');
-}
-
-function buildReviewPrompt(params: ReviewCurrentHunkParams): string {
-	return [
-		'You are powering a Neovim code-review command.',
-		'Review the current hunk in concise Markdown.',
-		'Focus on correctness, clarity, and the active lens when it is provided.',
-		renderRequestContext(params),
-		'Hunk:',
-		codeBlock(params.language, params.hunkText),
-	].join('\n\n');
-}
-
-function renderRequestContext(params: {
-	filePath: string;
-	language: string;
-	text: string;
-	lens?: { mode: string; text?: string };
-}): string {
-	const lens = params.lens?.text ? `${params.lens.mode}: ${params.lens.text}` : params.lens?.mode ?? 'general';
-	return [
-		`File: ${params.filePath}`,
-		`Language: ${params.language}`,
-		`Lens: ${lens}`,
-		`Visible buffer characters: ${params.text.length}`,
-	].join('\n');
-}
-
-function codeBlock(language: string, content: string): string {
-	return ['```' + language, content, '```'].join('\n');
-}
-
-function parseAnnotationResponse(content: string): Annotation[] {
-	const parsed = parseJsonObject(content);
-	const annotations = parsed.annotations;
-	if (!Array.isArray(annotations)) {
-		throw new Error('Codex annotation response must contain an annotations array.');
-	}
-
-	return annotations.map((annotation, index) => parseAnnotation(annotation, index));
-}
-
-function parseJsonObject(content: string): Record<string, unknown> {
-	const trimmed = content.trim();
-	const jsonText = trimmed.startsWith('```') ? extractJsonFence(trimmed) : trimmed;
-
-	try {
-		const parsed = JSON.parse(jsonText) as unknown;
-		if (!isRecord(parsed)) {
-			throw new Error('response was not an object');
-		}
-		return parsed;
-	} catch (error) {
-		const message = error instanceof Error ? error.message : String(error);
-		throw new Error(`Codex annotation response was not valid JSON: ${message}`);
-	}
-}
-
-function extractJsonFence(content: string): string {
-	const match = content.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
-	return match ? match[1].trim() : content;
-}
-
-function parseAnnotation(value: unknown, index: number): Annotation {
-	if (!isRecord(value)) {
-		throw new Error(`Codex annotation at index ${index} must be an object.`);
-	}
-
-	const range = parseRange(value.range, index);
-	const text = value.text;
-	if (typeof text !== 'string' || text.trim().length === 0) {
-		throw new Error(`Codex annotation at index ${index} must include non-empty text.`);
-	}
-
-	const severity = value.severity ?? 'info';
-	if (severity !== 'info' && severity !== 'warning') {
-		throw new Error(`Codex annotation at index ${index} severity must be "info" or "warning".`);
-	}
-
-	const detailMarkdown = value.detailMarkdown;
-	if (detailMarkdown !== undefined && typeof detailMarkdown !== 'string') {
-		throw new Error(`Codex annotation at index ${index} detailMarkdown must be a string.`);
-	}
-
-	return {
-		range,
-		text,
-		severity,
-		detailMarkdown,
-	};
-}
-
-function parseRange(value: unknown, index: number): Range {
-	if (!isRecord(value)) {
-		throw new Error(`Codex annotation at index ${index} range must be an object.`);
-	}
-
-	return {
-		startLine: parseCoordinate(value.startLine, index, 'startLine'),
-		startCharacter: parseCoordinate(value.startCharacter, index, 'startCharacter'),
-		endLine: parseCoordinate(value.endLine, index, 'endLine'),
-		endCharacter: parseCoordinate(value.endCharacter, index, 'endCharacter'),
-	};
-}
-
-function parseCoordinate(value: unknown, index: number, field: string): number {
-	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-		throw new Error(`Codex annotation at index ${index} range.${field} must be a non-negative integer.`);
-	}
-
-	return value;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-	return typeof value === 'object' && value !== null && !Array.isArray(value);
 }

@@ -8,9 +8,9 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 
 - `:LearnSetLens learning I am learning Elixir syntax`
 - `:LearnClearLens`
-- `:LearnExplainLine`
-- `:LearnExplainSelection`
-- `:LearnToggleAnnotations`
+- `:LearnExplain`
+- `:LearnAnnotate`
+- `:LearnAnnotationClear`
 - `:LearnReviewHunk`
 
 ## Development
@@ -39,6 +39,14 @@ Run headless Neovim tests only:
 npm run test:nvim
 ```
 
+Run the annotation e2e test through the stdio backend with a deterministic Codex CLI stub:
+
+```bash
+make e2e-annotations
+```
+
+This writes `.nvim-dev/e2e/annotations.json` with the extmarks Neovim rendered, `.nvim-dev/e2e/codex-prompt.txt` with the prompt sent to the provider, and `.nvim-dev/e2e/codex-response.txt` with the raw provider response.
+
 ## Manual Neovim Smoke Test
 
 Compile the backend:
@@ -61,11 +69,51 @@ Open Neovim with the Codex CLI provider:
 make run-codex
 ```
 
-`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini` and a five-minute request timeout. Override them when needed:
+`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
 
 ```bash
-make run-codex CODEX_MODEL=gpt-5.4-mini CODEX_TIMEOUT_MS=600000
+make run-codex CODEX_MODEL=gpt-5.4-mini CODEX_TIMEOUT_MS=600000 CODEX_ANNOTATION_TIMEOUT_MS=45000
 ```
+
+Manual Codex runs write `.nvim-dev/trace/codex-prompt.txt` when a request starts and `.nvim-dev/trace/codex-response.txt` when Codex returns. If Neovim shows `Learn: still waiting for annotations` and only the prompt file exists, the request is still inside the Codex CLI.
+
+Open Neovim with the Codex provider plumbing but deterministic local responses:
+
+```bash
+make run-codex-stub
+```
+
+Open Neovim with the Ollama provider:
+
+```bash
+ollama pull qwen3:1.7b
+make run-ollama
+```
+
+`make run-ollama` uses `qwen3:1.7b` by default, expects Ollama at `http://localhost:11434`, and gives annotation requests a 20-second timeout. Override them when needed:
+
+```bash
+make run-ollama OLLAMA_MODEL=qwen3:1.7b OLLAMA_BASE_URL=http://localhost:11434 OLLAMA_ANNOTATION_TIMEOUT_MS=30000
+```
+
+Manual Ollama runs write `.nvim-dev/trace/ollama-prompt.txt` when a request starts and `.nvim-dev/trace/ollama-response.txt` when Ollama returns.
+
+Run the annotation e2e test against your real Codex CLI login:
+
+```bash
+make e2e-annotations-real
+```
+
+The real e2e target writes `.nvim-dev/e2e/annotations-real.json`, `.nvim-dev/e2e/codex-prompt-real.txt`, and `.nvim-dev/e2e/codex-response-real.txt`.
+It waits up to 30 seconds by default; override that with `E2E_WAIT_MS=60000` if your Codex calls are slower.
+
+Run the annotation e2e test against local Ollama:
+
+```bash
+make e2e-annotations-ollama E2E_WAIT_MS=60000
+```
+
+The Ollama e2e target writes `.nvim-dev/e2e/annotations-ollama.json`, `.nvim-dev/e2e/ollama-prompt.txt`, and `.nvim-dev/e2e/ollama-response.txt`.
 
 Open a specific file:
 
@@ -77,6 +125,23 @@ Then run:
 
 ```vim
 :LearnSetLens learning I am learning Lua syntax
-:LearnExplainLine
-:LearnToggleAnnotations
+:LearnExplain
+:LearnAnnotate
+:LearnAnnotationClear
+```
+
+`:LearnExplain` asks the active provider to explain the current line. It also accepts Vim line ranges:
+
+```vim
+:10,20LearnExplain
+:'<,'>LearnExplain
+```
+
+`:LearnAnnotate` asks the active provider to annotate the section closest to the cursor. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:LearnAnnotationClear` removes all learn.nvim annotations from the current buffer.
+
+`LearnAnnotate` also accepts Vim line ranges:
+
+```vim
+:10,20LearnAnnotate
+:'<,'>LearnAnnotate
 ```

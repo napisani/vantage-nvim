@@ -22,6 +22,31 @@ test('parseBackendRequest accepts an explainSelection request', () => {
 	assert.equal(parsed.params.lens?.mode, 'learning');
 });
 
+test('parseBackendRequest accepts annotation candidate lines', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-annotations',
+		method: 'annotateRange',
+		params: {
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const one = 1;\n// comment\nconst two = one + 1;',
+			cursor: { line: 2, character: 0 },
+			visibleRange: { startLine: 10, startCharacter: 0, endLine: 12, endCharacter: 20 },
+			scopeText: 'const one = 1;\n// comment\nconst two = one + 1;',
+			candidateLines: [
+				{ line: 0, text: 'const one = 1;' },
+				{ line: 2, text: 'const two = one + 1;' },
+			],
+		},
+	});
+
+	assert.equal(parsed.method, 'annotateRange');
+	assert.deepEqual(parsed.params.candidateLines, [
+		{ line: 0, text: 'const one = 1;' },
+		{ line: 2, text: 'const two = one + 1;' },
+	]);
+});
+
 test('parseBackendRequest rejects a request without an id', () => {
 	assert.throws(
 		() => parseBackendRequest({ method: 'explainSelection', params: {} }),

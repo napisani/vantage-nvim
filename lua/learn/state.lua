@@ -5,6 +5,9 @@ M.config = {
 		mode = "stdio",
 		command = { "node", "server/out/neovim/stdio-server.js" },
 	},
+	annotations = {
+		waiting_message_ms = 30000,
+	},
 }
 
 M.lens = nil

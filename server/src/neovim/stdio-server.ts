@@ -12,6 +12,32 @@ const interfaceReader = readline.createInterface({
 	crlfDelay: Infinity,
 });
 
+const inFlight = new Map<string, AbortController>();
+
+function tryHandleCancel(raw: unknown): boolean {
+	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+		return false;
+	}
+
+	const record = raw as { method?: unknown; params?: unknown };
+	if (record.method !== 'cancelRequest') {
+		return false;
+	}
+
+	const params = record.params;
+	if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+		return true;
+	}
+
+	const requestId = (params as { id?: unknown }).id;
+	if (typeof requestId !== 'string') {
+		return true;
+	}
+
+	inFlight.get(requestId)?.abort();
+	return true;
+}
+
 interfaceReader.on('line', (line) => {
 	void (async () => {
 		if (line.trim().length === 0) {
@@ -21,9 +47,18 @@ interfaceReader.on('line', (line) => {
 		let requestId = 'unknown';
 		try {
 			const raw = JSON.parse(line) as unknown;
+			if (tryHandleCancel(raw)) {
+				return;
+			}
 			const request = parseBackendRequest(raw);
 			requestId = request.id;
-			writeResponse(await handleBackendRequest(request));
+			const controller = new AbortController();
+			inFlight.set(request.id, controller);
+			try {
+				writeResponse(await handleBackendRequest(request, undefined, { signal: controller.signal }));
+			} finally {
+				inFlight.delete(request.id);
+			}
 		} catch (error) {
 			writeResponse({
 				id: requestId,

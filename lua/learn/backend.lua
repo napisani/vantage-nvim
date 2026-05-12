@@ -3,6 +3,7 @@ local state = require("learn.state")
 local M = {}
 
 local job_id = nil
+local job_generation = 0
 local next_id = 1
 local pending = {}
 local stdout_buffer = ""
@@ -107,8 +108,8 @@ local function handle_stdout_line(line)
 	end
 end
 
-local function handle_stdout(job, data)
-	if job_id ~= job then
+local function handle_stdout(job, data, generation)
+	if job_id ~= job or job_generation ~= generation then
 		return
 	end
 
@@ -158,11 +159,15 @@ local function start_stdio()
 		return "backend.command is required for stdio mode"
 	end
 
+	job_generation = job_generation + 1
+	local generation = job_generation
 	local started = vim.fn.jobstart(command, {
 		stdout_buffered = false,
-		on_stdout = handle_stdout,
+		on_stdout = function(job, data)
+			handle_stdout(job, data, generation)
+		end,
 		on_exit = function(job)
-			if job_id ~= job then
+			if job_id ~= job or job_generation ~= generation then
 				return
 			end
 
@@ -187,7 +192,7 @@ function M.request(method, params, callback)
 			ok = true,
 			result = fake_response(method, params),
 		})
-		return
+		return "fake"
 	end
 
 	local start_error = start_stdio()
@@ -197,7 +202,7 @@ function M.request(method, params, callback)
 			ok = false,
 			error = start_error,
 		})
-		return
+		return nil
 	end
 
 	local id = tostring(next_id)
@@ -211,6 +216,26 @@ function M.request(method, params, callback)
 	}) .. "\n"
 
 	vim.fn.chansend(job_id, message)
+	return id
+end
+
+function M.cancel(id)
+	if not id or id == "fake" then
+		return
+	end
+
+	pending[id] = nil
+	if not job_id then
+		return
+	end
+
+	local message = vim.json.encode({
+		id = "cancel-" .. tostring(id),
+		method = "cancelRequest",
+		params = { id = tostring(id) },
+	}) .. "\n"
+
+	vim.fn.chansend(job_id, message)
 end
 
 function M.stop()
@@ -218,6 +243,7 @@ function M.stop()
 		vim.fn.jobstop(job_id)
 	end
 
+	job_generation = job_generation + 1
 	job_id = nil
 	pending = {}
 	stdout_buffer = ""

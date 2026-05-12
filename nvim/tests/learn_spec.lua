@@ -24,6 +24,12 @@ local function fresh_buffer()
 	vim.api.nvim_win_set_cursor(0, { 1, 0 })
 end
 
+local function lua_buffer(lines)
+	fresh_buffer()
+	vim.bo.filetype = "lua"
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
+end
+
 local function last_float_text()
 	local float_buf = require("learn.ui").last_float_buf()
 	if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
@@ -31,6 +37,42 @@ local function last_float_text()
 	end
 
 	return table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
+end
+
+local function capture_notifications(run)
+	local notifications = {}
+	local original_notify = vim.notify
+	local ok, err = pcall(function()
+		vim.notify = function(message)
+			table.insert(notifications, message)
+		end
+		run(notifications)
+	end)
+
+	vim.notify = original_notify
+	assert(ok, err)
+	return notifications
+end
+
+local function capture_backend_request(response, run)
+	local backend = require("learn.backend")
+	local original_request = backend.request
+	local captured = {}
+	local ok, err = pcall(function()
+		backend.request = function(method, params, callback)
+			captured.method = method
+			captured.params = params
+			if response and callback then
+				callback(response)
+			end
+			return "captured-request"
+		end
+		run(captured)
+	end)
+
+	backend.request = original_request
+	assert(ok, err)
+	return captured
 end
 
 test("state stores and clears a lens", function()
@@ -75,147 +117,519 @@ test("context uses absolute file path for relative buffer name", function()
 	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/relative-context.lua")
 end)
 
-test("selection captures only selected text within a line", function()
-	local learn = require("learn")
-	local context = require("learn.context")
-	learn.setup({ backend = { mode = "fake" } })
-
-	fresh_buffer()
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
-		"local value = compute_result()",
-	})
-	vim.fn.setpos("'<", { 0, 1, 7, 0 })
-	vim.fn.setpos("'>", { 0, 1, 11, 0 })
-
-	local captured = context.selection()
-	eq(captured.selectedText, "value")
-	eq(captured.range, {
-		startLine = 0,
-		startCharacter = 6,
-		endLine = 0,
-		endCharacter = 11,
-	})
-end)
-
-test("selection includes the full final multibyte character", function()
-	local learn = require("learn")
-	local context = require("learn.context")
-	learn.setup({ backend = { mode = "fake" } })
-
-	fresh_buffer()
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
-		"drink café today",
-	})
-	vim.fn.setpos("'<", { 0, 1, 7, 0 })
-	vim.fn.setpos("'>", { 0, 1, 10, 0 })
-
-	local captured = context.selection()
-	eq(captured.selectedText, "café")
-	eq(captured.range, {
-		startLine = 0,
-		startCharacter = 6,
-		endLine = 0,
-		endCharacter = 11,
-	})
-end)
-
-test("selection normalizes reversed multi-line marks", function()
-	local learn = require("learn")
-	local context = require("learn.context")
-	learn.setup({ backend = { mode = "fake" } })
-
-	fresh_buffer()
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
-		"abcDEFG",
-		"HIJKLmn",
-	})
-	vim.fn.setpos("'<", { 0, 2, 5, 0 })
-	vim.fn.setpos("'>", { 0, 1, 4, 0 })
-
-	local captured = context.selection()
-	eq(captured.selectedText, "DEFG\nHIJKL")
-	eq(captured.range, {
-		startLine = 0,
-		startCharacter = 3,
-		endLine = 1,
-		endCharacter = 5,
-	})
-end)
-
-test("explain_current_line opens a markdown float", function()
+test("explain opens a markdown float for the current line", function()
 	local learn = require("learn")
 	local commands = require("learn.commands")
 	learn.setup({ backend = { mode = "fake" } })
 	learn.set_lens("learning", "I am learning Lua syntax")
 
-	fresh_buffer()
-	vim.bo.filetype = "lua"
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
+	lua_buffer({ "local value = 42" })
 
-	commands.explain_current_line()
+	commands.explain()
 	local float_buf = require("learn.ui").last_float_buf()
 	assert(float_buf ~= nil, "expected a float buffer")
 	local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
 	assert(text:match("Explanation"), text)
 	assert(text:match("Lua"), text)
+	assert(text:match("local value = 42"), text)
 end)
 
-test("toggle_annotations renders and clears extmarks", function()
+test("LearnExplain accepts an explicit line range", function()
+	local learn = require("learn")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Range explanation",
+		},
+	}, function()
+		learn.setup({ backend = { mode = "fake" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = 2",
+			"local c = b + 1",
+			"return c",
+		})
+
+		vim.cmd("2,3LearnExplain")
+	end)
+
+	eq(captured.method, "explainSelection")
+	eq(captured.params.text, "local b = 2\nlocal c = b + 1")
+	eq(captured.params.selectedText, "local b = 2\nlocal c = b + 1")
+	eq(captured.params.range, {
+		startLine = 1,
+		startCharacter = 0,
+		endLine = 2,
+		endCharacter = 15,
+	})
+end)
+
+test("registers unified explain command without selection or line variants", function()
+	local learn = require("learn")
+	learn.setup({ backend = { mode = "fake" } })
+
+	assert(vim.fn.exists(":LearnExplain") == 2, "expected LearnExplain command")
+	assert(vim.fn.exists(":LearnExplainSelection") == 0, "expected old selection command to be removed")
+	assert(vim.fn.exists(":LearnExplainLine") == 0, "expected old line command to be removed")
+end)
+
+test("annotate renders and clear_annotations clears extmarks", function()
 	local learn = require("learn")
 	local commands = require("learn.commands")
 	local annotations = require("learn.annotations")
 	learn.setup({ backend = { mode = "fake" } })
 
-	fresh_buffer()
-	vim.bo.filetype = "lua"
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
+	lua_buffer({
 		"local a = 1",
 		"local b = a + 1",
 	})
 
-	commands.toggle_annotations()
+	commands.annotate()
 	local marks = annotations.current_marks(0)
 	assert(#marks > 0, "expected annotation marks")
 	local virt_text = marks[1][4].virt_text
 	assert(virt_text and virt_text[1] and virt_text[1][1]:match("Fake annotation"), vim.inspect(marks))
-	commands.toggle_annotations()
+	assert(marks[1][4].virt_text_pos == nil or marks[1][4].virt_text_pos == "eol", vim.inspect(marks))
+	commands.clear_annotations()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
+end)
+
+test("annotations render additively and overwrite the exact same position", function()
+	local learn = require("learn")
+	local annotations = require("learn.annotations")
+	learn.setup({ backend = { mode = "fake" } })
+
+	lua_buffer({
+		"local a = 1",
+		"local b = a + 1",
+	})
+
+	annotations.render(0, {
+		{
+			text = "First line annotation.",
+			severity = "info",
+			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 0 },
+		},
+	})
+	annotations.render(0, {
+		{
+			text = "Second line annotation.",
+			severity = "info",
+			range = { startLine = 1, startCharacter = 0, endLine = 1, endCharacter = 0 },
+		},
+	})
+	annotations.render(0, {
+		{
+			text = "Updated first line annotation.",
+			severity = "info",
+			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 0 },
+		},
+	})
+
+	local marks = annotations.current_marks(0)
+	assert(#marks == 2, vim.inspect(marks))
+	local texts = {}
+	for _, mark in ipairs(marks) do
+		table.insert(texts, mark[4].virt_text[1][1])
+	end
+	local combined = table.concat(texts, "\n")
+	assert(combined:match("Updated first line annotation"), combined)
+	assert(combined:match("Second line annotation"), combined)
+	assert(not combined:match("First line annotation%."), combined)
+end)
+
+test("annotate reports request progress", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+
+	local notifications = capture_notifications(function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({ "local value = 42" })
+
+		commands.annotate()
+	end)
+
+	assert(notifications[1] and notifications[1]:match("requesting annotations"), vim.inspect(notifications))
+	assert(notifications[#notifications] and notifications[#notifications]:match("rendered 1 annotation"), vim.inspect(notifications))
+end)
+
+test("registers explicit annotation commands without toggle command", function()
+	local learn = require("learn")
+	learn.setup({ backend = { mode = "fake" } })
+
+	assert(vim.fn.exists(":LearnAnnotate") == 2, "expected LearnAnnotate command")
+	assert(vim.fn.exists(":LearnAnnotationClear") == 2, "expected LearnAnnotationClear command")
+	assert(vim.fn.exists(":LearnToggleAnnotations") == 0, "expected old toggle command to be removed")
+end)
+
+test("annotate cancels an in-flight annotation request and ignores its late response", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+	local backend = require("learn.backend")
+	local original_request = backend.request
+	local original_cancel = backend.cancel
+	local callbacks = {}
+	local request_count = 0
+	local cancelled_id
+
+	local ok, err = pcall(function()
+		backend.request = function(_method, _params, callback)
+			request_count = request_count + 1
+			callbacks[request_count] = callback
+			return "slow-annotations-" .. tostring(request_count)
+		end
+		backend.cancel = function(id)
+			cancelled_id = id
+		end
+
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({ "local value = 42" })
+
+		local notifications = capture_notifications(function()
+			commands.annotate()
+			commands.annotate()
+		end)
+
+		assert(request_count == 2, "expected second annotate to cancel and start a new request")
+		assert(cancelled_id == "slow-annotations-1", "expected cancellation to propagate to backend")
+		local saw_cancel = false
+		for _, notification in ipairs(notifications) do
+			saw_cancel = saw_cancel or notification:match("cancelled annotation request") ~= nil
+		end
+		assert(saw_cancel, vim.inspect(notifications))
+
+		callbacks[1]({
+			ok = true,
+			result = {
+				kind = "annotations",
+				annotations = {
+					{
+						text = "Late annotation",
+						severity = "info",
+						range = {
+							startLine = 0,
+							startCharacter = 0,
+							endLine = 0,
+							endCharacter = 0,
+						},
+					},
+				},
+			},
+		})
+
+		assert(#annotations.current_marks(0) == 0, "expected cancelled response to be ignored")
+
+		callbacks[2]({
+			ok = true,
+			result = {
+				kind = "annotations",
+				annotations = {
+					{
+						text = "Current annotation",
+						severity = "info",
+						range = {
+							startLine = 0,
+							startCharacter = 0,
+							endLine = 0,
+							endCharacter = 0,
+						},
+					},
+				},
+			},
+		})
+		assert(#annotations.current_marks(0) == 1, "expected second response to render")
+	end)
+
+	backend.request = original_request
+	backend.cancel = original_cancel
+	annotations.clear(0)
+	assert(ok, err)
+end)
+
+test("annotate sends fast annotation candidate lines", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"-- heading",
+			"",
+			"local total = 0",
+			"for index = 1, 3 do",
+			"  total = total + index",
+			"end",
+		})
+		vim.api.nvim_win_set_cursor(0, { 3, 0 })
+
+		commands.annotate()
+		commands.clear_annotations()
+	end)
+
+	annotations.clear(0)
+	eq(captured.params.candidateLines, {
+		{ line = 2, text = "local total = 0" },
+		{ line = 3, text = "for index = 1, 3 do" },
+		{ line = 4, text = "  total = total + index" },
+	})
+end)
+
+test("LearnAnnotate accepts an explicit line range", function()
+	local learn = require("learn")
+	local annotations = require("learn.annotations")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "annotations",
+			annotations = {
+				{
+					text = "Range annotation",
+					severity = "info",
+					range = {
+						startLine = 1,
+						startCharacter = 0,
+						endLine = 1,
+						endCharacter = 9,
+					},
+				},
+			},
+		},
+	}, function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"local a = 1",
+			"local b = 2",
+			"local c = b + 1",
+			"return c",
+		})
+
+		vim.cmd("2,4LearnAnnotate")
+	end)
+
+	annotations.clear(0)
+	eq(captured.method, "annotateRange")
+	eq(captured.params.scopeText, "local b = 2\nlocal c = b + 1\nreturn c")
+	eq(captured.params.visibleRange, {
+		startLine = 1,
+		startCharacter = 0,
+		endLine = 3,
+		endCharacter = 8,
+	})
+	eq(captured.params.range, {
+		startLine = 1,
+		startCharacter = 0,
+		endLine = 3,
+		endCharacter = 8,
+	})
+	eq(captured.params.candidateLines, {
+		{ line = 0, text = "local b = 2" },
+		{ line = 1, text = "local c = b + 1" },
+		{ line = 2, text = "return c" },
+	})
+end)
+
+test("annotate waiting status includes provider and elapsed time", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local backend = require("learn.backend")
+	local original_request = backend.request
+
+	local ok, err = pcall(function()
+		backend.request = function()
+			-- Keep the request in-flight so the waiting status can fire.
+		end
+
+		learn.setup({
+			backend = { mode = "fake" },
+			annotations = { waiting_message_ms = 10 },
+		})
+		lua_buffer({ "local value = 42" })
+
+		capture_notifications(function(notifications)
+			commands.annotate()
+			local saw_waiting_status = vim.wait(200, function()
+				for _, notification in ipairs(notifications) do
+					if notification:match("still waiting for annotations from fake") and notification:match("after 0%.") then
+						return true
+					end
+				end
+				return false
+			end)
+			assert(saw_waiting_status, vim.inspect(notifications))
+			commands.clear_annotations()
+		end)
+	end)
+
+	backend.request = original_request
+	learn.setup({ annotations = { waiting_message_ms = 30000 } })
+	assert(ok, err)
+end)
+
+test("annotations skip out-of-range lines", function()
+	local learn = require("learn")
+	local annotations = require("learn.annotations")
+	learn.setup({ backend = { mode = "fake" } })
+
+	lua_buffer({ "only one line" })
+
+	local count = annotations.render(0, {
+		{
+			text = "Out of range.",
+			range = {
+				startLine = 99,
+				startCharacter = 0,
+				endLine = 99,
+				endCharacter = 0,
+			},
+		},
+	})
+
+	assert(count == 0, "expected no rendered annotations")
+	assert(#annotations.current_marks(0) == 0, "expected out-of-range annotation to be skipped")
+	assert(not annotations.is_enabled(), "expected annotations to stay disabled")
+end)
+
+test("annotate shows a readable empty-result message", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+	local backend = require("learn.backend")
+
+	local ok, err = pcall(function()
+		backend.stop()
+		annotations.clear(0)
+		learn.setup({
+			backend = {
+				mode = "stdio",
+				command = {
+					"node",
+					"-e",
+					[=[
+process.stdin.setEncoding('utf8');
+let pending = '';
+process.stdin.on('data', (chunk) => {
+  pending += chunk;
+  const lines = pending.split('\n');
+  pending = lines.pop() || '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { kind: 'annotations', annotations: [] }
+    }));
+  }
+});
+]=],
+				},
+			},
+		})
+
+		fresh_buffer()
+		vim.bo.filetype = "lua"
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
+
+		commands.annotate()
+		vim.wait(2000, function()
+			local text = last_float_text()
+			return text and text:match("No annotations") ~= nil
+		end)
+
+		local text = last_float_text()
+		assert(text ~= nil, "expected no-annotations float")
+		assert(text:match("No annotations"), text)
+		assert(#annotations.current_marks(0) == 0, "expected no annotation marks")
+		assert(not annotations.is_enabled(), "expected annotations to stay disabled")
+	end)
+
+	backend.stop()
+	assert(ok, err)
 end)
 
 test("stdio backend handles multiple line-split stdout callbacks", function()
 	local learn = require("learn")
 	local backend = require("learn.backend")
 	local responses = {}
+	backend.stop()
+	vim.wait(100, function()
+		return false
+	end)
+
 	learn.setup({
 		backend = {
 			mode = "stdio",
 			command = {
-				"sh",
-				"-c",
-				[[printf '%s\n%s\n' '{"id":"1","ok":true,"result":{"kind":"explanation","markdown":"one"}}' '{"id":"2","ok":true,"result":{"kind":"explanation","markdown":"two"}}']],
+				"node",
+				"-e",
+				[=[
+process.stdin.setEncoding('utf8');
+process.stdin.resume();
+let pending = '';
+let count = 0;
+let writing = false;
+const queue = [];
+function flushQueue() {
+  if (writing || queue.length === 0) return;
+  writing = true;
+  const response = queue.shift();
+  process.stdout.write(response.slice(0, 12));
+  setTimeout(() => {
+    process.stdout.write(response.slice(12));
+    writing = false;
+    flushQueue();
+  }, 5);
+}
+process.stdin.on('data', (chunk) => {
+  pending += chunk;
+  const lines = pending.split('\n');
+  pending = lines.pop() || '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    count += 1;
+    const request = JSON.parse(line);
+    const response = JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { kind: 'explanation', markdown: count === 1 ? 'one' : 'two' }
+    }) + '\n';
+    queue.push(response);
+    flushQueue();
+  }
+});
+]=],
 			},
 		},
 	})
 
 	backend.request("explainSelection", {}, function(result)
-		responses[result.id] = result
+		table.insert(responses, result)
 	end)
 	backend.request("explainSelection", {}, function(result)
-		responses[result.id] = result
+		table.insert(responses, result)
 	end)
 
-	vim.wait(1000, function()
-		return responses["1"] ~= nil and responses["2"] ~= nil
+	vim.wait(3000, function()
+		return #responses == 2
 	end)
 	backend.stop()
 
-	assert(responses["1"] ~= nil, "expected first stdio callback to fire")
-	assert(responses["2"] ~= nil, "expected second stdio callback to fire")
-	eq(responses["1"].result, { kind = "explanation", markdown = "one" })
-	eq(responses["2"].result, { kind = "explanation", markdown = "two" })
+	assert(#responses == 2, "expected two stdio callbacks to fire")
+	eq(responses[1].result, { kind = "explanation", markdown = "one" })
+	eq(responses[2].result, { kind = "explanation", markdown = "two" })
 end)
 
-test("stdio backend opens a float through explain_current_line", function()
+test("stdio backend opens a float through explain", function()
 	local learn = require("learn")
 	local commands = require("learn.commands")
 	local backend = require("learn.backend")
@@ -238,7 +652,7 @@ test("stdio backend opens a float through explain_current_line", function()
 		vim.bo.filetype = "lua"
 		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
 
-		commands.explain_current_line()
+		commands.explain()
 		vim.wait(2000, function()
 			local text = last_float_text()
 			return text and text:match("Fake provider") ~= nil
@@ -276,7 +690,7 @@ test("stdio backend renders non-empty annotation virtual text", function()
 			"local b = a + 1",
 		})
 
-		commands.toggle_annotations()
+		commands.annotate()
 		vim.wait(2000, function()
 			local marks = annotations.current_marks(0)
 			if #marks == 0 or not marks[1][4] or not marks[1][4].virt_text then
@@ -336,7 +750,7 @@ process.stdin.on('data', (chunk) => {
 		vim.bo.filetype = "lua"
 		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
 
-		commands.explain_current_line()
+		commands.explain()
 		vim.wait(2000, function()
 			local text = last_float_text()
 			return text and text:match("Readable backend error") ~= nil
