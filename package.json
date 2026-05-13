@@ -1,5 +1,5 @@
 {
-  "name": "learn.nvim",
+  "name": "vantage.nvim",
   "description": "A Neovim-first AI review and learning assistant with a local TypeScript backend.",
   "author": "Nick Pisani",
   "license": "MIT",
@@ -22,7 +22,7 @@
     "test": "npm run test:mvp",
     "dev": "nodemon --watch server/src --exec \"npm run compile\"",
     "test:backend": "npm run compile && node --test server/out/neovim/*.test.js",
-    "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('learn_spec').run()\" -c qa",
+    "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
     "test:mvp": "npm run test:backend && npm run test:nvim"
   },
   "devDependencies": {

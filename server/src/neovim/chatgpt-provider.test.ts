@@ -96,7 +96,7 @@ test('ChatGptProvider annotateRange parses JSON and uses annotation timeout', as
 test('ChatGptProvider reads API key from provider environment', async () => {
 	const runtime = new RecordingRuntime('## From env');
 	const provider = new ChatGptProvider({
-		env: { LEARN_CHATGPT_API_KEY: 'sk-learn-env', OPENAI_API_KEY: 'sk-openai-env' },
+		env: { VANTAGE_CHATGPT_API_KEY: 'sk-vantage-env', OPENAI_API_KEY: 'sk-openai-env' },
 		runtime,
 	});
 
@@ -108,7 +108,7 @@ test('ChatGptProvider reads API key from provider environment', async () => {
 		selectedText: 'const value = 1;',
 	});
 
-	assert.equal(runtime.calls[0].apiKey, 'sk-learn-env');
+	assert.equal(runtime.calls[0].apiKey, 'sk-vantage-env');
 });
 
 test('ChatGptProvider requires an OpenAI API key before making a request', async () => {
@@ -123,12 +123,12 @@ test('ChatGptProvider requires an OpenAI API key before making a request', async
 				cursor: { line: 0, character: 0 },
 				hunkText: 'const value = 1;',
 			}),
-		/ChatGPT provider requires LEARN_CHATGPT_API_KEY or OPENAI_API_KEY/
+		/ChatGPT provider requires VANTAGE_CHATGPT_API_KEY or OPENAI_API_KEY/
 	);
 });
 
 test('ChatGptProvider writes prompt and raw response traces when configured', async () => {
-	const traceDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-chatgpt-trace-'));
+	const traceDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vantage-chatgpt-trace-'));
 	const tracePromptPath = path.join(traceDirectory, 'prompt.txt');
 	const traceResponsePath = path.join(traceDirectory, 'response.txt');
 	const rawResponse = JSON.stringify({

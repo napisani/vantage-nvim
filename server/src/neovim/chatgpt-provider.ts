@@ -91,7 +91,7 @@ export class ChatGptProvider implements BackendProvider {
 
 	constructor(options: ChatGptProviderOptions = {}) {
 		const env = options.env ?? process.env;
-		this.apiKey = firstNonEmpty(options.apiKey, env.LEARN_CHATGPT_API_KEY, env.OPENAI_API_KEY);
+		this.apiKey = firstNonEmpty(options.apiKey, env.VANTAGE_CHATGPT_API_KEY, env.OPENAI_API_KEY);
 		this.model = options.model ?? 'gpt-4o-mini';
 		this.timeoutMs = options.timeoutMs ?? 300_000;
 		this.annotationTimeoutMs = options.annotationTimeoutMs ?? 30_000;
@@ -223,7 +223,7 @@ function extractNestedOutputText(response: unknown): string | undefined {
 function requireApiKey(value: string | undefined): string {
 	const apiKey = firstNonEmpty(value);
 	if (!apiKey) {
-		throw new Error('ChatGPT provider requires LEARN_CHATGPT_API_KEY or OPENAI_API_KEY.');
+		throw new Error('ChatGPT provider requires VANTAGE_CHATGPT_API_KEY or OPENAI_API_KEY.');
 	}
 
 	return apiKey;

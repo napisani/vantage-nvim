@@ -94,7 +94,7 @@ export class CodexProvider implements BackendProvider {
 	}
 
 	private async runCodex(prompt: string, options: RunCodexOptions = {}): Promise<RunCodexResult> {
-		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-codex-'));
+		const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), 'vantage-codex-'));
 		const outputPath = path.join(tempDir, 'last-message.md');
 		const args = [
 			'exec',

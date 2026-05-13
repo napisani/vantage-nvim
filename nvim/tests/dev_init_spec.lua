@@ -1,24 +1,24 @@
 local M = {}
 
 function M.run()
-	local state = require("learn.state")
+	local state = require("vantage.state")
 	local expected_mode = (
-				vim.env.LEARN_DEV_PROVIDER == "codex"
-				or vim.env.LEARN_DEV_PROVIDER == "ollama"
-				or vim.env.LEARN_DEV_PROVIDER == "chatgpt"
+				vim.env.VANTAGE_DEV_PROVIDER == "codex"
+				or vim.env.VANTAGE_DEV_PROVIDER == "ollama"
+				or vim.env.VANTAGE_DEV_PROVIDER == "chatgpt"
 			)
 			and "stdio"
 		or "fake"
 	assert(state.config.backend.mode == expected_mode, "expected dev init to use " .. expected_mode .. " backend")
-	assert(vim.fn.exists(":LearnExplain") == 2, "expected LearnExplain command")
+	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
 
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
 	vim.bo.filetype = "lua"
 
 	if expected_mode == "fake" then
-		vim.cmd("LearnExplain")
+		vim.cmd("VantageExplain")
 
-		local float_buf = require("learn.ui").last_float_buf()
+		local float_buf = require("vantage.ui").last_float_buf()
 		assert(float_buf and vim.api.nvim_buf_is_valid(float_buf), "expected explanation float")
 		local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
 		assert(text:match("Fake provider"), text)

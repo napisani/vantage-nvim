@@ -1,5 +1,5 @@
-local state = require("learn.state")
-local commands = require("learn.commands")
+local state = require("vantage.state")
+local commands = require("vantage.commands")
 
 local M = {}
 

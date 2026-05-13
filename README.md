@@ -1,4 +1,4 @@
-# learn.nvim
+# vantage.nvim
 
 This project is being reworked into a Neovim-first AI review and learning tool.
 
@@ -6,12 +6,12 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 
 ## Commands
 
-- `:LearnSetLens learning I am learning Elixir syntax`
-- `:LearnClearLens`
-- `:LearnExplain`
-- `:LearnAnnotate`
-- `:LearnAnnotationClear`
-- `:LearnReviewHunk`
+- `:VantageSetLens learning I am learning Elixir syntax`
+- `:VantageClearLens`
+- `:VantageExplain`
+- `:VantageAnnotate`
+- `:VantageAnnotationClear`
+- `:VantageReviewHunk`
 
 ## Development
 
@@ -75,7 +75,7 @@ make run-codex
 make run-codex CODEX_MODEL=gpt-5.4-mini CODEX_TIMEOUT_MS=600000 CODEX_ANNOTATION_TIMEOUT_MS=45000
 ```
 
-Manual Codex runs write `.nvim-dev/trace/codex-prompt.txt` when a request starts and `.nvim-dev/trace/codex-response.txt` when Codex returns. If Neovim shows `Learn: still waiting for annotations` and only the prompt file exists, the request is still inside the Codex CLI.
+Manual Codex runs write `.nvim-dev/trace/codex-prompt.txt` when a request starts and `.nvim-dev/trace/codex-response.txt` when Codex returns. If Neovim shows `Vantage: still waiting for annotations` and only the prompt file exists, the request is still inside the Codex CLI.
 
 Open Neovim with the Codex provider plumbing but deterministic local responses:
 
@@ -146,35 +146,35 @@ make run FILE=path/to/file.lua
 Then run:
 
 ```vim
-:LearnSetLens learning I am learning Lua syntax
-:LearnExplain
-:LearnAnnotate
-:LearnAnnotationClear
+:VantageSetLens learning I am learning Lua syntax
+:VantageExplain
+:VantageAnnotate
+:VantageAnnotationClear
 ```
 
-`:LearnExplain` asks the active provider to explain the current line. It also accepts Vim line ranges:
+`:VantageExplain` asks the active provider to explain the current line. It also accepts Vim line ranges:
 
 ```vim
-:10,20LearnExplain
-:'<,'>LearnExplain
+:10,20VantageExplain
+:'<,'>VantageExplain
 ```
 
-`:LearnAnnotate` asks the active provider to annotate the section closest to the cursor. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:LearnAnnotationClear` removes all learn.nvim annotations from the current buffer.
+`:VantageAnnotate` asks the active provider to annotate the section closest to the cursor. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
 
-`LearnAnnotate` accepts simple scope and budget arguments:
+`VantageAnnotate` accepts simple scope and budget arguments:
 
 ```vim
-:LearnAnnotate line
-:LearnAnnotate visible
-:LearnAnnotate 5
-:LearnAnnotate visible 10
+:VantageAnnotate line
+:VantageAnnotate visible
+:VantageAnnotate 5
+:VantageAnnotate visible 10
 ```
 
-With no arguments, `LearnAnnotate` keeps the fast default of up to 3 nearby candidate lines. `line` annotates only the current line. `visible` annotates up to 6 visible-window candidate lines. A numeric argument sets the maximum annotation budget for that request.
+With no arguments, `VantageAnnotate` keeps the fast default of up to 3 nearby candidate lines. `line` annotates only the current line. `visible` annotates up to 6 visible-window candidate lines. A numeric argument sets the maximum annotation budget for that request.
 
-`LearnAnnotate` also accepts Vim line ranges:
+`VantageAnnotate` also accepts Vim line ranges:
 
 ```vim
-:10,20LearnAnnotate
-:'<,'>LearnAnnotate
+:10,20VantageAnnotate
+:'<,'>VantageAnnotate
 ```

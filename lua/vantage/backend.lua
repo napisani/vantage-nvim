@@ -1,4 +1,4 @@
-local state = require("learn.state")
+local state = require("vantage.state")
 
 local M = {}
 

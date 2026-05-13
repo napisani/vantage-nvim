@@ -21,16 +21,16 @@ This plan implements Milestone 1 from the design spec: an end-to-end loop using 
 - Create `server/src/neovim/handlers.ts`: method dispatch from validated requests to provider responses.
 - Create `server/src/neovim/stdio-server.ts`: newline-delimited JSON stdin/stdout server for the plugin.
 - Create `server/src/neovim/*.test.ts`: backend unit and stdio smoke tests using Node `node:test`.
-- Create `lua/learn/state.lua`: active lens and configuration state.
-- Create `lua/learn/context.lua`: buffer, visible range, current line, and selection context capture.
-- Create `lua/learn/backend.lua`: fake-mode and stdio backend client for Neovim.
-- Create `lua/learn/ui.lua`: floating markdown window rendering.
-- Create `lua/learn/annotations.lua`: extmark namespace and annotation rendering/clearing.
-- Create `lua/learn/commands.lua`: user-facing command implementations.
-- Create `lua/learn/init.lua`: setup entrypoint.
-- Create `plugin/learn.lua`: auto-register default commands when plugin loads.
+- Create `lua/vantage/state.lua`: active lens and configuration state.
+- Create `lua/vantage/context.lua`: buffer, visible range, current line, and selection context capture.
+- Create `lua/vantage/backend.lua`: fake-mode and stdio backend client for Neovim.
+- Create `lua/vantage/ui.lua`: floating markdown window rendering.
+- Create `lua/vantage/annotations.lua`: extmark namespace and annotation rendering/clearing.
+- Create `lua/vantage/commands.lua`: user-facing command implementations.
+- Create `lua/vantage/init.lua`: setup entrypoint.
+- Create `plugin/vantage.lua`: auto-register default commands when plugin loads.
 - Create `nvim/tests/minimal_init.lua`: headless Neovim test bootstrap.
-- Create `nvim/tests/learn_spec.lua`: small test runner and plugin behavior tests.
+- Create `nvim/tests/vantage_spec.lua`: small test runner and plugin behavior tests.
 - Modify `package.json`: add backend, Neovim, and MVP test scripts.
 - Modify `README.md`: replace sample LSP usage with the new Neovim-first development loop.
 
@@ -496,7 +496,7 @@ export class FakeProvider {
 			};
 			annotations.push({
 				range,
-				text: `Learn: ${firstWords(line, 5)}`,
+				text: `Vantage: ${firstWords(line, 5)}`,
 				category: params.lens?.mode === 'review' ? 'review' : 'semantics',
 				severity: 'info',
 				detailMarkdown: [
@@ -726,11 +726,11 @@ git commit -m "feat: add Neovim backend stdio server"
 ## Task 3: Neovim State, Context Capture, And Headless Test Harness
 
 **Files:**
-- Create: `lua/learn/state.lua`
-- Create: `lua/learn/context.lua`
-- Create: `lua/learn/init.lua`
+- Create: `lua/vantage/state.lua`
+- Create: `lua/vantage/context.lua`
+- Create: `lua/vantage/init.lua`
 - Create: `nvim/tests/minimal_init.lua`
-- Create: `nvim/tests/learn_spec.lua`
+- Create: `nvim/tests/vantage_spec.lua`
 
 - [ ] **Step 1: Write failing Neovim tests for lens state and visible context**
 
@@ -742,7 +742,7 @@ vim.opt.runtimepath:prepend(root)
 package.path = root .. "/?.lua;" .. root .. "/?/init.lua;" .. root .. "/nvim/tests/?.lua;" .. package.path
 ```
 
-Create `nvim/tests/learn_spec.lua`:
+Create `nvim/tests/vantage_spec.lua`:
 
 ```lua
 local M = {}
@@ -757,22 +757,22 @@ local function eq(actual, expected)
 end
 
 test("state stores and clears a lens", function()
-  local learn = require("learn")
-  learn.setup({ backend = { mode = "fake" } })
-  learn.set_lens("learning", "I am learning Lua syntax")
-  eq(learn.get_lens(), { mode = "learning", text = "I am learning Lua syntax" })
-  learn.clear_lens()
-  eq(learn.get_lens(), nil)
+  local vantage = require("vantage")
+  vantage.setup({ backend = { mode = "fake" } })
+  vantage.set_lens("learning", "I am learning Lua syntax")
+  eq(vantage.get_lens(), { mode = "learning", text = "I am learning Lua syntax" })
+  vantage.clear_lens()
+  eq(vantage.get_lens(), nil)
 end)
 
 test("context captures visible buffer text", function()
-  local learn = require("learn")
-  local context = require("learn.context")
-  learn.setup({ backend = { mode = "fake" } })
+  local vantage = require("vantage")
+  local context = require("vantage.context")
+  vantage.setup({ backend = { mode = "fake" } })
 
   vim.cmd("enew")
   vim.bo.filetype = "lua"
-  vim.api.nvim_buf_set_name(0, "/tmp/learn-context.lua")
+  vim.api.nvim_buf_set_name(0, "/tmp/vantage-context.lua")
   vim.api.nvim_buf_set_lines(0, 0, -1, false, {
     "local x = 1",
     "local y = x + 1",
@@ -781,7 +781,7 @@ test("context captures visible buffer text", function()
 
   local captured = context.visible()
   eq(captured.language, "lua")
-  eq(captured.filePath, "/tmp/learn-context.lua")
+  eq(captured.filePath, "/tmp/vantage-context.lua")
   eq(captured.text, "local x = 1\nlocal y = x + 1\nreturn y")
   eq(captured.visibleRange.startLine, 0)
 end)
@@ -799,7 +799,7 @@ function M.run()
     error(table.concat(failures, "\n"))
   end
 
-  print("learn.nvim tests passed: " .. tostring(#tests))
+  print("vantage.nvim tests passed: " .. tostring(#tests))
 end
 
 return M
@@ -810,14 +810,14 @@ return M
 Run:
 
 ```bash
-nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('learn_spec').run()" -c qa
+nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('vantage_spec').run()" -c qa
 ```
 
-Expected: FAIL because `lua/learn/init.lua` does not exist.
+Expected: FAIL because `lua/vantage/init.lua` does not exist.
 
 - [ ] **Step 3: Implement state, context, and setup entrypoint**
 
-Create `lua/learn/state.lua`:
+Create `lua/vantage/state.lua`:
 
 ```lua
 local M = {}
@@ -850,10 +850,10 @@ end
 return M
 ```
 
-Create `lua/learn/context.lua`:
+Create `lua/vantage/context.lua`:
 
 ```lua
-local state = require("learn.state")
+local state = require("vantage.state")
 local M = {}
 
 local function cursor()
@@ -918,10 +918,10 @@ end
 return M
 ```
 
-Create `lua/learn/init.lua`:
+Create `lua/vantage/init.lua`:
 
 ```lua
-local state = require("learn.state")
+local state = require("vantage.state")
 
 local M = {}
 
@@ -949,46 +949,46 @@ return M
 Run:
 
 ```bash
-nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('learn_spec').run()" -c qa
+nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('vantage_spec').run()" -c qa
 ```
 
-Expected: PASS and prints `learn.nvim tests passed: 2`.
+Expected: PASS and prints `vantage.nvim tests passed: 2`.
 
 - [ ] **Step 5: Commit Neovim state and context**
 
 ```bash
-git add lua/learn/state.lua lua/learn/context.lua lua/learn/init.lua nvim/tests/minimal_init.lua nvim/tests/learn_spec.lua
+git add lua/vantage/state.lua lua/vantage/context.lua lua/vantage/init.lua nvim/tests/minimal_init.lua nvim/tests/vantage_spec.lua
 git commit -m "feat: add Neovim plugin state and context"
 ```
 
 ## Task 4: Neovim Backend Client, Floats, Annotations, And Commands
 
 **Files:**
-- Create: `lua/learn/backend.lua`
-- Create: `lua/learn/ui.lua`
-- Create: `lua/learn/annotations.lua`
-- Create: `lua/learn/commands.lua`
-- Create: `plugin/learn.lua`
-- Modify: `lua/learn/init.lua`
-- Modify: `nvim/tests/learn_spec.lua`
+- Create: `lua/vantage/backend.lua`
+- Create: `lua/vantage/ui.lua`
+- Create: `lua/vantage/annotations.lua`
+- Create: `lua/vantage/commands.lua`
+- Create: `plugin/vantage.lua`
+- Modify: `lua/vantage/init.lua`
+- Modify: `nvim/tests/vantage_spec.lua`
 
 - [ ] **Step 1: Extend Neovim tests for fake command output and annotations**
 
-Append these tests to `nvim/tests/learn_spec.lua` before `function M.run()`:
+Append these tests to `nvim/tests/vantage_spec.lua` before `function M.run()`:
 
 ```lua
 test("explain_current_line opens a markdown float", function()
-  local learn = require("learn")
-  local commands = require("learn.commands")
-  learn.setup({ backend = { mode = "fake" } })
-  learn.set_lens("learning", "I am learning Lua syntax")
+  local vantage = require("vantage")
+  local commands = require("vantage.commands")
+  vantage.setup({ backend = { mode = "fake" } })
+  vantage.set_lens("learning", "I am learning Lua syntax")
 
   vim.cmd("enew")
   vim.bo.filetype = "lua"
   vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local value = 42" })
 
   commands.explain_current_line()
-  local float_buf = require("learn.ui").last_float_buf()
+  local float_buf = require("vantage.ui").last_float_buf()
   assert(float_buf ~= nil, "expected a float buffer")
   local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
   assert(text:match("Explanation"), text)
@@ -996,10 +996,10 @@ test("explain_current_line opens a markdown float", function()
 end)
 
 test("toggle_annotations renders and clears extmarks", function()
-  local learn = require("learn")
-  local commands = require("learn.commands")
-  local annotations = require("learn.annotations")
-  learn.setup({ backend = { mode = "fake" } })
+  local vantage = require("vantage")
+  local commands = require("vantage.commands")
+  local annotations = require("vantage.annotations")
+  vantage.setup({ backend = { mode = "fake" } })
 
   vim.cmd("enew")
   vim.bo.filetype = "lua"
@@ -1020,17 +1020,17 @@ end)
 Run:
 
 ```bash
-nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('learn_spec').run()" -c qa
+nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('vantage_spec').run()" -c qa
 ```
 
-Expected: FAIL because `learn.commands`, `learn.ui`, and `learn.annotations` do not exist.
+Expected: FAIL because `vantage.commands`, `vantage.ui`, and `vantage.annotations` do not exist.
 
 - [ ] **Step 3: Implement backend fake mode and stdio request client**
 
-Create `lua/learn/backend.lua`:
+Create `lua/vantage/backend.lua`:
 
 ```lua
-local state = require("learn.state")
+local state = require("vantage.state")
 local M = {}
 
 local client = {
@@ -1072,7 +1072,7 @@ local function fake_response(method, params)
       annotations = {
         {
           range = { startLine = start_line, startCharacter = 0, endLine = start_line, endCharacter = 1 },
-          text = "Learn: fake annotation",
+          text = "Vantage: fake annotation",
           category = "semantics",
           severity = "info",
           detailMarkdown = "## Annotation detail\n\nFake annotation.",
@@ -1133,7 +1133,7 @@ local function ensure_job()
   })
 
   if client.job_id <= 0 then
-    error("failed to start learn backend: " .. vim.inspect(command))
+    error("failed to start vantage backend: " .. vim.inspect(command))
   end
 
   return client.job_id
@@ -1167,7 +1167,7 @@ return M
 
 - [ ] **Step 4: Implement UI float rendering**
 
-Create `lua/learn/ui.lua`:
+Create `lua/vantage/ui.lua`:
 
 ```lua
 local M = {}
@@ -1215,11 +1215,11 @@ return M
 
 - [ ] **Step 5: Implement annotation extmarks**
 
-Create `lua/learn/annotations.lua`:
+Create `lua/vantage/annotations.lua`:
 
 ```lua
 local M = {}
-local namespace = vim.api.nvim_create_namespace("learn_annotations")
+local namespace = vim.api.nvim_create_namespace("vantage_annotations")
 local enabled = false
 
 function M.is_enabled()
@@ -1254,19 +1254,19 @@ return M
 
 - [ ] **Step 6: Implement commands and plugin entrypoint**
 
-Create `lua/learn/commands.lua`:
+Create `lua/vantage/commands.lua`:
 
 ```lua
-local annotations = require("learn.annotations")
-local backend = require("learn.backend")
-local context = require("learn.context")
-local state = require("learn.state")
-local ui = require("learn.ui")
+local annotations = require("vantage.annotations")
+local backend = require("vantage.backend")
+local context = require("vantage.context")
+local state = require("vantage.state")
+local ui = require("vantage.ui")
 
 local M = {}
 
 local function show_error(message)
-  ui.show_markdown("## Learn error\n\n" .. message)
+  ui.show_markdown("## Vantage error\n\n" .. message)
 end
 
 local function handle_markdown_response(response)
@@ -1319,7 +1319,7 @@ function M.review_current_hunk()
 end
 
 function M.register()
-  vim.api.nvim_create_user_command("LearnSetLens", function(opts)
+  vim.api.nvim_create_user_command("VantageSetLens", function(opts)
     local mode = opts.fargs[1] or "general"
     local words = {}
     for index = 2, #opts.fargs do
@@ -1329,23 +1329,23 @@ function M.register()
     M.set_lens(mode, text)
   end, { nargs = "+" })
 
-  vim.api.nvim_create_user_command("LearnClearLens", function()
+  vim.api.nvim_create_user_command("VantageClearLens", function()
     M.clear_lens()
   end, {})
 
-  vim.api.nvim_create_user_command("LearnExplainLine", function()
+  vim.api.nvim_create_user_command("VantageExplainLine", function()
     M.explain_current_line()
   end, {})
 
-  vim.api.nvim_create_user_command("LearnExplainSelection", function()
+  vim.api.nvim_create_user_command("VantageExplainSelection", function()
     M.explain_selection()
   end, { range = true })
 
-  vim.api.nvim_create_user_command("LearnToggleAnnotations", function()
+  vim.api.nvim_create_user_command("VantageToggleAnnotations", function()
     M.toggle_annotations()
   end, {})
 
-  vim.api.nvim_create_user_command("LearnReviewHunk", function()
+  vim.api.nvim_create_user_command("VantageReviewHunk", function()
     M.review_current_hunk()
   end, {})
 end
@@ -1353,11 +1353,11 @@ end
 return M
 ```
 
-Update `lua/learn/init.lua`:
+Update `lua/vantage/init.lua`:
 
 ```lua
-local commands = require("learn.commands")
-local state = require("learn.state")
+local commands = require("vantage.commands")
+local state = require("vantage.state")
 
 local M = {}
 
@@ -1381,16 +1381,16 @@ end
 return M
 ```
 
-Create `plugin/learn.lua`:
+Create `plugin/vantage.lua`:
 
 ```lua
-if vim.g.loaded_learn_nvim == 1 then
+if vim.g.loaded_vantage_nvim == 1 then
   return
 end
 
-vim.g.loaded_learn_nvim = 1
+vim.g.loaded_vantage_nvim = 1
 
-require("learn").setup({})
+require("vantage").setup({})
 ```
 
 - [ ] **Step 7: Run Neovim tests to verify they pass**
@@ -1398,15 +1398,15 @@ require("learn").setup({})
 Run:
 
 ```bash
-nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('learn_spec').run()" -c qa
+nvim --headless -u nvim/tests/minimal_init.lua -c "lua require('vantage_spec').run()" -c qa
 ```
 
-Expected: PASS and prints `learn.nvim tests passed: 4`.
+Expected: PASS and prints `vantage.nvim tests passed: 4`.
 
 - [ ] **Step 8: Commit Neovim command slice**
 
 ```bash
-git add lua/learn/backend.lua lua/learn/ui.lua lua/learn/annotations.lua lua/learn/commands.lua lua/learn/init.lua plugin/learn.lua nvim/tests/learn_spec.lua
+git add lua/vantage/backend.lua lua/vantage/ui.lua lua/vantage/annotations.lua lua/vantage/commands.lua lua/vantage/init.lua plugin/vantage.lua nvim/tests/vantage_spec.lua
 git commit -m "feat: add Neovim learning commands"
 ```
 
@@ -1414,7 +1414,7 @@ git commit -m "feat: add Neovim learning commands"
 
 **Files:**
 - Modify: `package.json`
-- Modify: `nvim/tests/learn_spec.lua`
+- Modify: `nvim/tests/vantage_spec.lua`
 
 - [ ] **Step 1: Run missing MVP script to establish the integration gap**
 
@@ -1428,21 +1428,21 @@ Expected: FAIL with a missing script error because `test:mvp` has not been added
 
 - [ ] **Step 2: Add stdio integration test**
 
-Append this test to `nvim/tests/learn_spec.lua` before `function M.run()`:
+Append this test to `nvim/tests/vantage_spec.lua` before `function M.run()`:
 
 ```lua
 test("stdio backend opens a float through explain_current_line", function()
-  local learn = require("learn")
-  local commands = require("learn.commands")
-  local backend = require("learn.backend")
+  local vantage = require("vantage")
+  local commands = require("vantage.commands")
+  local backend = require("vantage.backend")
 
-  learn.setup({
+  vantage.setup({
     backend = {
       mode = "stdio",
       command = { "node", "server/out/neovim/stdio-server.js" },
     },
   })
-  learn.set_lens("learning", "I am learning Lua syntax")
+  vantage.set_lens("learning", "I am learning Lua syntax")
 
   vim.cmd("enew")
   vim.bo.filetype = "lua"
@@ -1450,7 +1450,7 @@ test("stdio backend opens a float through explain_current_line", function()
 
   commands.explain_current_line()
   vim.wait(2000, function()
-    local float_buf = require("learn.ui").last_float_buf()
+    local float_buf = require("vantage.ui").last_float_buf()
     if not float_buf then
       return false
     end
@@ -1458,7 +1458,7 @@ test("stdio backend opens a float through explain_current_line", function()
     return text:match("Fake provider") ~= nil
   end)
 
-  local float_buf = require("learn.ui").last_float_buf()
+  local float_buf = require("vantage.ui").last_float_buf()
   assert(float_buf ~= nil, "expected stdio float buffer")
   local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
   assert(text:match("Fake provider"), text)
@@ -1481,7 +1481,7 @@ Modify the root `package.json` scripts block so it includes these scripts while 
     "test": "sh ./scripts/e2e.sh",
     "dev": "nodemon --watch server/src --watch client/src --exec \"npm run compile\"",
     "test:backend": "npm run compile --prefix server && node --test server/out/neovim/*.test.js",
-    "test:nvim": "nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('learn_spec').run()\" -c qa",
+    "test:nvim": "nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
     "test:mvp": "npm run test:backend && npm run test:nvim"
   }
 }
@@ -1500,7 +1500,7 @@ Expected: PASS for backend tests and Neovim tests.
 - [ ] **Step 5: Commit scripts and stdio smoke test**
 
 ```bash
-git add package.json nvim/tests/learn_spec.lua
+git add package.json nvim/tests/vantage_spec.lua
 git commit -m "test: add Neovim MVP smoke tests"
 ```
 
@@ -1514,7 +1514,7 @@ git commit -m "test: add Neovim MVP smoke tests"
 Replace `README.md` with:
 
 ```markdown
-# Learn LSP
+# vantage.nvim
 
 This project is being reworked into a Neovim-first AI review and learning tool.
 
@@ -1522,12 +1522,12 @@ The v1 architecture is a Lua Neovim plugin plus a local TypeScript backend. The 
 
 ## Commands
 
-- `:LearnSetLens learning I am learning Elixir syntax`
-- `:LearnClearLens`
-- `:LearnExplainLine`
-- `:LearnExplainSelection`
-- `:LearnToggleAnnotations`
-- `:LearnReviewHunk`
+- `:VantageSetLens learning I am learning Elixir syntax`
+- `:VantageClearLens`
+- `:VantageExplainLine`
+- `:VantageExplainSelection`
+- `:VantageToggleAnnotations`
+- `:VantageReviewHunk`
 
 ## Development
 
@@ -1566,9 +1566,9 @@ npm run compile --prefix server
 Open this repo in Neovim with the repo root on `runtimepath`, then run:
 
 ```vim
-:LearnSetLens learning I am learning Lua syntax
-:LearnExplainLine
-:LearnToggleAnnotations
+:VantageSetLens learning I am learning Lua syntax
+:VantageExplainLine
+:VantageToggleAnnotations
 ```
 ```
 

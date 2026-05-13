@@ -6,30 +6,30 @@ import type { BackendProvider } from './provider';
 
 export interface ProviderEnvironment {
 	[key: string]: string | undefined;
-	LEARN_PROVIDER?: string;
-	LEARN_CODEX_COMMAND?: string;
-	LEARN_CODEX_MODEL?: string;
-	LEARN_CODEX_TIMEOUT_MS?: string;
-	LEARN_CODEX_ANNOTATION_TIMEOUT_MS?: string;
-	LEARN_CODEX_TRACE_PROMPT_PATH?: string;
-	LEARN_CODEX_TRACE_RESPONSE_PATH?: string;
-	LEARN_OLLAMA_BASE_URL?: string;
-	LEARN_OLLAMA_MODEL?: string;
-	LEARN_OLLAMA_TIMEOUT_MS?: string;
-	LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS?: string;
-	LEARN_OLLAMA_TRACE_PROMPT_PATH?: string;
-	LEARN_OLLAMA_TRACE_RESPONSE_PATH?: string;
+	VANTAGE_PROVIDER?: string;
+	VANTAGE_CODEX_COMMAND?: string;
+	VANTAGE_CODEX_MODEL?: string;
+	VANTAGE_CODEX_TIMEOUT_MS?: string;
+	VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS?: string;
+	VANTAGE_CODEX_TRACE_PROMPT_PATH?: string;
+	VANTAGE_CODEX_TRACE_RESPONSE_PATH?: string;
+	VANTAGE_OLLAMA_BASE_URL?: string;
+	VANTAGE_OLLAMA_MODEL?: string;
+	VANTAGE_OLLAMA_TIMEOUT_MS?: string;
+	VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS?: string;
+	VANTAGE_OLLAMA_TRACE_PROMPT_PATH?: string;
+	VANTAGE_OLLAMA_TRACE_RESPONSE_PATH?: string;
 	OPENAI_API_KEY?: string;
-	LEARN_CHATGPT_API_KEY?: string;
-	LEARN_CHATGPT_MODEL?: string;
-	LEARN_CHATGPT_TIMEOUT_MS?: string;
-	LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS?: string;
-	LEARN_CHATGPT_TRACE_PROMPT_PATH?: string;
-	LEARN_CHATGPT_TRACE_RESPONSE_PATH?: string;
+	VANTAGE_CHATGPT_API_KEY?: string;
+	VANTAGE_CHATGPT_MODEL?: string;
+	VANTAGE_CHATGPT_TIMEOUT_MS?: string;
+	VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS?: string;
+	VANTAGE_CHATGPT_TRACE_PROMPT_PATH?: string;
+	VANTAGE_CHATGPT_TRACE_RESPONSE_PATH?: string;
 }
 
 export function createProviderFromEnv(env: ProviderEnvironment): BackendProvider {
-	const providerName = env.LEARN_PROVIDER ?? 'fake';
+	const providerName = env.VANTAGE_PROVIDER ?? 'fake';
 
 	if (providerName === 'fake') {
 		return new FakeProvider();
@@ -37,43 +37,43 @@ export function createProviderFromEnv(env: ProviderEnvironment): BackendProvider
 
 	if (providerName === 'codex') {
 		return new CodexProvider({
-			command: env.LEARN_CODEX_COMMAND,
-			model: env.LEARN_CODEX_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.LEARN_CODEX_TIMEOUT_MS, 'LEARN_CODEX_TIMEOUT_MS'),
+			command: env.VANTAGE_CODEX_COMMAND,
+			model: env.VANTAGE_CODEX_MODEL,
+			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_CODEX_TIMEOUT_MS, 'VANTAGE_CODEX_TIMEOUT_MS'),
 			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.LEARN_CODEX_ANNOTATION_TIMEOUT_MS,
-				'LEARN_CODEX_ANNOTATION_TIMEOUT_MS'
+				env.VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS,
+				'VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS'
 			),
-			tracePromptPath: env.LEARN_CODEX_TRACE_PROMPT_PATH,
-			traceResponsePath: env.LEARN_CODEX_TRACE_RESPONSE_PATH,
+			tracePromptPath: env.VANTAGE_CODEX_TRACE_PROMPT_PATH,
+			traceResponsePath: env.VANTAGE_CODEX_TRACE_RESPONSE_PATH,
 		});
 	}
 
 	if (providerName === 'ollama') {
 		return new OllamaProvider({
-			baseUrl: env.LEARN_OLLAMA_BASE_URL,
-			model: env.LEARN_OLLAMA_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.LEARN_OLLAMA_TIMEOUT_MS, 'LEARN_OLLAMA_TIMEOUT_MS'),
+			baseUrl: env.VANTAGE_OLLAMA_BASE_URL,
+			model: env.VANTAGE_OLLAMA_MODEL,
+			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_OLLAMA_TIMEOUT_MS, 'VANTAGE_OLLAMA_TIMEOUT_MS'),
 			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS,
-				'LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS'
+				env.VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS,
+				'VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS'
 			),
-			tracePromptPath: env.LEARN_OLLAMA_TRACE_PROMPT_PATH,
-			traceResponsePath: env.LEARN_OLLAMA_TRACE_RESPONSE_PATH,
+			tracePromptPath: env.VANTAGE_OLLAMA_TRACE_PROMPT_PATH,
+			traceResponsePath: env.VANTAGE_OLLAMA_TRACE_RESPONSE_PATH,
 		});
 	}
 
 	if (providerName === 'chatgpt') {
 		return new ChatGptProvider({
 			env,
-			model: env.LEARN_CHATGPT_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.LEARN_CHATGPT_TIMEOUT_MS, 'LEARN_CHATGPT_TIMEOUT_MS'),
+			model: env.VANTAGE_CHATGPT_MODEL,
+			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_CHATGPT_TIMEOUT_MS, 'VANTAGE_CHATGPT_TIMEOUT_MS'),
 			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS,
-				'LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS'
+				env.VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS,
+				'VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS'
 			),
-			tracePromptPath: env.LEARN_CHATGPT_TRACE_PROMPT_PATH,
-			traceResponsePath: env.LEARN_CHATGPT_TRACE_RESPONSE_PATH,
+			tracePromptPath: env.VANTAGE_CHATGPT_TRACE_PROMPT_PATH,
+			traceResponsePath: env.VANTAGE_CHATGPT_TRACE_RESPONSE_PATH,
 		});
 	}
 

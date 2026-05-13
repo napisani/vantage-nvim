@@ -22,7 +22,7 @@
 
 - [ ] **Step 1: Write failing provider selection tests**
 
-Create `server/src/neovim/provider-factory.test.ts` with tests that assert unset provider selects fake, `LEARN_PROVIDER=fake` selects fake, `LEARN_PROVIDER=codex` selects Codex, and unknown providers throw a readable error.
+Create `server/src/neovim/provider-factory.test.ts` with tests that assert unset provider selects fake, `VANTAGE_PROVIDER=fake` selects fake, `VANTAGE_PROVIDER=codex` selects Codex, and unknown providers throw a readable error.
 
 - [ ] **Step 2: Run tests and verify they fail**
 
@@ -76,17 +76,17 @@ Expected: tests pass.
 
 - [ ] **Step 1: Write failing dev init test for Codex mode**
 
-Extend `nvim/tests/dev_init_spec.lua` so it can assert the backend mode is `stdio` when `LEARN_DEV_PROVIDER=codex`.
+Extend `nvim/tests/dev_init_spec.lua` so it can assert the backend mode is `stdio` when `VANTAGE_DEV_PROVIDER=codex`.
 
 - [ ] **Step 2: Run test and verify it fails**
 
-Run: `make test-dev-init LEARN_DEV_PROVIDER=codex`
+Run: `make test-dev-init VANTAGE_DEV_PROVIDER=codex`
 
 Expected: test fails because dev init always configures fake mode.
 
 - [ ] **Step 3: Implement Makefile and dev init wiring**
 
-Add `make run-codex`, passing `LEARN_DEV_PROVIDER=codex` and `LEARN_PROVIDER=codex`. Update `nvim/dev/init.lua` to use fake by default and stdio when `LEARN_DEV_PROVIDER=codex`.
+Add `make run-codex`, passing `VANTAGE_DEV_PROVIDER=codex` and `VANTAGE_PROVIDER=codex`. Update `nvim/dev/init.lua` to use fake by default and stdio when `VANTAGE_DEV_PROVIDER=codex`.
 
 - [ ] **Step 4: Run full verification**
 
@@ -94,8 +94,8 @@ Run:
 
 ```bash
 make test
-make run NVIM='nvim --headless -c "lua assert(require(\"learn.state\").config.backend.mode == \"fake\")" -c qa'
-make run-codex NVIM='nvim --headless -c "lua assert(require(\"learn.state\").config.backend.mode == \"stdio\")" -c qa'
+make run NVIM='nvim --headless -c "lua assert(require(\"vantage.state\").config.backend.mode == \"fake\")" -c qa'
+make run-codex NVIM='nvim --headless -c "lua assert(require(\"vantage.state\").config.backend.mode == \"stdio\")" -c qa'
 npm run lint
 ```
 

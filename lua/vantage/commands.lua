@@ -1,8 +1,8 @@
-local annotations = require("learn.annotations")
-local backend = require("learn.backend")
-local context = require("learn.context")
-local state = require("learn.state")
-local ui = require("learn.ui")
+local annotations = require("vantage.annotations")
+local backend = require("vantage.backend")
+local context = require("vantage.context")
+local state = require("vantage.state")
+local ui = require("vantage.ui")
 
 local M = {}
 local DEFAULT_ANNOTATION_LIMIT = 3
@@ -21,7 +21,7 @@ local function annotation_provider()
 	local mode = backend_config.mode or "stdio"
 	local name = mode
 	if mode ~= "fake" then
-		name = vim.env.LEARN_PROVIDER or vim.env.LEARN_DEV_PROVIDER or mode
+		name = vim.env.VANTAGE_PROVIDER or vim.env.VANTAGE_DEV_PROVIDER or mode
 	end
 	if name == "" then
 		name = mode
@@ -30,11 +30,11 @@ local function annotation_provider()
 	local model = nil
 	local trace = nil
 	if name == "ollama" then
-		model = vim.env.LEARN_OLLAMA_MODEL
-		trace = vim.env.LEARN_OLLAMA_TRACE_RESPONSE_PATH
+		model = vim.env.VANTAGE_OLLAMA_MODEL
+		trace = vim.env.VANTAGE_OLLAMA_TRACE_RESPONSE_PATH
 	elseif name == "codex" then
-		model = vim.env.LEARN_CODEX_MODEL
-		trace = vim.env.LEARN_CODEX_TRACE_RESPONSE_PATH
+		model = vim.env.VANTAGE_CODEX_MODEL
+		trace = vim.env.VANTAGE_CODEX_TRACE_RESPONSE_PATH
 	end
 
 	local label = name
@@ -283,12 +283,12 @@ local function begin_annotation_request(provider)
 	annotation_request.backend_id = nil
 	local token = annotation_request.token
 
-	vim.notify("Learn: requesting annotations from " .. provider.label, vim.log.levels.INFO)
+	vim.notify("Vantage: requesting annotations from " .. provider.label, vim.log.levels.INFO)
 	vim.defer_fn(function()
 		if annotation_request.status == "loading" and annotation_request.token == token then
 			local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
 			vim.notify(
-				"Learn: still waiting for annotations from " .. provider.label .. " after " .. elapsed .. trace_suffix(provider),
+				"Vantage: still waiting for annotations from " .. provider.label .. " after " .. elapsed .. trace_suffix(provider),
 				vim.log.levels.WARN
 			)
 		end
@@ -322,18 +322,18 @@ end
 
 function M.clear_annotations()
 	local bufnr = vim.api.nvim_get_current_buf()
-	cancel_annotation_request("Learn: cancelled annotation request to")
+	cancel_annotation_request("Vantage: cancelled annotation request to")
 	annotations.clear(bufnr)
-	vim.notify("Learn: cleared annotations", vim.log.levels.INFO)
+	vim.notify("Vantage: cleared annotations", vim.log.levels.INFO)
 end
 
 function M.annotate(opts)
-	cancel_annotation_request("Learn: cancelled annotation request to")
+	cancel_annotation_request("Vantage: cancelled annotation request to")
 
 	local bufnr = vim.api.nvim_get_current_buf()
 	local annotation_options, parse_error = parse_annotation_options(opts)
 	if not annotation_options then
-		vim.notify("Learn: " .. parse_error, vim.log.levels.ERROR)
+		vim.notify("Vantage: " .. parse_error, vim.log.levels.ERROR)
 		return
 	end
 	local params = annotation_context(opts, annotation_options)
@@ -351,7 +351,7 @@ function M.annotate(opts)
 
 		if not response or not response.ok then
 			vim.notify(
-				"Learn: annotation request from " .. provider.label .. " failed after " .. elapsed .. trace_suffix(provider),
+				"Vantage: annotation request from " .. provider.label .. " failed after " .. elapsed .. trace_suffix(provider),
 				vim.log.levels.ERROR
 			)
 			ui.show_markdown(error_markdown(response))
@@ -361,7 +361,7 @@ function M.annotate(opts)
 		local count = annotations.render(bufnr, response.result.annotations or {})
 		if count == 0 then
 			vim.notify(
-				"Learn: " .. provider.label .. " returned no visible annotations after " .. elapsed,
+				"Vantage: " .. provider.label .. " returned no visible annotations after " .. elapsed,
 				vim.log.levels.WARN
 			)
 			ui.show_markdown(no_annotations_markdown())
@@ -370,7 +370,7 @@ function M.annotate(opts)
 
 		local suffix = count == 1 and "" or "s"
 		vim.notify(
-			"Learn: rendered "
+			"Vantage: rendered "
 				.. tostring(count)
 				.. " annotation"
 				.. suffix
@@ -405,31 +405,43 @@ local function delete_commands(names)
 end
 
 function M.register()
-	recreate_command("LearnSetLens", function(opts)
+	delete_commands({
+		"LearnSetLens",
+		"LearnClearLens",
+		"LearnExplain",
+		"LearnExplainLine",
+		"LearnExplainSelection",
+		"LearnAnnotate",
+		"LearnAnnotationClear",
+		"LearnToggleAnnotations",
+		"LearnReviewHunk",
+	})
+
+	recreate_command("VantageSetLens", function(opts)
 		local mode = opts.fargs[1]
 		local text = table.concat(vim.list_slice(opts.fargs, 2), " ")
 		M.set_lens(mode, text)
 	end, { nargs = "+" })
 
-	recreate_command("LearnClearLens", function()
+	recreate_command("VantageClearLens", function()
 		M.clear_lens()
 	end)
 
-	delete_commands({ "LearnExplainLine", "LearnExplainSelection" })
-	recreate_command("LearnExplain", function(opts)
+	delete_commands({ "VantageExplainLine", "VantageExplainSelection" })
+	recreate_command("VantageExplain", function(opts)
 		M.explain(opts)
 	end, { range = true })
 
-	delete_commands({ "LearnToggleAnnotations" })
-	recreate_command("LearnAnnotate", function(opts)
+	delete_commands({ "VantageToggleAnnotations" })
+	recreate_command("VantageAnnotate", function(opts)
 		M.annotate(opts)
 	end, { range = true, nargs = "*" })
 
-	recreate_command("LearnAnnotationClear", function()
+	recreate_command("VantageAnnotationClear", function()
 		M.clear_annotations()
 	end)
 
-	recreate_command("LearnReviewHunk", function()
+	recreate_command("VantageReviewHunk", function()
 		M.review_current_hunk()
 	end)
 end

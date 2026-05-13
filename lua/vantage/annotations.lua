@@ -1,6 +1,6 @@
 local M = {}
 
-local namespace = vim.api.nvim_create_namespace("learn_annotations")
+local namespace = vim.api.nvim_create_namespace("vantage_annotations")
 
 function M.is_enabled(bufnr)
 	return #M.current_marks(bufnr or 0) > 0

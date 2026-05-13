@@ -6,7 +6,7 @@ import * as path from 'node:path';
 import { CodexProvider } from './codex-provider';
 
 async function createCodexStub(): Promise<{ command: string; capturePath: string; cleanup: () => Promise<void> }> {
-	const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-codex-provider-'));
+	const directory = await fs.mkdtemp(path.join(os.tmpdir(), 'vantage-codex-provider-'));
 	const command = path.join(directory, 'codex-stub.js');
 	const capturePath = path.join(directory, 'capture.json');
 	await fs.writeFile(
@@ -20,10 +20,10 @@ async function createCodexStub(): Promise<{ command: string; capturePath: string
 			"process.stdin.setEncoding('utf8');",
 			"process.stdin.on('data', chunk => { stdin += chunk; });",
 			"process.stdin.on('end', () => {",
-			"  fs.writeFileSync(process.env.LEARN_CODEX_CAPTURE_PATH, JSON.stringify({ argv: process.argv.slice(2), stdin }));",
-			"  if (process.env.LEARN_CODEX_STDERR) process.stderr.write(process.env.LEARN_CODEX_STDERR);",
-			"  if (process.env.LEARN_CODEX_OUTPUT && outputPath) fs.writeFileSync(outputPath, process.env.LEARN_CODEX_OUTPUT);",
-			"  process.exit(Number(process.env.LEARN_CODEX_EXIT || '0'));",
+			"  fs.writeFileSync(process.env.VANTAGE_CODEX_CAPTURE_PATH, JSON.stringify({ argv: process.argv.slice(2), stdin }));",
+			"  if (process.env.VANTAGE_CODEX_STDERR) process.stderr.write(process.env.VANTAGE_CODEX_STDERR);",
+			"  if (process.env.VANTAGE_CODEX_OUTPUT && outputPath) fs.writeFileSync(outputPath, process.env.VANTAGE_CODEX_OUTPUT);",
+			"  process.exit(Number(process.env.VANTAGE_CODEX_EXIT || '0'));",
 			'});',
 			'',
 		].join('\n')
@@ -48,8 +48,8 @@ test('CodexProvider explainSelection returns final Codex message markdown', asyn
 			command: stub.command,
 			model: 'gpt-5.4-mini-test',
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_OUTPUT: '## Codex explanation\n\nThis is real model text.',
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_OUTPUT: '## Codex explanation\n\nThis is real model text.',
 			},
 		});
 
@@ -74,7 +74,7 @@ test('CodexProvider explainSelection returns final Codex message markdown', asyn
 		assert.ok(capture.argv.includes('--skip-git-repo-check'), capture.argv.join(' '));
 		const cdIndex = capture.argv.indexOf('-C');
 		assert.notEqual(cdIndex, -1, capture.argv.join(' '));
-		assert.match(capture.argv[cdIndex + 1], /learn-codex-/);
+		assert.match(capture.argv[cdIndex + 1], /vantage-codex-/);
 		assert.match(capture.stdin, /explain the selected code/i);
 		assert.match(capture.stdin, /const value = 1;/);
 	} finally {
@@ -88,8 +88,8 @@ test('CodexProvider annotateRange parses strict annotation JSON', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_OUTPUT: JSON.stringify({
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_OUTPUT: JSON.stringify({
 					annotations: [
 						{
 							line: 0,
@@ -136,8 +136,8 @@ test('CodexProvider converts candidate annotation lines to file lines', async ()
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_OUTPUT: JSON.stringify({
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_OUTPUT: JSON.stringify({
 					annotations: [
 						{
 							line: 1,
@@ -178,7 +178,7 @@ test('CodexProvider converts candidate annotation lines to file lines', async ()
 
 test('CodexProvider writes prompt and raw response traces when configured', async () => {
 	const stub = await createCodexStub();
-	const traceDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'learn-codex-trace-'));
+	const traceDirectory = await fs.mkdtemp(path.join(os.tmpdir(), 'vantage-codex-trace-'));
 	const tracePromptPath = path.join(traceDirectory, 'prompt.txt');
 	const traceResponsePath = path.join(traceDirectory, 'response.txt');
 	try {
@@ -196,8 +196,8 @@ test('CodexProvider writes prompt and raw response traces when configured', asyn
 			tracePromptPath,
 			traceResponsePath,
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_OUTPUT: rawResponse,
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_OUTPUT: rawResponse,
 			},
 		});
 
@@ -226,8 +226,8 @@ test('CodexProvider annotateRange rejects invalid JSON', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_OUTPUT: 'not json',
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_OUTPUT: 'not json',
 			},
 		});
 
@@ -253,9 +253,9 @@ test('CodexProvider reports non-zero Codex exits', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				LEARN_CODEX_CAPTURE_PATH: stub.capturePath,
-				LEARN_CODEX_EXIT: '7',
-				LEARN_CODEX_STDERR: 'not logged in',
+				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
+				VANTAGE_CODEX_EXIT: '7',
+				VANTAGE_CODEX_STDERR: 'not logged in',
 			},
 		});
 

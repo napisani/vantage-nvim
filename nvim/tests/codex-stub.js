@@ -30,7 +30,7 @@ process.stdin.on('data', (chunk) => {
 });
 
 process.stdin.on('end', () => {
-	const promptPath = process.env.LEARN_CODEX_TRACE_PROMPT_PATH || process.env.LEARN_E2E_PROMPT_PATH;
+	const promptPath = process.env.VANTAGE_CODEX_TRACE_PROMPT_PATH || process.env.VANTAGE_E2E_PROMPT_PATH;
 	if (promptPath) {
 		writeFile(promptPath, prompt);
 	}

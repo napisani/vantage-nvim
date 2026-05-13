@@ -31,7 +31,7 @@ local function lua_buffer(lines)
 end
 
 local function last_float_text()
-	local float_buf = require("learn.ui").last_float_buf()
+	local float_buf = require("vantage.ui").last_float_buf()
 	if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
 		return nil
 	end
@@ -55,7 +55,7 @@ local function capture_notifications(run)
 end
 
 local function capture_backend_request(response, run)
-	local backend = require("learn.backend")
+	local backend = require("vantage.backend")
 	local original_request = backend.request
 	local captured = {}
 	local ok, err = pcall(function()
@@ -76,22 +76,22 @@ local function capture_backend_request(response, run)
 end
 
 test("state stores and clears a lens", function()
-	local learn = require("learn")
-	learn.setup({ backend = { mode = "fake" } })
-	learn.set_lens("learning", "I am learning Lua syntax")
-	eq(learn.get_lens(), { mode = "learning", text = "I am learning Lua syntax" })
-	learn.clear_lens()
-	eq(learn.get_lens(), nil)
+	local vantage = require("vantage")
+	vantage.setup({ backend = { mode = "fake" } })
+	vantage.set_lens("learning", "I am learning Lua syntax")
+	eq(vantage.get_lens(), { mode = "learning", text = "I am learning Lua syntax" })
+	vantage.clear_lens()
+	eq(vantage.get_lens(), nil)
 end)
 
 test("context captures visible buffer text", function()
-	local learn = require("learn")
-	local context = require("learn.context")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	local context = require("vantage.context")
+	vantage.setup({ backend = { mode = "fake" } })
 
 	fresh_buffer()
 	vim.bo.filetype = "lua"
-	vim.api.nvim_buf_set_name(0, vim.fn.getcwd() .. "/nvim/tests/learn-context.lua")
+	vim.api.nvim_buf_set_name(0, vim.fn.getcwd() .. "/nvim/tests/vantage-context.lua")
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, {
 		"local x = 1",
 		"local y = x + 1",
@@ -100,15 +100,15 @@ test("context captures visible buffer text", function()
 
 	local captured = context.visible()
 	eq(captured.language, "lua")
-	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/learn-context.lua")
+	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/vantage-context.lua")
 	eq(captured.text, "local x = 1\nlocal y = x + 1\nreturn y")
 	eq(captured.visibleRange.startLine, 0)
 end)
 
 test("context uses absolute file path for relative buffer name", function()
-	local learn = require("learn")
-	local context = require("learn.context")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	local context = require("vantage.context")
+	vantage.setup({ backend = { mode = "fake" } })
 
 	fresh_buffer()
 	vim.api.nvim_buf_set_name(0, "nvim/tests/relative-context.lua")
@@ -118,15 +118,15 @@ test("context uses absolute file path for relative buffer name", function()
 end)
 
 test("explain opens a markdown float for the current line", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	learn.setup({ backend = { mode = "fake" } })
-	learn.set_lens("learning", "I am learning Lua syntax")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	vantage.setup({ backend = { mode = "fake" } })
+	vantage.set_lens("learning", "I am learning Lua syntax")
 
 	lua_buffer({ "local value = 42" })
 
 	commands.explain()
-	local float_buf = require("learn.ui").last_float_buf()
+	local float_buf = require("vantage.ui").last_float_buf()
 	assert(float_buf ~= nil, "expected a float buffer")
 	local text = table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
 	assert(text:match("Explanation"), text)
@@ -134,8 +134,8 @@ test("explain opens a markdown float for the current line", function()
 	assert(text:match("local value = 42"), text)
 end)
 
-test("LearnExplain accepts an explicit line range", function()
-	local learn = require("learn")
+test("VantageExplain accepts an explicit line range", function()
+	local vantage = require("vantage")
 
 	local captured = capture_backend_request({
 		ok = true,
@@ -144,7 +144,7 @@ test("LearnExplain accepts an explicit line range", function()
 			markdown = "Range explanation",
 		},
 	}, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		lua_buffer({
 			"local a = 1",
 			"local b = 2",
@@ -152,7 +152,7 @@ test("LearnExplain accepts an explicit line range", function()
 			"return c",
 		})
 
-		vim.cmd("2,3LearnExplain")
+		vim.cmd("2,3VantageExplain")
 	end)
 
 	eq(captured.method, "explainSelection")
@@ -167,19 +167,26 @@ test("LearnExplain accepts an explicit line range", function()
 end)
 
 test("registers unified explain command without selection or line variants", function()
-	local learn = require("learn")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	pcall(vim.api.nvim_create_user_command, "LearnExplain", function() end, {})
+	pcall(vim.api.nvim_create_user_command, "LearnExplainLine", function() end, {})
+	pcall(vim.api.nvim_create_user_command, "LearnExplainSelection", function() end, {})
 
-	assert(vim.fn.exists(":LearnExplain") == 2, "expected LearnExplain command")
-	assert(vim.fn.exists(":LearnExplainSelection") == 0, "expected old selection command to be removed")
-	assert(vim.fn.exists(":LearnExplainLine") == 0, "expected old line command to be removed")
+	vantage.setup({ backend = { mode = "fake" } })
+
+	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
+	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
+	assert(vim.fn.exists(":VantageExplainLine") == 0, "expected old line command to be removed")
+	assert(vim.fn.exists(":LearnExplain") == 0, "expected old LearnExplain command to be removed")
+	assert(vim.fn.exists(":LearnExplainSelection") == 0, "expected old LearnExplainSelection command to be removed")
+	assert(vim.fn.exists(":LearnExplainLine") == 0, "expected old LearnExplainLine command to be removed")
 end)
 
 test("annotate renders and clear_annotations clears extmarks", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+	vantage.setup({ backend = { mode = "fake" } })
 
 	lua_buffer({
 		"local a = 1",
@@ -197,9 +204,9 @@ test("annotate renders and clear_annotations clears extmarks", function()
 end)
 
 test("annotations render additively and overwrite the exact same position", function()
-	local learn = require("learn")
-	local annotations = require("learn.annotations")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	local annotations = require("vantage.annotations")
+	vantage.setup({ backend = { mode = "fake" } })
 
 	lua_buffer({
 		"local a = 1",
@@ -241,12 +248,12 @@ test("annotations render additively and overwrite the exact same position", func
 end)
 
 test("annotate reports request progress", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
 
 	local notifications = capture_notifications(function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({ "local value = 42" })
 
@@ -258,19 +265,26 @@ test("annotate reports request progress", function()
 end)
 
 test("registers explicit annotation commands without toggle command", function()
-	local learn = require("learn")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	pcall(vim.api.nvim_create_user_command, "LearnAnnotate", function() end, {})
+	pcall(vim.api.nvim_create_user_command, "LearnAnnotationClear", function() end, {})
+	pcall(vim.api.nvim_create_user_command, "LearnToggleAnnotations", function() end, {})
 
-	assert(vim.fn.exists(":LearnAnnotate") == 2, "expected LearnAnnotate command")
-	assert(vim.fn.exists(":LearnAnnotationClear") == 2, "expected LearnAnnotationClear command")
-	assert(vim.fn.exists(":LearnToggleAnnotations") == 0, "expected old toggle command to be removed")
+	vantage.setup({ backend = { mode = "fake" } })
+
+	assert(vim.fn.exists(":VantageAnnotate") == 2, "expected VantageAnnotate command")
+	assert(vim.fn.exists(":VantageAnnotationClear") == 2, "expected VantageAnnotationClear command")
+	assert(vim.fn.exists(":VantageToggleAnnotations") == 0, "expected old toggle command to be removed")
+	assert(vim.fn.exists(":LearnAnnotate") == 0, "expected old LearnAnnotate command to be removed")
+	assert(vim.fn.exists(":LearnAnnotationClear") == 0, "expected old LearnAnnotationClear command to be removed")
+	assert(vim.fn.exists(":LearnToggleAnnotations") == 0, "expected old LearnToggleAnnotations command to be removed")
 end)
 
 test("annotate cancels an in-flight annotation request and ignores its late response", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+	local backend = require("vantage.backend")
 	local original_request = backend.request
 	local original_cancel = backend.cancel
 	local callbacks = {}
@@ -287,7 +301,7 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 			cancelled_id = id
 		end
 
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({ "local value = 42" })
 
@@ -353,12 +367,12 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 end)
 
 test("annotate sends fast annotation candidate lines", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({
 			"-- heading",
@@ -382,13 +396,13 @@ test("annotate sends fast annotation candidate lines", function()
 	})
 end)
 
-test("LearnAnnotate line scopes annotation to the current line", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
+test("VantageAnnotate line scopes annotation to the current line", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local before = 1",
@@ -397,7 +411,7 @@ test("LearnAnnotate line scopes annotation to the current line", function()
 		})
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-		vim.cmd("LearnAnnotate line")
+		vim.cmd("VantageAnnotate line")
 		commands.clear_annotations()
 	end)
 
@@ -417,13 +431,13 @@ test("LearnAnnotate line scopes annotation to the current line", function()
 	})
 end)
 
-test("LearnAnnotate visible uses a larger visible-window budget", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
+test("VantageAnnotate visible uses a larger visible-window budget", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local one = 1",
@@ -436,7 +450,7 @@ test("LearnAnnotate visible uses a larger visible-window budget", function()
 		})
 		vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
-		vim.cmd("LearnAnnotate visible")
+		vim.cmd("VantageAnnotate visible")
 		commands.clear_annotations()
 	end)
 
@@ -447,13 +461,13 @@ test("LearnAnnotate visible uses a larger visible-window budget", function()
 	eq(captured.params.candidateLines[6], { line = 5, text = "local six = five + 1" })
 end)
 
-test("LearnAnnotate numeric argument expands the nearby candidate budget", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
+test("VantageAnnotate numeric argument expands the nearby candidate budget", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local one = 1",
@@ -465,7 +479,7 @@ test("LearnAnnotate numeric argument expands the nearby candidate budget", funct
 		})
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-		vim.cmd("LearnAnnotate 5")
+		vim.cmd("VantageAnnotate 5")
 		commands.clear_annotations()
 	end)
 
@@ -476,9 +490,9 @@ test("LearnAnnotate numeric argument expands the nearby candidate budget", funct
 	eq(captured.params.candidateLines[5], { line = 5, text = "local six = five + 1" })
 end)
 
-test("LearnAnnotate accepts an explicit line range", function()
-	local learn = require("learn")
-	local annotations = require("learn.annotations")
+test("VantageAnnotate accepts an explicit line range", function()
+	local vantage = require("vantage")
+	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request({
 		ok = true,
@@ -498,7 +512,7 @@ test("LearnAnnotate accepts an explicit line range", function()
 			},
 		},
 	}, function()
-		learn.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "fake" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local a = 1",
@@ -507,7 +521,7 @@ test("LearnAnnotate accepts an explicit line range", function()
 			"return c",
 		})
 
-		vim.cmd("2,4LearnAnnotate")
+		vim.cmd("2,4VantageAnnotate")
 	end)
 
 	annotations.clear(0)
@@ -533,9 +547,9 @@ test("LearnAnnotate accepts an explicit line range", function()
 end)
 
 test("annotate waiting status includes provider and elapsed time", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
 	local original_request = backend.request
 
 	local ok, err = pcall(function()
@@ -543,7 +557,7 @@ test("annotate waiting status includes provider and elapsed time", function()
 			-- Keep the request in-flight so the waiting status can fire.
 		end
 
-		learn.setup({
+		vantage.setup({
 			backend = { mode = "fake" },
 			annotations = { waiting_message_ms = 10 },
 		})
@@ -565,14 +579,14 @@ test("annotate waiting status includes provider and elapsed time", function()
 	end)
 
 	backend.request = original_request
-	learn.setup({ annotations = { waiting_message_ms = 30000 } })
+	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
 	assert(ok, err)
 end)
 
 test("annotations skip out-of-range lines", function()
-	local learn = require("learn")
-	local annotations = require("learn.annotations")
-	learn.setup({ backend = { mode = "fake" } })
+	local vantage = require("vantage")
+	local annotations = require("vantage.annotations")
+	vantage.setup({ backend = { mode = "fake" } })
 
 	lua_buffer({ "only one line" })
 
@@ -594,15 +608,15 @@ test("annotations skip out-of-range lines", function()
 end)
 
 test("annotate shows a readable empty-result message", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+	local backend = require("vantage.backend")
 
 	local ok, err = pcall(function()
 		backend.stop()
 		annotations.clear(0)
-		learn.setup({
+		vantage.setup({
 			backend = {
 				mode = "stdio",
 				command = {
@@ -652,15 +666,15 @@ process.stdin.on('data', (chunk) => {
 end)
 
 test("stdio backend handles multiple line-split stdout callbacks", function()
-	local learn = require("learn")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local backend = require("vantage.backend")
 	local responses = {}
 	backend.stop()
 	vim.wait(100, function()
 		return false
 	end)
 
-	learn.setup({
+	vantage.setup({
 		backend = {
 			mode = "stdio",
 			command = {
@@ -724,9 +738,9 @@ process.stdin.on('data', (chunk) => {
 end)
 
 test("stdio backend opens a float through explain", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
 
 	local ok, err = pcall(function()
 		backend.stop()
@@ -734,13 +748,13 @@ test("stdio backend opens a float through explain", function()
 			return false
 		end)
 
-		learn.setup({
+		vantage.setup({
 			backend = {
 				mode = "stdio",
 				command = { "node", "server/out/neovim/stdio-server.js" },
 			},
 		})
-		learn.set_lens("learning", "I am learning Lua syntax")
+		vantage.set_lens("learning", "I am learning Lua syntax")
 
 		fresh_buffer()
 		vim.bo.filetype = "lua"
@@ -762,15 +776,15 @@ test("stdio backend opens a float through explain", function()
 end)
 
 test("stdio backend renders non-empty annotation virtual text", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local annotations = require("learn.annotations")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+	local backend = require("vantage.backend")
 
 	local ok, err = pcall(function()
 		backend.stop()
 		annotations.clear(0)
-		learn.setup({
+		vantage.setup({
 			backend = {
 				mode = "stdio",
 				command = { "node", "server/out/neovim/stdio-server.js" },
@@ -806,13 +820,13 @@ test("stdio backend renders non-empty annotation virtual text", function()
 end)
 
 test("stdio backend error float shows readable message", function()
-	local learn = require("learn")
-	local commands = require("learn.commands")
-	local backend = require("learn.backend")
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
 
 	local ok, err = pcall(function()
 		backend.stop()
-		learn.setup({
+		vantage.setup({
 			backend = {
 				mode = "stdio",
 				command = {
@@ -875,7 +889,7 @@ function M.run()
 		error(table.concat(failures, "\n"))
 	end
 
-	print("learn.nvim tests passed: " .. tostring(#tests))
+	print("vantage.nvim tests passed: " .. tostring(#tests))
 end
 
 return M

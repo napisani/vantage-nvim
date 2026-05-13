@@ -1,7 +1,7 @@
 local M = {}
 
 local function read_float_text()
-	local float_buf = require("learn.ui").last_float_buf()
+	local float_buf = require("vantage.ui").last_float_buf()
 	if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
 		return nil
 	end
@@ -59,7 +59,7 @@ local function sample_buffer_lines()
 end
 
 local function write_artifact(artifact)
-	local path = vim.env.LEARN_E2E_ARTIFACT_PATH
+	local path = vim.env.VANTAGE_E2E_ARTIFACT_PATH
 	if not path or path == "" then
 		return nil
 	end
@@ -76,7 +76,7 @@ local function fail(message)
 end
 
 local function wait_budget_ms()
-	local value = tonumber(vim.env.LEARN_E2E_WAIT_MS or "")
+	local value = tonumber(vim.env.VANTAGE_E2E_WAIT_MS or "")
 	if value and value > 0 then
 		return value
 	end
@@ -85,8 +85,8 @@ local function wait_budget_ms()
 end
 
 function M.run()
-	local annotations = require("learn.annotations")
-	local state = require("learn.state")
+	local annotations = require("vantage.annotations")
+	local state = require("vantage.state")
 	local target_buf = vim.api.nvim_get_current_buf()
 	local wait_ms = wait_budget_ms()
 	local lines, code_start_line = sample_buffer_lines()
@@ -97,7 +97,7 @@ function M.run()
 	vim.api.nvim_win_set_cursor(0, { code_start_line + 1, 0 })
 	vim.cmd("normal! zt")
 
-	vim.cmd("LearnAnnotate")
+	vim.cmd("VantageAnnotate")
 	vim.wait(wait_ms, function()
 		return #annotations.current_marks(target_buf) > 0 or read_float_text() ~= nil
 	end, 50)
@@ -119,11 +119,11 @@ function M.run()
 	local artifact_path = write_artifact(artifact)
 
 	if #marks == 0 then
-		fail("expected LearnAnnotate to render annotation extmarks; artifact: " .. tostring(artifact_path))
+		fail("expected VantageAnnotate to render annotation extmarks; artifact: " .. tostring(artifact_path))
 	end
 
 	if visible_marks == 0 then
-		fail("expected LearnAnnotate to render annotation extmarks in the visible window; artifact: " .. tostring(artifact_path))
+		fail("expected VantageAnnotate to render annotation extmarks in the visible window; artifact: " .. tostring(artifact_path))
 	end
 
 	local texts = annotation_texts(marks)

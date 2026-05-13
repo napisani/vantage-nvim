@@ -1,4 +1,4 @@
-local root = vim.env.LEARN_NVIM_ROOT
+local root = vim.env.VANTAGE_NVIM_ROOT
 
 if not root or root == "" then
 	local source = debug.getinfo(1, "S").source:gsub("^@", "")
@@ -10,16 +10,16 @@ vim.opt.packpath:prepend(root)
 vim.opt.swapfile = false
 vim.opt.updatecount = 0
 
-vim.g.loaded_learn_nvim = true
+vim.g.loaded_vantage_nvim = true
 
 local backend = {
 	mode = "fake",
 }
 
 if
-	vim.env.LEARN_DEV_PROVIDER == "codex"
-	or vim.env.LEARN_DEV_PROVIDER == "ollama"
-	or vim.env.LEARN_DEV_PROVIDER == "chatgpt"
+	vim.env.VANTAGE_DEV_PROVIDER == "codex"
+	or vim.env.VANTAGE_DEV_PROVIDER == "ollama"
+	or vim.env.VANTAGE_DEV_PROVIDER == "chatgpt"
 then
 	backend = {
 		mode = "stdio",
@@ -27,6 +27,6 @@ then
 	}
 end
 
-require("learn").setup({
+require("vantage").setup({
 	backend = backend,
 })

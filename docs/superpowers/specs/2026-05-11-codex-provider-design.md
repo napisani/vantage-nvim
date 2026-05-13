@@ -12,15 +12,15 @@ The Neovim plugin remains unchanged at the UI level. It continues to talk to the
 
 The backend selects providers from environment variables:
 
-- `LEARN_PROVIDER=fake`: deterministic fake provider.
-- `LEARN_PROVIDER=codex`: local Codex CLI provider.
-- Unset `LEARN_PROVIDER`: fake provider, preserving current fast test behavior.
+- `VANTAGE_PROVIDER=fake`: deterministic fake provider.
+- `VANTAGE_PROVIDER=codex`: local Codex CLI provider.
+- Unset `VANTAGE_PROVIDER`: fake provider, preserving current fast test behavior.
 
 Codex provider configuration:
 
-- `LEARN_CODEX_COMMAND`: command to run, default `codex`.
-- `LEARN_CODEX_MODEL`: model to pass to `codex exec`, default `gpt-5.4-mini`.
-- `LEARN_CODEX_TIMEOUT_MS`: request timeout in milliseconds, default `300000`.
+- `VANTAGE_CODEX_COMMAND`: command to run, default `codex`.
+- `VANTAGE_CODEX_MODEL`: model to pass to `codex exec`, default `gpt-5.4-mini`.
+- `VANTAGE_CODEX_TIMEOUT_MS`: request timeout in milliseconds, default `300000`.
 
 `gpt-5.4-mini` is the default because OpenAI's current model docs describe it as the strongest mini model for coding-oriented lower-latency workloads. `codex-mini-latest` is Codex-CLI-optimized, but the requested default was the latest GPT mini model.
 
@@ -47,4 +47,4 @@ The prompt is sent on stdin. The provider reads the final model response from th
 
 ## Neovim Development Flow
 
-`make run` remains fake for fast UI iteration. A new `make run-codex` target compiles the backend and launches Neovim with the repo-local config using `LEARN_PROVIDER=codex`, without touching `~/.config/nvim`.
+`make run` remains fake for fast UI iteration. A new `make run-codex` target compiles the backend and launches Neovim with the repo-local config using `VANTAGE_PROVIDER=codex`, without touching `~/.config/nvim`.
