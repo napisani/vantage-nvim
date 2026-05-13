@@ -25,11 +25,12 @@ export class FakeProvider implements BackendProvider {
 
 	annotateRange(params: AnnotateRangeParams): AnnotationResult {
 		const baseLine = params.visibleRange?.startLine ?? params.range?.startLine ?? 0;
+		const maxAnnotations = params.maxAnnotations ?? 3;
 		const annotations = params.scopeText
 			.split(/\r?\n/)
 			.map((line, index) => ({ line, index }))
 			.filter(({ line }) => line.trim().length > 0)
-			.slice(0, 3)
+			.slice(0, maxAnnotations)
 			.map(({ line, index }) => ({
 				range: {
 					startLine: baseLine + index,

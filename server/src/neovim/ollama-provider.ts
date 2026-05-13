@@ -41,6 +41,7 @@ interface RunOllamaOptions {
 	format?: 'annotation-json';
 	think?: boolean;
 	numPredict?: number;
+	maxAnnotations?: number;
 	timeoutMs?: number;
 	signal?: AbortSignal;
 }
@@ -89,6 +90,7 @@ export class OllamaProvider implements BackendProvider {
 			format: 'annotation-json',
 			think: false,
 			numPredict: 256,
+			maxAnnotations: params.maxAnnotations,
 			timeoutMs: this.annotationTimeoutMs,
 			signal: context.signal,
 		});
@@ -117,7 +119,7 @@ export class OllamaProvider implements BackendProvider {
 			stream: false,
 			think: options.think ?? false,
 			keep_alive: '10m',
-			...(options.format === 'annotation-json' ? { format: annotationResponseSchema() } : {}),
+			...(options.format === 'annotation-json' ? { format: annotationResponseSchema(options.maxAnnotations) } : {}),
 			options: {
 				num_predict: options.numPredict ?? 1024,
 				temperature: 0.1,
@@ -146,13 +148,13 @@ export class OllamaProvider implements BackendProvider {
 	}
 }
 
-function annotationResponseSchema(): Record<string, unknown> {
+function annotationResponseSchema(maxAnnotations = 3): Record<string, unknown> {
 	return {
 		type: 'object',
 		properties: {
 			annotations: {
 				type: 'array',
-				maxItems: 3,
+				maxItems: maxAnnotations,
 				items: {
 					type: 'object',
 					properties: {

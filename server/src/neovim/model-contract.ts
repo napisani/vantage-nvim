@@ -23,6 +23,7 @@ export function buildAnnotationPrompt(params: AnnotateRangeParams): string {
 		return buildCandidateAnnotationPrompt(params, params.candidateLines);
 	}
 
+	const limit = annotationLimit(params);
 	return [
 		'You produce concise Neovim virtual-text code annotations.',
 		'Return only JSON. Do not wrap it in Markdown.',
@@ -37,7 +38,7 @@ export function buildAnnotationPrompt(params: AnnotateRangeParams): string {
 		'Text must explain concrete syntax, semantics, identifiers, operators, or control flow from that exact line.',
 		'Text must not mention line numbers, must not say "Inline comment", and must not simply repeat the code.',
 		'Do not make lint, bug, or unused-variable claims unless the active lens explicitly asks for code review and the issue is directly evident.',
-		'Return at most 3 annotations. Keep text short enough for virtual text.',
+		`Return at most ${limit} annotations. Keep text short enough for virtual text.`,
 		renderRequestContext(params),
 		'Numbered code to annotate:',
 		numberedCodeBlock(params.scopeText),
@@ -46,6 +47,7 @@ export function buildAnnotationPrompt(params: AnnotateRangeParams): string {
 }
 
 function buildCandidateAnnotationPrompt(params: AnnotateRangeParams, candidateLines: AnnotationCandidateLine[]): string {
+	const limit = annotationLimit(params);
 	return [
 		'You produce concise Neovim virtual-text code annotations.',
 		'Return only JSON. Do not wrap it in Markdown.',
@@ -57,12 +59,16 @@ function buildCandidateAnnotationPrompt(params: AnnotateRangeParams, candidateLi
 		'Text must explain concrete syntax, semantics, identifiers, operators, or control flow from that exact line.',
 		'Text must not mention line numbers, must not say "Inline comment", and must not simply repeat the code.',
 		'Do not make lint, bug, or unused-variable claims unless the active lens explicitly asks for code review and the issue is directly evident.',
-		'Return at most 3 annotations. Keep text short enough for virtual text.',
+		`Return at most ${limit} annotations. Keep text short enough for virtual text.`,
 		renderRequestContext(params),
 		'Candidate lines to annotate:',
 		candidateCodeBlock(candidateLines),
 		'JSON requirements: annotations[].line is one of the candidate line numbers. annotations[].severity is "info" or "warning".',
 	].join('\n\n');
+}
+
+function annotationLimit(params: AnnotateRangeParams): number {
+	return params.maxAnnotations ?? 3;
 }
 
 export function buildReviewPrompt(params: ReviewCurrentHunkParams): string {

@@ -1,5 +1,6 @@
 import * as test from 'node:test';
 import * as assert from 'node:assert/strict';
+import { ChatGptProvider } from './chatgpt-provider';
 import { CodexProvider } from './codex-provider';
 import { FakeProvider } from './fake-provider';
 import { OllamaProvider } from './ollama-provider';
@@ -81,6 +82,37 @@ test('createProviderFromEnv passes Ollama overrides', () => {
 	assert.equal(provider.traceResponsePath, '/tmp/ollama-response.txt');
 });
 
+test('createProviderFromEnv selects ChatGPT provider with defaults', () => {
+	const provider = createProviderFromEnv({
+		LEARN_PROVIDER: 'chatgpt',
+		LEARN_CHATGPT_API_KEY: 'sk-test',
+	});
+
+	assert.ok(provider instanceof ChatGptProvider);
+	assert.equal(provider.model, 'gpt-4o-mini');
+	assert.equal(provider.timeoutMs, 300_000);
+	assert.equal(provider.annotationTimeoutMs, 30_000);
+});
+
+test('createProviderFromEnv passes ChatGPT overrides', () => {
+	const provider = createProviderFromEnv({
+		LEARN_PROVIDER: 'chatgpt',
+		LEARN_CHATGPT_API_KEY: 'sk-test',
+		LEARN_CHATGPT_MODEL: 'gpt-test-mini',
+		LEARN_CHATGPT_TIMEOUT_MS: '900000',
+		LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS: '45000',
+		LEARN_CHATGPT_TRACE_PROMPT_PATH: '/tmp/chatgpt-prompt.txt',
+		LEARN_CHATGPT_TRACE_RESPONSE_PATH: '/tmp/chatgpt-response.txt',
+	});
+
+	assert.ok(provider instanceof ChatGptProvider);
+	assert.equal(provider.model, 'gpt-test-mini');
+	assert.equal(provider.timeoutMs, 900_000);
+	assert.equal(provider.annotationTimeoutMs, 45_000);
+	assert.equal(provider.tracePromptPath, '/tmp/chatgpt-prompt.txt');
+	assert.equal(provider.traceResponsePath, '/tmp/chatgpt-response.txt');
+});
+
 test('createProviderFromEnv rejects invalid Codex timeout overrides', () => {
 	assert.throws(
 		() => createProviderFromEnv({ LEARN_PROVIDER: 'codex', LEARN_CODEX_TIMEOUT_MS: 'nope' }),
@@ -91,6 +123,6 @@ test('createProviderFromEnv rejects invalid Codex timeout overrides', () => {
 test('createProviderFromEnv rejects unknown providers', () => {
 	assert.throws(
 		() => createProviderFromEnv({ LEARN_PROVIDER: 'llama' }),
-		/Unsupported provider "llama"/
+		/Unsupported provider "llama".*chatgpt/
 	);
 });

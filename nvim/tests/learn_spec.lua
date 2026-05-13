@@ -382,6 +382,100 @@ test("annotate sends fast annotation candidate lines", function()
 	})
 end)
 
+test("LearnAnnotate line scopes annotation to the current line", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"local before = 1",
+			"local target = before + 1",
+			"local after = target + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		vim.cmd("LearnAnnotate line")
+		commands.clear_annotations()
+	end)
+
+	annotations.clear(0)
+	eq(captured.method, "annotateRange")
+	eq(captured.params.text, "local target = before + 1")
+	eq(captured.params.scopeText, "local target = before + 1")
+	eq(captured.params.visibleRange, {
+		startLine = 1,
+		startCharacter = 0,
+		endLine = 1,
+		endCharacter = 25,
+	})
+	eq(captured.params.maxAnnotations, 1)
+	eq(captured.params.candidateLines, {
+		{ line = 0, text = "local target = before + 1" },
+	})
+end)
+
+test("LearnAnnotate visible uses a larger visible-window budget", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"local one = 1",
+			"local two = one + 1",
+			"local three = two + 1",
+			"local four = three + 1",
+			"local five = four + 1",
+			"local six = five + 1",
+			"local seven = six + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+		vim.cmd("LearnAnnotate visible")
+		commands.clear_annotations()
+	end)
+
+	annotations.clear(0)
+	eq(captured.params.maxAnnotations, 6)
+	assert(#captured.params.candidateLines == 6, vim.inspect(captured.params.candidateLines))
+	eq(captured.params.candidateLines[1], { line = 0, text = "local one = 1" })
+	eq(captured.params.candidateLines[6], { line = 5, text = "local six = five + 1" })
+end)
+
+test("LearnAnnotate numeric argument expands the nearby candidate budget", function()
+	local learn = require("learn")
+	local commands = require("learn.commands")
+	local annotations = require("learn.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		learn.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"local one = 1",
+			"local two = one + 1",
+			"local three = two + 1",
+			"local four = three + 1",
+			"local five = four + 1",
+			"local six = five + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		vim.cmd("LearnAnnotate 5")
+		commands.clear_annotations()
+	end)
+
+	annotations.clear(0)
+	eq(captured.params.maxAnnotations, 5)
+	assert(#captured.params.candidateLines == 5, vim.inspect(captured.params.candidateLines))
+	eq(captured.params.candidateLines[1], { line = 1, text = "local two = one + 1" })
+	eq(captured.params.candidateLines[5], { line = 5, text = "local six = five + 1" })
+end)
+
 test("LearnAnnotate accepts an explicit line range", function()
 	local learn = require("learn")
 	local annotations = require("learn.annotations")

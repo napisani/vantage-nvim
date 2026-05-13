@@ -5,6 +5,9 @@ local state = require("learn.state")
 local ui = require("learn.ui")
 
 local M = {}
+local DEFAULT_ANNOTATION_LIMIT = 3
+local LINE_ANNOTATION_LIMIT = 1
+local VISIBLE_ANNOTATION_LIMIT = 6
 local annotation_request = {
 	status = "idle",
 	token = 0,
@@ -102,7 +105,8 @@ local function is_annotation_candidate(line)
 		and not vim.startswith(trimmed, "*")
 end
 
-local function annotation_candidate_lines(params)
+local function annotation_candidate_lines(params, max_annotations)
+	max_annotations = max_annotations or DEFAULT_ANNOTATION_LIMIT
 	local lines = split_lines(params.text or "")
 	local visible_start = params.visibleRange and params.visibleRange.startLine or 0
 	local cursor_line = params.cursor and params.cursor.line or visible_start
@@ -110,7 +114,7 @@ local function annotation_candidate_lines(params)
 	local candidates = {}
 
 	local function add(index)
-		if #candidates >= 3 then
+		if #candidates >= max_annotations then
 			return
 		end
 		local line = lines[index]
@@ -199,7 +203,54 @@ local function range_context(opts)
 	return nil
 end
 
-local function annotation_context(opts)
+local function parse_positive_integer(text)
+	local value = tonumber(text)
+	if value and value > 0 and math.floor(value) == value then
+		return value
+	end
+	return nil
+end
+
+local function parse_annotation_options(opts)
+	local args = opts and opts.fargs or {}
+	local parsed = {
+		scope = "nearby",
+		max_annotations = nil,
+	}
+
+	for _, arg in ipairs(args) do
+		local max_annotations = parse_positive_integer(arg)
+		if max_annotations then
+			parsed.max_annotations = max_annotations
+		elseif arg == "line" or arg == "visible" then
+			parsed.scope = arg
+		else
+			return nil, 'unsupported annotation option "' .. tostring(arg) .. '"'
+		end
+	end
+
+	if not parsed.max_annotations then
+		if parsed.scope == "line" then
+			parsed.max_annotations = LINE_ANNOTATION_LIMIT
+		elseif parsed.scope == "visible" then
+			parsed.max_annotations = VISIBLE_ANNOTATION_LIMIT
+		else
+			parsed.max_annotations = DEFAULT_ANNOTATION_LIMIT
+		end
+	end
+
+	return parsed, nil
+end
+
+local function annotation_context(opts, annotation_options)
+	if annotation_options.scope == "line" then
+		return context.current_line()
+	end
+
+	if annotation_options.scope == "visible" then
+		return context.visible()
+	end
+
 	return range_context(opts) or context.visible()
 end
 
@@ -280,9 +331,15 @@ function M.annotate(opts)
 	cancel_annotation_request("Learn: cancelled annotation request to")
 
 	local bufnr = vim.api.nvim_get_current_buf()
-	local params = annotation_context(opts)
+	local annotation_options, parse_error = parse_annotation_options(opts)
+	if not annotation_options then
+		vim.notify("Learn: " .. parse_error, vim.log.levels.ERROR)
+		return
+	end
+	local params = annotation_context(opts, annotation_options)
 	params.scopeText = params.text
-	params.candidateLines = annotation_candidate_lines(params)
+	params.maxAnnotations = annotation_options.max_annotations
+	params.candidateLines = annotation_candidate_lines(params, annotation_options.max_annotations)
 	local provider = annotation_provider()
 	local token = begin_annotation_request(provider)
 
@@ -366,7 +423,7 @@ function M.register()
 	delete_commands({ "LearnToggleAnnotations" })
 	recreate_command("LearnAnnotate", function(opts)
 		M.annotate(opts)
-	end, { range = true })
+	end, { range = true, nargs = "*" })
 
 	recreate_command("LearnAnnotationClear", function()
 		M.clear_annotations()

@@ -12,12 +12,16 @@ OLLAMA_MODEL ?= qwen3:1.7b
 OLLAMA_BASE_URL ?= http://localhost:11434
 OLLAMA_TIMEOUT_MS ?= 60000
 OLLAMA_ANNOTATION_TIMEOUT_MS ?= 20000
+CHATGPT_MODEL ?= gpt-4o-mini
+CHATGPT_API_KEY ?= $(OPENAI_API_KEY)
+CHATGPT_TIMEOUT_MS ?= 300000
+CHATGPT_ANNOTATION_TIMEOUT_MS ?= 30000
 E2E_WAIT_MS ?= 30000
 E2E_DIR := $(DEV_HOME)/e2e
 TRACE_DIR := $(DEV_HOME)/trace
 CODEX_STUB := $(ROOT)/nvim/tests/codex-stub.js
 
-.PHONY: test run run-codex run-codex-stub run-ollama compile lint test-dev-init test-dev-init-codex test-dev-init-ollama e2e-annotations e2e-annotations-real e2e-annotations-ollama e2e-dirs trace-dirs dev-dirs
+.PHONY: test run run-codex run-codex-stub run-ollama run-chatgpt compile lint test-dev-init test-dev-init-codex test-dev-init-ollama test-dev-init-chatgpt e2e-annotations e2e-annotations-real e2e-annotations-ollama e2e-annotations-chatgpt e2e-dirs trace-dirs dev-dirs
 
 dev-dirs:
 	mkdir -p "$(DEV_HOME)/config" "$(DEV_HOME)/data" "$(DEV_HOME)/state" "$(DEV_HOME)/cache"
@@ -34,7 +38,7 @@ compile:
 lint:
 	$(NPM) run lint
 
-test: dev-dirs test-dev-init test-dev-init-codex test-dev-init-ollama e2e-annotations
+test: dev-dirs test-dev-init test-dev-init-codex test-dev-init-ollama test-dev-init-chatgpt e2e-annotations
 	$(DEV_ENV) $(NPM) run test:mvp
 
 run: dev-dirs compile
@@ -45,6 +49,9 @@ run-codex: trace-dirs compile
 
 run-ollama: trace-dirs compile
 	$(DEV_ENV) LEARN_DEV_PROVIDER=ollama LEARN_PROVIDER=ollama LEARN_OLLAMA_MODEL="$(OLLAMA_MODEL)" LEARN_OLLAMA_BASE_URL="$(OLLAMA_BASE_URL)" LEARN_OLLAMA_TIMEOUT_MS="$(OLLAMA_TIMEOUT_MS)" LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS="$(OLLAMA_ANNOTATION_TIMEOUT_MS)" LEARN_OLLAMA_TRACE_PROMPT_PATH="$(TRACE_DIR)/ollama-prompt.txt" LEARN_OLLAMA_TRACE_RESPONSE_PATH="$(TRACE_DIR)/ollama-response.txt" $(NVIM) --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(FILE)"
+
+run-chatgpt: trace-dirs compile
+	$(DEV_ENV) LEARN_DEV_PROVIDER=chatgpt LEARN_PROVIDER=chatgpt LEARN_CHATGPT_MODEL="$(CHATGPT_MODEL)" LEARN_CHATGPT_API_KEY="$(CHATGPT_API_KEY)" LEARN_CHATGPT_TIMEOUT_MS="$(CHATGPT_TIMEOUT_MS)" LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS="$(CHATGPT_ANNOTATION_TIMEOUT_MS)" LEARN_CHATGPT_TRACE_PROMPT_PATH="$(TRACE_DIR)/chatgpt-prompt.txt" LEARN_CHATGPT_TRACE_RESPONSE_PATH="$(TRACE_DIR)/chatgpt-response.txt" $(NVIM) --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(FILE)"
 
 run-codex-stub: e2e-dirs compile
 	chmod +x "$(CODEX_STUB)"
@@ -63,6 +70,10 @@ e2e-annotations-ollama: e2e-dirs compile
 	$(DEV_ENV) LEARN_DEV_PROVIDER=ollama LEARN_PROVIDER=ollama LEARN_OLLAMA_MODEL="$(OLLAMA_MODEL)" LEARN_OLLAMA_BASE_URL="$(OLLAMA_BASE_URL)" LEARN_OLLAMA_TIMEOUT_MS="$(OLLAMA_TIMEOUT_MS)" LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS="$(OLLAMA_ANNOTATION_TIMEOUT_MS)" LEARN_E2E_WAIT_MS="$(E2E_WAIT_MS)" LEARN_E2E_ARTIFACT_PATH="$(E2E_DIR)/annotations-ollama.json" LEARN_OLLAMA_TRACE_PROMPT_PATH="$(E2E_DIR)/ollama-prompt.txt" LEARN_OLLAMA_TRACE_RESPONSE_PATH="$(E2E_DIR)/ollama-response.txt" $(NVIM) --headless --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(ROOT)/README.md" -c "lua dofile('$(ROOT)/nvim/tests/e2e_annotations_spec.lua').run()" -c "qa!"
 	@cat "$(E2E_DIR)/annotations-ollama.json"
 
+e2e-annotations-chatgpt: e2e-dirs compile
+	$(DEV_ENV) LEARN_DEV_PROVIDER=chatgpt LEARN_PROVIDER=chatgpt LEARN_CHATGPT_MODEL="$(CHATGPT_MODEL)" LEARN_CHATGPT_API_KEY="$(CHATGPT_API_KEY)" LEARN_CHATGPT_TIMEOUT_MS="$(CHATGPT_TIMEOUT_MS)" LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS="$(CHATGPT_ANNOTATION_TIMEOUT_MS)" LEARN_E2E_WAIT_MS="$(E2E_WAIT_MS)" LEARN_E2E_ARTIFACT_PATH="$(E2E_DIR)/annotations-chatgpt.json" LEARN_CHATGPT_TRACE_PROMPT_PATH="$(E2E_DIR)/chatgpt-prompt.txt" LEARN_CHATGPT_TRACE_RESPONSE_PATH="$(E2E_DIR)/chatgpt-response.txt" $(NVIM) --headless --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(ROOT)/README.md" -c "lua dofile('$(ROOT)/nvim/tests/e2e_annotations_spec.lua').run()" -c "qa!"
+	@cat "$(E2E_DIR)/annotations-chatgpt.json"
+
 test-dev-init: dev-dirs compile
 	$(DEV_ENV) $(NVIM) --headless --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(ROOT)/README.md" -c "lua dofile('$(ROOT)/nvim/tests/dev_init_spec.lua').run()" -c qa
 
@@ -71,3 +82,6 @@ test-dev-init-codex: dev-dirs compile
 
 test-dev-init-ollama: dev-dirs compile
 	$(DEV_ENV) LEARN_DEV_PROVIDER=ollama $(NVIM) --headless --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(ROOT)/README.md" -c "lua dofile('$(ROOT)/nvim/tests/dev_init_spec.lua').run()" -c qa
+
+test-dev-init-chatgpt: dev-dirs compile
+	$(DEV_ENV) LEARN_DEV_PROVIDER=chatgpt $(NVIM) --headless --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(ROOT)/README.md" -c "lua dofile('$(ROOT)/nvim/tests/dev_init_spec.lua').run()" -c qa

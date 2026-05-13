@@ -98,6 +98,20 @@ make run-ollama OLLAMA_MODEL=qwen3:1.7b OLLAMA_BASE_URL=http://localhost:11434 O
 
 Manual Ollama runs write `.nvim-dev/trace/ollama-prompt.txt` when a request starts and `.nvim-dev/trace/ollama-response.txt` when Ollama returns.
 
+Open Neovim with the ChatGPT provider through the official OpenAI Node SDK:
+
+```bash
+OPENAI_API_KEY=... make run-chatgpt
+```
+
+`make run-chatgpt` defaults to `gpt-4o-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
+
+```bash
+make run-chatgpt CHATGPT_MODEL=gpt-4o-mini CHATGPT_ANNOTATION_TIMEOUT_MS=45000
+```
+
+The provider uses the OpenAI SDK's Responses API. Manual ChatGPT runs write `.nvim-dev/trace/chatgpt-prompt.txt` when a request starts and `.nvim-dev/trace/chatgpt-response.txt` when the provider returns.
+
 Run the annotation e2e test against your real Codex CLI login:
 
 ```bash
@@ -114,6 +128,14 @@ make e2e-annotations-ollama E2E_WAIT_MS=60000
 ```
 
 The Ollama e2e target writes `.nvim-dev/e2e/annotations-ollama.json`, `.nvim-dev/e2e/ollama-prompt.txt`, and `.nvim-dev/e2e/ollama-response.txt`.
+
+Run the annotation e2e test against ChatGPT:
+
+```bash
+OPENAI_API_KEY=... make e2e-annotations-chatgpt E2E_WAIT_MS=60000
+```
+
+The ChatGPT e2e target writes `.nvim-dev/e2e/annotations-chatgpt.json`, `.nvim-dev/e2e/chatgpt-prompt.txt`, and `.nvim-dev/e2e/chatgpt-response.txt`.
 
 Open a specific file:
 
@@ -138,6 +160,17 @@ Then run:
 ```
 
 `:LearnAnnotate` asks the active provider to annotate the section closest to the cursor. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:LearnAnnotationClear` removes all learn.nvim annotations from the current buffer.
+
+`LearnAnnotate` accepts simple scope and budget arguments:
+
+```vim
+:LearnAnnotate line
+:LearnAnnotate visible
+:LearnAnnotate 5
+:LearnAnnotate visible 10
+```
+
+With no arguments, `LearnAnnotate` keeps the fast default of up to 3 nearby candidate lines. `line` annotates only the current line. `visible` annotates up to 6 visible-window candidate lines. A numeric argument sets the maximum annotation budget for that request.
 
 `LearnAnnotate` also accepts Vim line ranges:
 

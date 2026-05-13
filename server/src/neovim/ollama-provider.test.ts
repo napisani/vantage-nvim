@@ -91,6 +91,7 @@ test('OllamaProvider annotateRange uses fast candidate-line JSON and annotation 
 			cursor: { line: 40, character: 0 },
 			visibleRange: { startLine: 40, startCharacter: 0, endLine: 41, endCharacter: 25 },
 			scopeText: 'const first = 1;\nconst second = first + 1;',
+			maxAnnotations: 5,
 			candidateLines: [
 				{ line: 0, text: 'const first = 1;' },
 				{ line: 1, text: 'const second = first + 1;' },
@@ -109,6 +110,8 @@ test('OllamaProvider annotateRange uses fast candidate-line JSON and annotation 
 		assert.equal(result.telemetry?.promptEvalCount, 80);
 		assert.equal(result.telemetry?.evalCount, 24);
 		assert.equal(typeof fetchMock.requests[0].body.format, 'object');
+		assert.equal((fetchMock.requests[0].body.format as { properties?: { annotations?: { maxItems?: number } } })
+			.properties?.annotations?.maxItems, 5);
 		assert.equal(fetchMock.requests[0].body.think, false);
 		assert.deepEqual(fetchMock.requests[0].body.options, { num_predict: 256, temperature: 0.1 });
 		const messages = JSON.stringify(fetchMock.requests[0].body.messages);

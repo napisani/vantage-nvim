@@ -46,6 +46,7 @@ export interface AnnotateRangeParams extends BaseRequestParams {
 	visibleRange?: Range;
 	range?: Range;
 	scopeText: string;
+	maxAnnotations?: number;
 	candidateLines?: AnnotationCandidateLine[];
 }
 
@@ -135,6 +136,7 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 					visibleRange: parseOptionalRange(params.visibleRange, 'params.visibleRange'),
 					range: parseOptionalRange(params.range, 'params.range'),
 					scopeText: requireString(params.scopeText, 'params.scopeText'),
+					maxAnnotations: parseOptionalPositiveInteger(params.maxAnnotations, 'params.maxAnnotations'),
 					candidateLines: parseOptionalCandidateLines(params.candidateLines, 'params.candidateLines'),
 				},
 			};
@@ -292,6 +294,18 @@ function parseOptionalString(value: unknown, label: string): string | undefined 
 function requireCoordinate(value: unknown, label: string): number {
 	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
 		throw new Error(`${label} must be a non-negative integer`);
+	}
+
+	return value;
+}
+
+function parseOptionalPositiveInteger(value: unknown, label: string): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value !== 'number' || !Number.isInteger(value) || value <= 0) {
+		throw new Error(`${label} must be a positive integer`);
 	}
 
 	return value;

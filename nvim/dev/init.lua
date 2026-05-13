@@ -16,7 +16,11 @@ local backend = {
 	mode = "fake",
 }
 
-if vim.env.LEARN_DEV_PROVIDER == "codex" or vim.env.LEARN_DEV_PROVIDER == "ollama" then
+if
+	vim.env.LEARN_DEV_PROVIDER == "codex"
+	or vim.env.LEARN_DEV_PROVIDER == "ollama"
+	or vim.env.LEARN_DEV_PROVIDER == "chatgpt"
+then
 	backend = {
 		mode = "stdio",
 		command = { "node", root .. "/server/out/neovim/stdio-server.js" },

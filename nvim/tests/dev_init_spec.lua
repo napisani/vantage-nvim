@@ -2,7 +2,11 @@ local M = {}
 
 function M.run()
 	local state = require("learn.state")
-	local expected_mode = (vim.env.LEARN_DEV_PROVIDER == "codex" or vim.env.LEARN_DEV_PROVIDER == "ollama")
+	local expected_mode = (
+				vim.env.LEARN_DEV_PROVIDER == "codex"
+				or vim.env.LEARN_DEV_PROVIDER == "ollama"
+				or vim.env.LEARN_DEV_PROVIDER == "chatgpt"
+			)
 			and "stdio"
 		or "fake"
 	assert(state.config.backend.mode == expected_mode, "expected dev init to use " .. expected_mode .. " backend")

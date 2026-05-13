@@ -33,6 +33,7 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 			cursor: { line: 2, character: 0 },
 			visibleRange: { startLine: 10, startCharacter: 0, endLine: 12, endCharacter: 20 },
 			scopeText: 'const one = 1;\n// comment\nconst two = one + 1;',
+			maxAnnotations: 5,
 			candidateLines: [
 				{ line: 0, text: 'const one = 1;' },
 				{ line: 2, text: 'const two = one + 1;' },
@@ -41,10 +42,30 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 	});
 
 	assert.equal(parsed.method, 'annotateRange');
+	assert.equal(parsed.params.maxAnnotations, 5);
 	assert.deepEqual(parsed.params.candidateLines, [
 		{ line: 0, text: 'const one = 1;' },
 		{ line: 2, text: 'const two = one + 1;' },
 	]);
+});
+
+test('parseBackendRequest rejects invalid annotation budgets', () => {
+	assert.throws(
+		() =>
+			parseBackendRequest({
+				id: 'req-annotations',
+				method: 'annotateRange',
+				params: {
+					filePath: '/repo/example.ts',
+					language: 'typescript',
+					text: 'const value = 1;',
+					cursor: { line: 0, character: 0 },
+					scopeText: 'const value = 1;',
+					maxAnnotations: 0,
+				},
+			}),
+		/params.maxAnnotations must be a positive integer/
+	);
 });
 
 test('parseBackendRequest rejects a request without an id', () => {

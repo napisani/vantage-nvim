@@ -1,3 +1,4 @@
+import { ChatGptProvider } from './chatgpt-provider';
 import { CodexProvider } from './codex-provider';
 import { FakeProvider } from './fake-provider';
 import { OllamaProvider } from './ollama-provider';
@@ -18,6 +19,13 @@ export interface ProviderEnvironment {
 	LEARN_OLLAMA_ANNOTATION_TIMEOUT_MS?: string;
 	LEARN_OLLAMA_TRACE_PROMPT_PATH?: string;
 	LEARN_OLLAMA_TRACE_RESPONSE_PATH?: string;
+	OPENAI_API_KEY?: string;
+	LEARN_CHATGPT_API_KEY?: string;
+	LEARN_CHATGPT_MODEL?: string;
+	LEARN_CHATGPT_TIMEOUT_MS?: string;
+	LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS?: string;
+	LEARN_CHATGPT_TRACE_PROMPT_PATH?: string;
+	LEARN_CHATGPT_TRACE_RESPONSE_PATH?: string;
 }
 
 export function createProviderFromEnv(env: ProviderEnvironment): BackendProvider {
@@ -55,7 +63,21 @@ export function createProviderFromEnv(env: ProviderEnvironment): BackendProvider
 		});
 	}
 
-	throw new Error(`Unsupported provider "${providerName}". Expected "fake", "codex", or "ollama".`);
+	if (providerName === 'chatgpt') {
+		return new ChatGptProvider({
+			env,
+			model: env.LEARN_CHATGPT_MODEL,
+			timeoutMs: parseOptionalPositiveInteger(env.LEARN_CHATGPT_TIMEOUT_MS, 'LEARN_CHATGPT_TIMEOUT_MS'),
+			annotationTimeoutMs: parseOptionalPositiveInteger(
+				env.LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS,
+				'LEARN_CHATGPT_ANNOTATION_TIMEOUT_MS'
+			),
+			tracePromptPath: env.LEARN_CHATGPT_TRACE_PROMPT_PATH,
+			traceResponsePath: env.LEARN_CHATGPT_TRACE_RESPONSE_PATH,
+		});
+	}
+
+	throw new Error(`Unsupported provider "${providerName}". Expected "fake", "codex", "ollama", or "chatgpt".`);
 }
 
 function parseOptionalPositiveInteger(value: string | undefined, label: string): number | undefined {

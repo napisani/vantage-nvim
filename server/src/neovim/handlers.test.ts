@@ -38,6 +38,7 @@ test('handleBackendRequest returns capped annotations', async () => {
 			cursor: { line: 0, character: 0 },
 			visibleRange: { startLine: 0, startCharacter: 0, endLine: 3, endCharacter: 15 },
 			scopeText: 'const one = 1;\nconst two = 2;\nconst three = 3;\nconst four = 4;',
+			maxAnnotations: 4,
 			lens: { mode: 'review', text: 'Check naming clarity' },
 		},
 	});
@@ -47,7 +48,7 @@ test('handleBackendRequest returns capped annotations', async () => {
 		assert.fail('expected successful response');
 	}
 	assert.equal(response.result.kind, 'annotations');
-	assert.equal(response.result.annotations.length, 3);
+	assert.equal(response.result.annotations.length, 4);
 	assert.equal(response.result.annotations[0].range.startLine, 0);
 	assert.match(response.result.annotations[0].text, /Fake provider annotation/);
 	assert.match(response.result.annotations[0].detailMarkdown ?? '', /Annotation detail/);
