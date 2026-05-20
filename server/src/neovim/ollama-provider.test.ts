@@ -123,6 +123,56 @@ test('OllamaProvider annotateRange uses fast candidate-line JSON and annotation 
 	}
 });
 
+test('OllamaProvider annotateRange uses range JSON for full-scope annotation prompts', async () => {
+	const fetchMock = installFetchMock(200, {
+		done: true,
+		message: {
+			role: 'assistant',
+			content: JSON.stringify({
+				annotations: [
+					{
+						range: { startLine: 2, startCharacter: 0, endLine: 2, endCharacter: 23 },
+						text: 'third depends on the accumulated value from second',
+						severity: 'info',
+					},
+				],
+			}),
+		},
+	});
+	try {
+		const provider = new OllamaProvider({ baseUrl: 'http://127.0.0.1:11435' });
+
+		const result = await provider.annotateRange({
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const first = 1;\nconst second = first + 1;\nconst third = second + 1;\nreturn third;',
+			cursor: { line: 40, character: 0 },
+			visibleRange: { startLine: 40, startCharacter: 0, endLine: 43, endCharacter: 13 },
+			scopeText: 'const first = 1;\nconst second = first + 1;\nconst third = second + 1;\nreturn third;',
+			maxAnnotations: 2,
+		});
+
+		assert.deepEqual(result.annotations[0].range, {
+			startLine: 42,
+			startCharacter: 0,
+			endLine: 42,
+			endCharacter: 23,
+		});
+		const format = fetchMock.requests[0].body.format as {
+			properties?: { annotations?: { items?: { required?: string[]; properties?: Record<string, unknown> } } };
+		};
+		const item = format.properties?.annotations?.items;
+		assert.deepEqual(item?.required, ['range', 'text', 'severity']);
+		assert.equal(item?.properties?.line, undefined);
+		assert.equal(typeof item?.properties?.range, 'object');
+		const messages = JSON.stringify(fetchMock.requests[0].body.messages);
+		assert.match(messages, /Numbered code to annotate/i);
+		assert.doesNotMatch(messages, /Candidate lines to annotate/i);
+	} finally {
+		fetchMock.restore();
+	}
+});
+
 test('OllamaProvider cancels annotateRange with an abort signal', async () => {
 	const originalFetch = globalThis.fetch;
 	globalThis.fetch = async (_input, init) =>

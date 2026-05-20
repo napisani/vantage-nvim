@@ -2,7 +2,7 @@
 
 This project is being reworked into a Neovim-first AI review and learning tool.
 
-The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and provider behavior. The current implementation uses a deterministic fake provider so the developer experience can be tuned before real model integrations are added.
+The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and provider behavior.
 
 ## Commands
 
@@ -12,6 +12,137 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
 - `:VantageReviewHunk`
+
+## Installation
+
+vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `npm ci --omit=dev` in the plugin directory so runtime Node dependencies are available.
+
+### lazy.nvim
+
+```lua
+{
+  "napisani/learn-lsp",
+  name = "vantage.nvim",
+  branch = "dist",
+  build = "npm ci --omit=dev",
+  config = function()
+    require("vantage").setup({
+      provider = { name = "fake" },
+    })
+  end,
+}
+```
+
+### vim-plug
+
+```vim
+Plug 'napisani/learn-lsp', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
+```
+
+Then configure vantage.nvim from your Lua config:
+
+```lua
+require("vantage").setup({
+  provider = { name = "fake" },
+})
+```
+
+### Native Packages
+
+```bash
+git clone --branch dist https://github.com/napisani/learn-lsp \
+  "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
+cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
+npm ci --omit=dev
+```
+
+### Provider Configuration
+
+The installed plugin starts the bundled stdio backend automatically. With `provider.name = "fake"`, commands use deterministic local responses and require no model setup.
+
+Use Codex CLI:
+
+```lua
+require("vantage").setup({
+  provider = {
+    name = "codex",
+    codex = {
+      command = "codex",
+      model = "gpt-5.4-mini",
+    },
+  },
+})
+```
+
+Codex uses your existing `codex` CLI login.
+
+Use Ollama:
+
+```lua
+require("vantage").setup({
+  provider = {
+    name = "ollama",
+    ollama = {
+      base_url = "http://localhost:11434",
+      model = "qwen3:1.7b",
+    },
+  },
+})
+```
+
+Use ChatGPT through the OpenAI SDK:
+
+```lua
+require("vantage").setup({
+  provider = {
+    name = "chatgpt",
+    chatgpt = {
+      model = "gpt-4o-mini",
+      -- api_key = "sk-...", -- optional; falls back to OPENAI_API_KEY
+    },
+  },
+})
+```
+
+Use Pi through `@earendil-works/pi-ai`:
+
+```lua
+require("vantage").setup({
+  provider = {
+    name = "pi",
+    pi = {
+      provider = "openai",
+      model = "gpt-4o-mini",
+      -- api_key = "sk-...", -- optional; falls back to OPENAI_API_KEY for openai
+    },
+  },
+})
+```
+
+For `pi.provider = "anthropic"`, `pi.api_key` falls back to `ANTHROPIC_API_KEY`. Timeout and trace fields are also available for each provider, for example `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, and `trace_response_path`.
+
+### Configuration Reference
+
+The Lua config is documented with `---@class` annotations in `lua/vantage/state.lua` so Lua language servers can complete fields from `VantageConfig`.
+
+```lua
+---@type VantageConfig
+require("vantage").setup({
+  provider = {
+    name = "fake", -- "fake" | "codex" | "ollama" | "chatgpt" | "pi"
+  },
+  annotations = {
+    waiting_message_ms = 30000,
+  },
+})
+```
+
+Provider-specific fields:
+
+- `codex`: `command`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
+- `ollama`: `base_url`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
+- `chatgpt`: `api_key`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
+- `pi`: `api_key`, `provider`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
 
 ## Development
 
@@ -112,6 +243,20 @@ make run-chatgpt CHATGPT_MODEL=gpt-4o-mini CHATGPT_ANNOTATION_TIMEOUT_MS=45000
 
 The provider uses the OpenAI SDK's Responses API. Manual ChatGPT runs write `.nvim-dev/trace/chatgpt-prompt.txt` when a request starts and `.nvim-dev/trace/chatgpt-response.txt` when the provider returns.
 
+Open Neovim with the Pi provider:
+
+```bash
+OPENAI_API_KEY=... make run-pi
+```
+
+`make run-pi` defaults to `openai/gpt-4o-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
+
+```bash
+make run-pi PI_PROVIDER=openai PI_MODEL=gpt-4o-mini PI_ANNOTATION_TIMEOUT_MS=45000
+```
+
+Manual Pi runs write `.nvim-dev/trace/pi-prompt.txt` when a request starts and `.nvim-dev/trace/pi-response.txt` when the provider returns.
+
 Run the annotation e2e test against your real Codex CLI login:
 
 ```bash
@@ -159,22 +304,23 @@ Then run:
 :'<,'>VantageExplain
 ```
 
-`:VantageAnnotate` asks the active provider to annotate the section closest to the cursor. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
+`:VantageAnnotate` asks the active provider to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
 
 `VantageAnnotate` accepts simple scope and budget arguments:
 
 ```vim
+:VantageAnnotate
 :VantageAnnotate line
 :VantageAnnotate visible
-:VantageAnnotate 5
 :VantageAnnotate visible 10
 ```
 
-With no arguments, `VantageAnnotate` keeps the fast default of up to 3 nearby candidate lines. `line` annotates only the current line. `visible` annotates up to 6 visible-window candidate lines. A numeric argument sets the maximum annotation budget for that request.
+With no arguments, `VantageAnnotate` annotates only the current line. `line` is an explicit form of the same behavior. `visible` annotates the currently visible buffer lines, equivalent to selecting those lines and running `VantageAnnotate`. A numeric argument sets the maximum annotation budget for that request, which is most useful with `visible` or a Vim line range.
 
 `VantageAnnotate` also accepts Vim line ranges:
 
 ```vim
 :10,20VantageAnnotate
 :'<,'>VantageAnnotate
+:'<,'>VantageAnnotate 5
 ```

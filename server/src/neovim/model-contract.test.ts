@@ -20,3 +20,23 @@ test('buildAnnotationPrompt uses the requested annotation budget', () => {
 	assert.match(prompt, /Return at most 5 annotations/);
 	assert.doesNotMatch(prompt, /Return at most 3 annotations/);
 });
+
+test('buildAnnotationPrompt asks the model to choose critical lens-relevant lines for oversized scopes', () => {
+	const prompt = buildAnnotationPrompt({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const one = 1;\nconst two = one + 1;\nconst three = two + 1;\nreturn three;',
+		cursor: { line: 0, character: 0 },
+		visibleRange: { startLine: 10, startCharacter: 0, endLine: 13, endCharacter: 13 },
+		scopeText: 'const one = 1;\nconst two = one + 1;\nconst three = two + 1;\nreturn three;',
+		maxAnnotations: 2,
+		lens: { mode: 'learning', text: 'I am learning TypeScript data flow' },
+	});
+
+	assert.match(prompt, /most critical or noteworthy lines/i);
+	assert.match(prompt, /Use the active lens to decide what is critical/i);
+	assert.match(prompt, /Do not try to cover every line/i);
+	assert.match(prompt, /Lens: learning: I am learning TypeScript data flow/);
+	assert.match(prompt, /0\| const one = 1;/);
+	assert.match(prompt, /3\| return three;/);
+});

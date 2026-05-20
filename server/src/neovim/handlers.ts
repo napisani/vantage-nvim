@@ -1,22 +1,21 @@
 import { BackendRequest, BackendResponse } from './protocol';
-import { createProviderFromEnv } from './provider-factory';
+import { createProviderFromConfig } from './provider-factory';
 import type { BackendProvider, ProviderRequestContext } from './provider';
-
-const defaultProvider = createProviderFromEnv(process.env);
 
 export async function handleBackendRequest(
 	request: BackendRequest,
-	provider: BackendProvider = defaultProvider,
+	provider: BackendProvider | undefined = undefined,
 	context: ProviderRequestContext = {}
 ): Promise<BackendResponse> {
 	try {
+		const activeProvider = provider ?? createProviderFromConfig(request.config?.provider, process.env);
 		switch (request.method) {
 			case 'explainSelection':
-				return { id: request.id, ok: true, result: await provider.explainSelection(request.params, context) };
+				return { id: request.id, ok: true, result: await activeProvider.explainSelection(request.params, context) };
 			case 'annotateRange':
-				return { id: request.id, ok: true, result: await provider.annotateRange(request.params, context) };
+				return { id: request.id, ok: true, result: await activeProvider.annotateRange(request.params, context) };
 			case 'reviewCurrentHunk':
-				return { id: request.id, ok: true, result: await provider.reviewCurrentHunk(request.params, context) };
+				return { id: request.id, ok: true, result: await activeProvider.reviewCurrentHunk(request.params, context) };
 		}
 	} catch (error) {
 		return {

@@ -7,7 +7,6 @@ local ui = require("vantage.ui")
 local M = {}
 local DEFAULT_ANNOTATION_LIMIT = 3
 local LINE_ANNOTATION_LIMIT = 1
-local VISIBLE_ANNOTATION_LIMIT = 6
 local annotation_request = {
 	status = "idle",
 	token = 0,
@@ -20,8 +19,11 @@ local function annotation_provider()
 	local backend_config = state.config.backend or {}
 	local mode = backend_config.mode or "stdio"
 	local name = mode
-	if mode ~= "fake" then
-		name = vim.env.VANTAGE_PROVIDER or vim.env.VANTAGE_DEV_PROVIDER or mode
+	local provider_config = state.config.provider or {}
+	if mode == "fake" then
+		name = "fake"
+	else
+		name = provider_config.name or "fake"
 	end
 	if name == "" then
 		name = mode
@@ -30,11 +32,26 @@ local function annotation_provider()
 	local model = nil
 	local trace = nil
 	if name == "ollama" then
-		model = vim.env.VANTAGE_OLLAMA_MODEL
-		trace = vim.env.VANTAGE_OLLAMA_TRACE_RESPONSE_PATH
+		local ollama = provider_config.ollama or {}
+		model = ollama.model
+		trace = ollama.trace_response_path
 	elseif name == "codex" then
-		model = vim.env.VANTAGE_CODEX_MODEL
-		trace = vim.env.VANTAGE_CODEX_TRACE_RESPONSE_PATH
+		local codex = provider_config.codex or {}
+		model = codex.model
+		trace = codex.trace_response_path
+	elseif name == "chatgpt" then
+		local chatgpt = provider_config.chatgpt or {}
+		model = chatgpt.model
+		trace = chatgpt.trace_response_path
+	elseif name == "pi" then
+		local pi = provider_config.pi or {}
+		local pi_provider = pi.provider or "openai"
+		model = pi.model
+		if not model or model == "" then
+			model = "gpt-4o-mini"
+		end
+		model = pi_provider .. "/" .. model
+		trace = pi.trace_response_path
 	end
 
 	local label = name
@@ -105,34 +122,16 @@ local function is_annotation_candidate(line)
 		and not vim.startswith(trimmed, "*")
 end
 
-local function annotation_candidate_lines(params, max_annotations)
-	max_annotations = max_annotations or DEFAULT_ANNOTATION_LIMIT
+local function annotation_candidate_lines(params)
 	local lines = split_lines(params.text or "")
-	local visible_start = params.visibleRange and params.visibleRange.startLine or 0
-	local cursor_line = params.cursor and params.cursor.line or visible_start
-	local cursor_index = math.max(1, math.min(#lines, cursor_line - visible_start + 1))
 	local candidates = {}
 
-	local function add(index)
-		if #candidates >= max_annotations then
-			return
-		end
-		local line = lines[index]
+	for index, line in ipairs(lines) do
 		if line and is_annotation_candidate(line) then
 			table.insert(candidates, { line = index - 1, text = line })
 		end
 	end
 
-	for index = cursor_index, #lines do
-		add(index)
-	end
-	for index = cursor_index - 1, 1, -1 do
-		add(index)
-	end
-
-	table.sort(candidates, function(left, right)
-		return left.line < right.line
-	end)
 	return candidates
 end
 
@@ -214,7 +213,7 @@ end
 local function parse_annotation_options(opts)
 	local args = opts and opts.fargs or {}
 	local parsed = {
-		scope = "nearby",
+		scope = nil,
 		max_annotations = nil,
 	}
 
@@ -229,29 +228,34 @@ local function parse_annotation_options(opts)
 		end
 	end
 
-	if not parsed.max_annotations then
-		if parsed.scope == "line" then
-			parsed.max_annotations = LINE_ANNOTATION_LIMIT
-		elseif parsed.scope == "visible" then
-			parsed.max_annotations = VISIBLE_ANNOTATION_LIMIT
-		else
-			parsed.max_annotations = DEFAULT_ANNOTATION_LIMIT
-		end
-	end
-
 	return parsed, nil
 end
 
 local function annotation_context(opts, annotation_options)
 	if annotation_options.scope == "line" then
-		return context.current_line()
+		return context.current_line(), "line"
 	end
 
 	if annotation_options.scope == "visible" then
-		return context.visible()
+		return context.visible(), "range"
 	end
 
-	return range_context(opts) or context.visible()
+	local selected_range = range_context(opts)
+	if selected_range then
+		return selected_range, "range"
+	end
+
+	return context.current_line(), "line"
+end
+
+local function annotation_limit(annotation_options, scope_kind)
+	if annotation_options.max_annotations then
+		return annotation_options.max_annotations
+	end
+	if scope_kind == "line" then
+		return LINE_ANNOTATION_LIMIT
+	end
+	return DEFAULT_ANNOTATION_LIMIT
 end
 
 local function explanation_context(opts)
@@ -336,10 +340,13 @@ function M.annotate(opts)
 		vim.notify("Vantage: " .. parse_error, vim.log.levels.ERROR)
 		return
 	end
-	local params = annotation_context(opts, annotation_options)
+	local params, scope_kind = annotation_context(opts, annotation_options)
 	params.scopeText = params.text
-	params.maxAnnotations = annotation_options.max_annotations
-	params.candidateLines = annotation_candidate_lines(params, annotation_options.max_annotations)
+	params.maxAnnotations = annotation_limit(annotation_options, scope_kind)
+	local candidate_lines = annotation_candidate_lines(params)
+	if #candidate_lines > 0 and #candidate_lines <= params.maxAnnotations then
+		params.candidateLines = candidate_lines
+	end
 	local provider = annotation_provider()
 	local token = begin_annotation_request(provider)
 
@@ -405,18 +412,6 @@ local function delete_commands(names)
 end
 
 function M.register()
-	delete_commands({
-		"LearnSetLens",
-		"LearnClearLens",
-		"LearnExplain",
-		"LearnExplainLine",
-		"LearnExplainSelection",
-		"LearnAnnotate",
-		"LearnAnnotationClear",
-		"LearnToggleAnnotations",
-		"LearnReviewHunk",
-	})
-
 	recreate_command("VantageSetLens", function(opts)
 		local mode = opts.fargs[1]
 		local text = table.concat(vim.list_slice(opts.fargs, 2), " ")

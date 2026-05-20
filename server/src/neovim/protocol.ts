@@ -54,12 +54,63 @@ export interface ReviewCurrentHunkParams extends BaseRequestParams {
 	hunkText: string;
 }
 
+export type ProviderName = 'fake' | 'codex' | 'ollama' | 'chatgpt' | 'pi';
+
+export interface CodexProviderConfig {
+	command?: string;
+	model?: string;
+	timeout_ms?: number;
+	annotation_timeout_ms?: number;
+	trace_prompt_path?: string;
+	trace_response_path?: string;
+}
+
+export interface OllamaProviderConfig {
+	base_url?: string;
+	model?: string;
+	timeout_ms?: number;
+	annotation_timeout_ms?: number;
+	trace_prompt_path?: string;
+	trace_response_path?: string;
+}
+
+export interface ChatGptProviderConfig {
+	api_key?: string;
+	model?: string;
+	timeout_ms?: number;
+	annotation_timeout_ms?: number;
+	trace_prompt_path?: string;
+	trace_response_path?: string;
+}
+
+export interface PiProviderConfig {
+	api_key?: string;
+	provider?: string;
+	model?: string;
+	timeout_ms?: number;
+	annotation_timeout_ms?: number;
+	trace_prompt_path?: string;
+	trace_response_path?: string;
+}
+
+export interface BackendProviderConfig {
+	name?: ProviderName;
+	codex?: CodexProviderConfig;
+	ollama?: OllamaProviderConfig;
+	chatgpt?: ChatGptProviderConfig;
+	pi?: PiProviderConfig;
+}
+
+export interface BackendRequestConfig {
+	provider?: BackendProviderConfig;
+}
+
 export type BackendMethod = 'explainSelection' | 'annotateRange' | 'reviewCurrentHunk';
 
 export type BackendRequest =
-	| { id: string; method: 'explainSelection'; params: ExplainSelectionParams }
-	| { id: string; method: 'annotateRange'; params: AnnotateRangeParams }
-	| { id: string; method: 'reviewCurrentHunk'; params: ReviewCurrentHunkParams };
+	| { id: string; method: 'explainSelection'; config?: BackendRequestConfig; params: ExplainSelectionParams }
+	| { id: string; method: 'annotateRange'; config?: BackendRequestConfig; params: AnnotateRangeParams }
+	| { id: string; method: 'reviewCurrentHunk'; config?: BackendRequestConfig; params: ReviewCurrentHunkParams };
 
 export interface ExplanationResult {
 	kind: 'explanation';
@@ -115,6 +166,7 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 	const record = asRecord(value, 'request');
 	const id = requireNonEmptyString(record.id, 'request id');
 	const method = parseMethod(record.method);
+	const config = parseOptionalRequestConfig(record.config, 'request config');
 	const params = asRecord(record.params, 'request params');
 
 	switch (method) {
@@ -122,6 +174,7 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 			return {
 				id,
 				method,
+				config,
 				params: {
 					...parseBaseRequestParams(params),
 					selectedText: requireString(params.selectedText, 'params.selectedText'),
@@ -131,6 +184,7 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 			return {
 				id,
 				method,
+				config,
 				params: {
 					...parseBaseRequestParams(params),
 					visibleRange: parseOptionalRange(params.visibleRange, 'params.visibleRange'),
@@ -144,12 +198,128 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 			return {
 				id,
 				method,
+				config,
 				params: {
 					...parseBaseRequestParams(params),
 					hunkText: requireString(params.hunkText, 'params.hunkText'),
 				},
 			};
 	}
+}
+
+function parseOptionalRequestConfig(value: unknown, label: string): BackendRequestConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		provider: parseOptionalProviderConfig(record.provider, `${label}.provider`),
+	};
+}
+
+function parseOptionalProviderConfig(value: unknown, label: string): BackendProviderConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: BackendProviderConfig = {};
+	assignDefined(parsed, 'name', parseOptionalProviderName(record.name, `${label}.name`));
+	assignDefined(parsed, 'codex', parseOptionalCodexProviderConfig(record.codex, `${label}.codex`));
+	assignDefined(parsed, 'ollama', parseOptionalOllamaProviderConfig(record.ollama, `${label}.ollama`));
+	assignDefined(parsed, 'chatgpt', parseOptionalChatGptProviderConfig(record.chatgpt, `${label}.chatgpt`));
+	assignDefined(parsed, 'pi', parseOptionalPiProviderConfig(record.pi, `${label}.pi`));
+	return parsed;
+}
+
+function parseOptionalCodexProviderConfig(value: unknown, label: string): CodexProviderConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		command: parseOptionalString(record.command, `${label}.command`),
+		model: parseOptionalString(record.model, `${label}.model`),
+		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
+		annotation_timeout_ms: parseOptionalPositiveInteger(
+			record.annotation_timeout_ms,
+			`${label}.annotation_timeout_ms`
+		),
+		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
+		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+	};
+}
+
+function parseOptionalOllamaProviderConfig(value: unknown, label: string): OllamaProviderConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		base_url: parseOptionalString(record.base_url, `${label}.base_url`),
+		model: parseOptionalString(record.model, `${label}.model`),
+		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
+		annotation_timeout_ms: parseOptionalPositiveInteger(
+			record.annotation_timeout_ms,
+			`${label}.annotation_timeout_ms`
+		),
+		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
+		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+	};
+}
+
+function parseOptionalChatGptProviderConfig(value: unknown, label: string): ChatGptProviderConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		api_key: parseOptionalString(record.api_key, `${label}.api_key`),
+		model: parseOptionalString(record.model, `${label}.model`),
+		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
+		annotation_timeout_ms: parseOptionalPositiveInteger(
+			record.annotation_timeout_ms,
+			`${label}.annotation_timeout_ms`
+		),
+		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
+		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+	};
+}
+
+function parseOptionalPiProviderConfig(value: unknown, label: string): PiProviderConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		api_key: parseOptionalString(record.api_key, `${label}.api_key`),
+		provider: parseOptionalString(record.provider, `${label}.provider`),
+		model: parseOptionalString(record.model, `${label}.model`),
+		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
+		annotation_timeout_ms: parseOptionalPositiveInteger(
+			record.annotation_timeout_ms,
+			`${label}.annotation_timeout_ms`
+		),
+		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
+		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+	};
+}
+
+function parseOptionalProviderName(value: unknown, label: string): ProviderName | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (value === 'fake' || value === 'codex' || value === 'ollama' || value === 'chatgpt' || value === 'pi') {
+		return value;
+	}
+
+	throw new Error(`${label} must be fake, codex, ollama, chatgpt, or pi`);
 }
 
 function parseOptionalCandidateLines(value: unknown, label: string): AnnotationCandidateLine[] | undefined {
@@ -309,4 +479,10 @@ function parseOptionalPositiveInteger(value: unknown, label: string): number | u
 	}
 
 	return value;
+}
+
+function assignDefined<T extends object, K extends keyof T>(target: T, key: K, value: T[K] | undefined): void {
+	if (value !== undefined) {
+		target[key] = value;
+	}
 }

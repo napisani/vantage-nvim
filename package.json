@@ -16,6 +16,7 @@
     "learning"
   ],
   "scripts": {
+    "build:plugin": "npm run compile && node scripts/build-plugin-package.mjs",
     "compile": "tsc -b server",
     "watch": "tsc -b server -w",
     "lint": "eslint \"server/src/neovim/**/*.ts\"",
@@ -35,6 +36,7 @@
     "typescript-eslint": "^8.39.0"
   },
   "dependencies": {
+    "@earendil-works/pi-ai": "^0.74.0",
     "openai": "^6.37.0"
   }
 }

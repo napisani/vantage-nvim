@@ -93,10 +93,10 @@ test('ChatGptProvider annotateRange parses JSON and uses annotation timeout', as
 	assert.match(runtime.calls[0].prompt, /1\| const second = first \+ 1;/);
 });
 
-test('ChatGptProvider reads API key from provider environment', async () => {
+test('ChatGptProvider reads API key from OPENAI_API_KEY', async () => {
 	const runtime = new RecordingRuntime('## From env');
 	const provider = new ChatGptProvider({
-		env: { VANTAGE_CHATGPT_API_KEY: 'sk-vantage-env', OPENAI_API_KEY: 'sk-openai-env' },
+		env: { OPENAI_API_KEY: 'sk-openai-env' },
 		runtime,
 	});
 
@@ -108,7 +108,7 @@ test('ChatGptProvider reads API key from provider environment', async () => {
 		selectedText: 'const value = 1;',
 	});
 
-	assert.equal(runtime.calls[0].apiKey, 'sk-vantage-env');
+	assert.equal(runtime.calls[0].apiKey, 'sk-openai-env');
 });
 
 test('ChatGptProvider requires an OpenAI API key before making a request', async () => {
@@ -123,7 +123,7 @@ test('ChatGptProvider requires an OpenAI API key before making a request', async
 				cursor: { line: 0, character: 0 },
 				hunkText: 'const value = 1;',
 			}),
-		/ChatGPT provider requires VANTAGE_CHATGPT_API_KEY or OPENAI_API_KEY/
+		/ChatGPT provider requires config\.provider\.chatgpt\.api_key or OPENAI_API_KEY/
 	);
 });
 

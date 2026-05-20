@@ -75,6 +75,81 @@ local function capture_backend_request(response, run)
 	return captured
 end
 
+test("default stdio backend command resolves from plugin root", function()
+	local state = require("vantage.state")
+
+	eq(state.config.backend.mode, "stdio")
+	eq(state.config.backend.command, {
+		"node",
+		vim.fn.getcwd() .. "/server/out/neovim/stdio-server.js",
+	})
+end)
+
+test("stdio backend sends provider config from setup", function()
+	local vantage = require("vantage")
+	local backend = require("vantage.backend")
+	local responses = {}
+
+	backend.stop()
+	vantage.setup({
+		backend = {
+			mode = "stdio",
+			command = {
+				"node",
+				"-e",
+				[=[
+process.stdin.setEncoding('utf8');
+let pending = '';
+process.stdin.on('data', (chunk) => {
+  pending += chunk;
+  const lines = pending.split('\n');
+  pending = lines.pop() || '';
+  for (const line of lines) {
+    if (!line.trim()) continue;
+    const request = JSON.parse(line);
+    console.log(JSON.stringify({
+      id: request.id,
+      ok: true,
+      result: { kind: 'explanation', markdown: JSON.stringify(request.config) }
+    }));
+  }
+});
+]=],
+			},
+		},
+		provider = {
+			name = "ollama",
+			ollama = {
+				base_url = "http://127.0.0.1:11435",
+				model = "qwen-test",
+				timeout_ms = 120000,
+			},
+		},
+	})
+
+	backend.request("explainSelection", {}, function(result)
+		table.insert(responses, result)
+	end)
+
+	vim.wait(3000, function()
+		return #responses == 1
+	end)
+	backend.stop()
+
+	assert(#responses == 1, "expected one stdio response")
+	local config = vim.json.decode(responses[1].result.markdown)
+	eq(config, {
+		provider = {
+			name = "ollama",
+			ollama = {
+				base_url = "http://127.0.0.1:11435",
+				model = "qwen-test",
+				timeout_ms = 120000,
+			},
+		},
+	})
+end)
+
 test("state stores and clears a lens", function()
 	local vantage = require("vantage")
 	vantage.setup({ backend = { mode = "fake" } })
@@ -168,18 +243,12 @@ end)
 
 test("registers unified explain command without selection or line variants", function()
 	local vantage = require("vantage")
-	pcall(vim.api.nvim_create_user_command, "LearnExplain", function() end, {})
-	pcall(vim.api.nvim_create_user_command, "LearnExplainLine", function() end, {})
-	pcall(vim.api.nvim_create_user_command, "LearnExplainSelection", function() end, {})
 
 	vantage.setup({ backend = { mode = "fake" } })
 
 	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
 	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
 	assert(vim.fn.exists(":VantageExplainLine") == 0, "expected old line command to be removed")
-	assert(vim.fn.exists(":LearnExplain") == 0, "expected old LearnExplain command to be removed")
-	assert(vim.fn.exists(":LearnExplainSelection") == 0, "expected old LearnExplainSelection command to be removed")
-	assert(vim.fn.exists(":LearnExplainLine") == 0, "expected old LearnExplainLine command to be removed")
 end)
 
 test("annotate renders and clear_annotations clears extmarks", function()
@@ -266,18 +335,12 @@ end)
 
 test("registers explicit annotation commands without toggle command", function()
 	local vantage = require("vantage")
-	pcall(vim.api.nvim_create_user_command, "LearnAnnotate", function() end, {})
-	pcall(vim.api.nvim_create_user_command, "LearnAnnotationClear", function() end, {})
-	pcall(vim.api.nvim_create_user_command, "LearnToggleAnnotations", function() end, {})
 
 	vantage.setup({ backend = { mode = "fake" } })
 
 	assert(vim.fn.exists(":VantageAnnotate") == 2, "expected VantageAnnotate command")
 	assert(vim.fn.exists(":VantageAnnotationClear") == 2, "expected VantageAnnotationClear command")
 	assert(vim.fn.exists(":VantageToggleAnnotations") == 0, "expected old toggle command to be removed")
-	assert(vim.fn.exists(":LearnAnnotate") == 0, "expected old LearnAnnotate command to be removed")
-	assert(vim.fn.exists(":LearnAnnotationClear") == 0, "expected old LearnAnnotationClear command to be removed")
-	assert(vim.fn.exists(":LearnToggleAnnotations") == 0, "expected old LearnToggleAnnotations command to be removed")
 end)
 
 test("annotate cancels an in-flight annotation request and ignores its late response", function()
@@ -366,7 +429,7 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 	assert(ok, err)
 end)
 
-test("annotate sends fast annotation candidate lines", function()
+test("annotate defaults to the current line", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
@@ -389,10 +452,17 @@ test("annotate sends fast annotation candidate lines", function()
 	end)
 
 	annotations.clear(0)
+	eq(captured.params.text, "local total = 0")
+	eq(captured.params.scopeText, "local total = 0")
+	eq(captured.params.visibleRange, {
+		startLine = 2,
+		startCharacter = 0,
+		endLine = 2,
+		endCharacter = 15,
+	})
+	eq(captured.params.maxAnnotations, 1)
 	eq(captured.params.candidateLines, {
-		{ line = 2, text = "local total = 0" },
-		{ line = 3, text = "for index = 1, 3 do" },
-		{ line = 4, text = "  total = total + index" },
+		{ line = 0, text = "local total = 0" },
 	})
 end)
 
@@ -431,7 +501,7 @@ test("VantageAnnotate line scopes annotation to the current line", function()
 	})
 end)
 
-test("VantageAnnotate visible uses a larger visible-window budget", function()
+test("VantageAnnotate visible uses the visible range and lets the model choose oversized scopes", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
@@ -455,13 +525,26 @@ test("VantageAnnotate visible uses a larger visible-window budget", function()
 	end)
 
 	annotations.clear(0)
-	eq(captured.params.maxAnnotations, 6)
-	assert(#captured.params.candidateLines == 6, vim.inspect(captured.params.candidateLines))
-	eq(captured.params.candidateLines[1], { line = 0, text = "local one = 1" })
-	eq(captured.params.candidateLines[6], { line = 5, text = "local six = five + 1" })
+	eq(captured.params.maxAnnotations, 3)
+	eq(captured.params.scopeText, table.concat({
+		"local one = 1",
+		"local two = one + 1",
+		"local three = two + 1",
+		"local four = three + 1",
+		"local five = four + 1",
+		"local six = five + 1",
+		"local seven = six + 1",
+	}, "\n"))
+	eq(captured.params.visibleRange, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 6,
+		endCharacter = 21,
+	})
+	eq(captured.params.candidateLines, nil)
 end)
 
-test("VantageAnnotate numeric argument expands the nearby candidate budget", function()
+test("VantageAnnotate numeric argument keeps the current-line default scope", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
@@ -485,9 +568,10 @@ test("VantageAnnotate numeric argument expands the nearby candidate budget", fun
 
 	annotations.clear(0)
 	eq(captured.params.maxAnnotations, 5)
-	assert(#captured.params.candidateLines == 5, vim.inspect(captured.params.candidateLines))
-	eq(captured.params.candidateLines[1], { line = 1, text = "local two = one + 1" })
-	eq(captured.params.candidateLines[5], { line = 5, text = "local six = five + 1" })
+	eq(captured.params.scopeText, "local two = one + 1")
+	eq(captured.params.candidateLines, {
+		{ line = 0, text = "local two = one + 1" },
+	})
 end)
 
 test("VantageAnnotate accepts an explicit line range", function()
@@ -546,6 +630,36 @@ test("VantageAnnotate accepts an explicit line range", function()
 	})
 end)
 
+test("VantageAnnotate range lets the model choose oversized selections", function()
+	local vantage = require("vantage")
+	local annotations = require("vantage.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		vantage.setup({ backend = { mode = "fake" } })
+		annotations.clear(0)
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+			"local c = b + 1",
+			"local d = c + 1",
+		})
+
+		vim.cmd("1,4VantageAnnotate")
+	end)
+
+	annotations.clear(0)
+	eq(captured.method, "annotateRange")
+	eq(captured.params.maxAnnotations, 3)
+	eq(captured.params.scopeText, "local a = 1\nlocal b = a + 1\nlocal c = b + 1\nlocal d = c + 1")
+	eq(captured.params.visibleRange, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 3,
+		endCharacter = 15,
+	})
+	eq(captured.params.candidateLines, nil)
+end)
+
 test("annotate waiting status includes provider and elapsed time", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
@@ -576,6 +690,92 @@ test("annotate waiting status includes provider and elapsed time", function()
 			assert(saw_waiting_status, vim.inspect(notifications))
 			commands.clear_annotations()
 		end)
+	end)
+
+	backend.request = original_request
+	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
+	assert(ok, err)
+end)
+
+test("pi annotation waiting status includes provider model and trace path", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
+	local original_request = backend.request
+
+	local ok, err = pcall(function()
+		backend.request = function()
+			-- Keep the request in-flight so the waiting status can fire.
+		end
+
+		vantage.setup({
+			backend = { mode = "stdio" },
+			provider = {
+				name = "pi",
+				pi = {
+					trace_response_path = ".nvim-dev/trace/pi-response.txt",
+				},
+			},
+			annotations = { waiting_message_ms = 10 },
+		})
+		lua_buffer({ "local value = 42" })
+
+		capture_notifications(function(notifications)
+			commands.annotate()
+			local saw_waiting_status = vim.wait(200, function()
+				for _, notification in ipairs(notifications) do
+					if
+						notification:match("still waiting for annotations from pi %(openai/gpt%-4o%-mini%)")
+						and notification:match("response trace: %.nvim%-dev/trace/pi%-response%.txt")
+					then
+						return true
+					end
+				end
+				return false
+			end)
+			assert(saw_waiting_status, vim.inspect(notifications))
+			commands.clear_annotations()
+		end)
+	end)
+
+	backend.request = original_request
+	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
+	assert(ok, err)
+end)
+
+test("pi annotation status uses configured provider and model", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
+	local original_request = backend.request
+
+	local ok, err = pcall(function()
+		backend.request = function()
+			-- Keep the request in-flight so only the start status matters.
+		end
+
+		vantage.setup({
+			backend = { mode = "stdio" },
+			provider = {
+				name = "pi",
+				pi = {
+					provider = "anthropic",
+					model = "claude-sonnet-4",
+				},
+			},
+			annotations = { waiting_message_ms = 30000 },
+		})
+		lua_buffer({ "local value = 42" })
+
+		local notifications = capture_notifications(function()
+			commands.annotate()
+			commands.clear_annotations()
+		end)
+
+		assert(
+			notifications[1] == "Vantage: requesting annotations from pi (anthropic/claude-sonnet-4)",
+			vim.inspect(notifications)
+		)
 	end)
 
 	backend.request = original_request

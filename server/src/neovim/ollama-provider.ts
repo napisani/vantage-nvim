@@ -39,6 +39,7 @@ interface OllamaChatResponse {
 
 interface RunOllamaOptions {
 	format?: 'annotation-json';
+	annotationResponseShape?: 'line' | 'range';
 	think?: boolean;
 	numPredict?: number;
 	maxAnnotations?: number;
@@ -91,6 +92,7 @@ export class OllamaProvider implements BackendProvider {
 			think: false,
 			numPredict: 256,
 			maxAnnotations: params.maxAnnotations,
+			annotationResponseShape: params.candidateLines && params.candidateLines.length > 0 ? 'line' : 'range',
 			timeoutMs: this.annotationTimeoutMs,
 			signal: context.signal,
 		});
@@ -119,7 +121,9 @@ export class OllamaProvider implements BackendProvider {
 			stream: false,
 			think: options.think ?? false,
 			keep_alive: '10m',
-			...(options.format === 'annotation-json' ? { format: annotationResponseSchema(options.maxAnnotations) } : {}),
+			...(options.format === 'annotation-json'
+				? { format: annotationResponseSchema(options.maxAnnotations, options.annotationResponseShape) }
+				: {}),
 			options: {
 				num_predict: options.numPredict ?? 1024,
 				temperature: 0.1,
@@ -148,7 +152,24 @@ export class OllamaProvider implements BackendProvider {
 	}
 }
 
-function annotationResponseSchema(maxAnnotations = 3): Record<string, unknown> {
+function annotationResponseSchema(maxAnnotations = 3, shape: 'line' | 'range' = 'line'): Record<string, unknown> {
+	const locationProperties = shape === 'line'
+		? {
+			line: { type: 'integer', minimum: 0 },
+		}
+		: {
+			range: {
+				type: 'object',
+				properties: {
+					startLine: { type: 'integer', minimum: 0 },
+					startCharacter: { type: 'integer', minimum: 0 },
+					endLine: { type: 'integer', minimum: 0 },
+					endCharacter: { type: 'integer', minimum: 0 },
+				},
+				required: ['startLine', 'startCharacter', 'endLine', 'endCharacter'],
+			},
+		};
+
 	return {
 		type: 'object',
 		properties: {
@@ -158,7 +179,7 @@ function annotationResponseSchema(maxAnnotations = 3): Record<string, unknown> {
 				items: {
 					type: 'object',
 					properties: {
-						line: { type: 'integer', minimum: 0 },
+						...locationProperties,
 						text: {
 							type: 'string',
 							description: 'A short explanatory sentence that includes a literal token from the annotated code line.',
@@ -166,7 +187,7 @@ function annotationResponseSchema(maxAnnotations = 3): Record<string, unknown> {
 						severity: { type: 'string', enum: ['info', 'warning'] },
 						detailMarkdown: { type: 'string' },
 					},
-					required: ['line', 'text', 'severity'],
+					required: [shape, 'text', 'severity'],
 				},
 			},
 		},

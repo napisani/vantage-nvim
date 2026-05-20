@@ -4,35 +4,40 @@ import { ChatGptProvider } from './chatgpt-provider';
 import { CodexProvider } from './codex-provider';
 import { FakeProvider } from './fake-provider';
 import { OllamaProvider } from './ollama-provider';
-import { createProviderFromEnv } from './provider-factory';
+import { PiProvider } from './pi-provider';
+import { createProviderFromConfig } from './provider-factory';
 
-test('createProviderFromEnv defaults to fake provider', () => {
-	const provider = createProviderFromEnv({});
-
-	assert.ok(provider instanceof FakeProvider);
-});
-
-test('createProviderFromEnv selects fake provider explicitly', () => {
-	const provider = createProviderFromEnv({ VANTAGE_PROVIDER: 'fake' });
+test('createProviderFromConfig defaults to fake provider', () => {
+	const provider = createProviderFromConfig();
 
 	assert.ok(provider instanceof FakeProvider);
 });
 
-test('createProviderFromEnv selects Codex provider with defaults', () => {
-	const provider = createProviderFromEnv({ VANTAGE_PROVIDER: 'codex' });
+test('createProviderFromConfig selects fake provider explicitly', () => {
+	const provider = createProviderFromConfig({ name: 'fake' });
+
+	assert.ok(provider instanceof FakeProvider);
+});
+
+test('createProviderFromConfig selects Codex provider with defaults', () => {
+	const provider = createProviderFromConfig({ name: 'codex' });
 
 	assert.ok(provider instanceof CodexProvider);
 	assert.equal(provider.model, 'gpt-5.4-mini');
 	assert.equal(provider.command, 'codex');
 });
 
-test('createProviderFromEnv passes Codex command and model overrides', () => {
-	const provider = createProviderFromEnv({
-		VANTAGE_PROVIDER: 'codex',
-		VANTAGE_CODEX_COMMAND: '/custom/codex',
-		VANTAGE_CODEX_MODEL: 'gpt-5.4-mini-test',
-		VANTAGE_CODEX_TIMEOUT_MS: '900000',
-		VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS: '45000',
+test('createProviderFromConfig passes Codex overrides', () => {
+	const provider = createProviderFromConfig({
+		name: 'codex',
+		codex: {
+			command: '/custom/codex',
+			model: 'gpt-5.4-mini-test',
+			timeout_ms: 900000,
+			annotation_timeout_ms: 45000,
+			trace_prompt_path: '/tmp/prompt.txt',
+			trace_response_path: '/tmp/response.txt',
+		},
 	});
 
 	assert.ok(provider instanceof CodexProvider);
@@ -40,37 +45,29 @@ test('createProviderFromEnv passes Codex command and model overrides', () => {
 	assert.equal(provider.command, '/custom/codex');
 	assert.equal(provider.timeoutMs, 900_000);
 	assert.equal(provider.annotationTimeoutMs, 45_000);
-});
-
-test('createProviderFromEnv passes Codex trace paths', () => {
-	const provider = createProviderFromEnv({
-		VANTAGE_PROVIDER: 'codex',
-		VANTAGE_CODEX_TRACE_PROMPT_PATH: '/tmp/prompt.txt',
-		VANTAGE_CODEX_TRACE_RESPONSE_PATH: '/tmp/response.txt',
-	});
-
-	assert.ok(provider instanceof CodexProvider);
 	assert.equal(provider.tracePromptPath, '/tmp/prompt.txt');
 	assert.equal(provider.traceResponsePath, '/tmp/response.txt');
 });
 
-test('createProviderFromEnv selects Ollama provider with recommended default model', () => {
-	const provider = createProviderFromEnv({ VANTAGE_PROVIDER: 'ollama' });
+test('createProviderFromConfig selects Ollama provider with recommended default model', () => {
+	const provider = createProviderFromConfig({ name: 'ollama' });
 
 	assert.ok(provider instanceof OllamaProvider);
 	assert.equal(provider.model, 'qwen3:1.7b');
 	assert.equal(provider.baseUrl, 'http://localhost:11434');
 });
 
-test('createProviderFromEnv passes Ollama overrides', () => {
-	const provider = createProviderFromEnv({
-		VANTAGE_PROVIDER: 'ollama',
-		VANTAGE_OLLAMA_BASE_URL: 'http://127.0.0.1:11435',
-		VANTAGE_OLLAMA_MODEL: 'qwen3-coder:30b',
-		VANTAGE_OLLAMA_TIMEOUT_MS: '120000',
-		VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS: '15000',
-		VANTAGE_OLLAMA_TRACE_PROMPT_PATH: '/tmp/ollama-prompt.txt',
-		VANTAGE_OLLAMA_TRACE_RESPONSE_PATH: '/tmp/ollama-response.txt',
+test('createProviderFromConfig passes Ollama overrides', () => {
+	const provider = createProviderFromConfig({
+		name: 'ollama',
+		ollama: {
+			base_url: 'http://127.0.0.1:11435',
+			model: 'qwen3-coder:30b',
+			timeout_ms: 120000,
+			annotation_timeout_ms: 15000,
+			trace_prompt_path: '/tmp/ollama-prompt.txt',
+			trace_response_path: '/tmp/ollama-response.txt',
+		},
 	});
 
 	assert.ok(provider instanceof OllamaProvider);
@@ -82,27 +79,17 @@ test('createProviderFromEnv passes Ollama overrides', () => {
 	assert.equal(provider.traceResponsePath, '/tmp/ollama-response.txt');
 });
 
-test('createProviderFromEnv selects ChatGPT provider with defaults', () => {
-	const provider = createProviderFromEnv({
-		VANTAGE_PROVIDER: 'chatgpt',
-		VANTAGE_CHATGPT_API_KEY: 'sk-test',
-	});
-
-	assert.ok(provider instanceof ChatGptProvider);
-	assert.equal(provider.model, 'gpt-4o-mini');
-	assert.equal(provider.timeoutMs, 300_000);
-	assert.equal(provider.annotationTimeoutMs, 30_000);
-});
-
-test('createProviderFromEnv passes ChatGPT overrides', () => {
-	const provider = createProviderFromEnv({
-		VANTAGE_PROVIDER: 'chatgpt',
-		VANTAGE_CHATGPT_API_KEY: 'sk-test',
-		VANTAGE_CHATGPT_MODEL: 'gpt-test-mini',
-		VANTAGE_CHATGPT_TIMEOUT_MS: '900000',
-		VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS: '45000',
-		VANTAGE_CHATGPT_TRACE_PROMPT_PATH: '/tmp/chatgpt-prompt.txt',
-		VANTAGE_CHATGPT_TRACE_RESPONSE_PATH: '/tmp/chatgpt-response.txt',
+test('createProviderFromConfig selects ChatGPT provider with configured API key', () => {
+	const provider = createProviderFromConfig({
+		name: 'chatgpt',
+		chatgpt: {
+			api_key: 'sk-config',
+			model: 'gpt-test-mini',
+			timeout_ms: 900000,
+			annotation_timeout_ms: 45000,
+			trace_prompt_path: '/tmp/chatgpt-prompt.txt',
+			trace_response_path: '/tmp/chatgpt-response.txt',
+		},
 	});
 
 	assert.ok(provider instanceof ChatGptProvider);
@@ -113,16 +100,49 @@ test('createProviderFromEnv passes ChatGPT overrides', () => {
 	assert.equal(provider.traceResponsePath, '/tmp/chatgpt-response.txt');
 });
 
-test('createProviderFromEnv rejects invalid Codex timeout overrides', () => {
-	assert.throws(
-		() => createProviderFromEnv({ VANTAGE_PROVIDER: 'codex', VANTAGE_CODEX_TIMEOUT_MS: 'nope' }),
-		/VANTAGE_CODEX_TIMEOUT_MS must be a positive integer/
-	);
+test('createProviderFromConfig lets ChatGPT fall back to OPENAI_API_KEY', () => {
+	const provider = createProviderFromConfig({ name: 'chatgpt' }, { OPENAI_API_KEY: 'sk-openai' });
+
+	assert.ok(provider instanceof ChatGptProvider);
 });
 
-test('createProviderFromEnv rejects unknown providers', () => {
+test('createProviderFromConfig selects Pi provider with configured API key', () => {
+	const provider = createProviderFromConfig({
+		name: 'pi',
+		pi: {
+			api_key: 'sk-config',
+			provider: 'anthropic',
+			model: 'claude-test',
+			timeout_ms: 900000,
+			annotation_timeout_ms: 45000,
+			trace_prompt_path: '/tmp/pi-prompt.txt',
+			trace_response_path: '/tmp/pi-response.txt',
+		},
+	});
+
+	assert.ok(provider instanceof PiProvider);
+	assert.equal(provider.provider, 'anthropic');
+	assert.equal(provider.model, 'claude-test');
+	assert.equal(provider.timeoutMs, 900_000);
+	assert.equal(provider.annotationTimeoutMs, 45_000);
+	assert.equal(provider.tracePromptPath, '/tmp/pi-prompt.txt');
+	assert.equal(provider.traceResponsePath, '/tmp/pi-response.txt');
+});
+
+test('createProviderFromConfig lets Pi fallback to standard provider API env vars', () => {
+	const openai = createProviderFromConfig({ name: 'pi', pi: { provider: 'openai' } }, { OPENAI_API_KEY: 'sk-openai' });
+	const anthropic = createProviderFromConfig(
+		{ name: 'pi', pi: { provider: 'anthropic' } },
+		{ ANTHROPIC_API_KEY: 'sk-ant' }
+	);
+
+	assert.ok(openai instanceof PiProvider);
+	assert.ok(anthropic instanceof PiProvider);
+});
+
+test('createProviderFromConfig rejects unknown providers', () => {
 	assert.throws(
-		() => createProviderFromEnv({ VANTAGE_PROVIDER: 'llama' }),
-		/Unsupported provider "llama".*chatgpt/
+		() => createProviderFromConfig({ name: 'llama' as never }),
+		/Unsupported provider "llama".*pi/
 	);
 });

@@ -59,7 +59,7 @@ local function sample_buffer_lines()
 end
 
 local function write_artifact(artifact)
-	local path = vim.env.VANTAGE_E2E_ARTIFACT_PATH
+	local path = vim.g.vantage_e2e_artifact_path
 	if not path or path == "" then
 		return nil
 	end
@@ -76,7 +76,7 @@ local function fail(message)
 end
 
 local function wait_budget_ms()
-	local value = tonumber(vim.env.VANTAGE_E2E_WAIT_MS or "")
+	local value = tonumber(vim.g.vantage_e2e_wait_ms or "")
 	if value and value > 0 then
 		return value
 	end

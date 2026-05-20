@@ -20,10 +20,10 @@ async function createCodexStub(): Promise<{ command: string; capturePath: string
 			"process.stdin.setEncoding('utf8');",
 			"process.stdin.on('data', chunk => { stdin += chunk; });",
 			"process.stdin.on('end', () => {",
-			"  fs.writeFileSync(process.env.VANTAGE_CODEX_CAPTURE_PATH, JSON.stringify({ argv: process.argv.slice(2), stdin }));",
-			"  if (process.env.VANTAGE_CODEX_STDERR) process.stderr.write(process.env.VANTAGE_CODEX_STDERR);",
-			"  if (process.env.VANTAGE_CODEX_OUTPUT && outputPath) fs.writeFileSync(outputPath, process.env.VANTAGE_CODEX_OUTPUT);",
-			"  process.exit(Number(process.env.VANTAGE_CODEX_EXIT || '0'));",
+			"  fs.writeFileSync(process.env.CODEX_STUB_CAPTURE_PATH, JSON.stringify({ argv: process.argv.slice(2), stdin }));",
+			"  if (process.env.CODEX_STUB_STDERR) process.stderr.write(process.env.CODEX_STUB_STDERR);",
+			"  if (process.env.CODEX_STUB_OUTPUT && outputPath) fs.writeFileSync(outputPath, process.env.CODEX_STUB_OUTPUT);",
+			"  process.exit(Number(process.env.CODEX_STUB_EXIT || '0'));",
 			'});',
 			'',
 		].join('\n')
@@ -48,8 +48,8 @@ test('CodexProvider explainSelection returns final Codex message markdown', asyn
 			command: stub.command,
 			model: 'gpt-5.4-mini-test',
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_OUTPUT: '## Codex explanation\n\nThis is real model text.',
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_OUTPUT: '## Codex explanation\n\nThis is real model text.',
 			},
 		});
 
@@ -88,8 +88,8 @@ test('CodexProvider annotateRange parses strict annotation JSON', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_OUTPUT: JSON.stringify({
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_OUTPUT: JSON.stringify({
 					annotations: [
 						{
 							line: 0,
@@ -136,8 +136,8 @@ test('CodexProvider converts candidate annotation lines to file lines', async ()
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_OUTPUT: JSON.stringify({
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_OUTPUT: JSON.stringify({
 					annotations: [
 						{
 							line: 1,
@@ -196,8 +196,8 @@ test('CodexProvider writes prompt and raw response traces when configured', asyn
 			tracePromptPath,
 			traceResponsePath,
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_OUTPUT: rawResponse,
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_OUTPUT: rawResponse,
 			},
 		});
 
@@ -226,8 +226,8 @@ test('CodexProvider annotateRange rejects invalid JSON', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_OUTPUT: 'not json',
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_OUTPUT: 'not json',
 			},
 		});
 
@@ -253,9 +253,9 @@ test('CodexProvider reports non-zero Codex exits', async () => {
 		const provider = new CodexProvider({
 			command: stub.command,
 			env: {
-				VANTAGE_CODEX_CAPTURE_PATH: stub.capturePath,
-				VANTAGE_CODEX_EXIT: '7',
-				VANTAGE_CODEX_STDERR: 'not logged in',
+				CODEX_STUB_CAPTURE_PATH: stub.capturePath,
+				CODEX_STUB_EXIT: '7',
+				CODEX_STUB_STDERR: 'not logged in',
 			},
 		});
 

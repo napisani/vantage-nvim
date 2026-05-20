@@ -212,6 +212,9 @@ function M.request(method, params, callback)
 	local message = vim.json.encode({
 		id = id,
 		method = method,
+		config = {
+			provider = state.config.provider or {},
+		},
 		params = params or {},
 	}) .. "\n"
 

@@ -49,6 +49,47 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 	]);
 });
 
+test('parseBackendRequest accepts explicit provider config', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-provider-config',
+		method: 'explainSelection',
+		config: {
+			provider: {
+				name: 'pi',
+				pi: {
+					provider: 'anthropic',
+					model: 'claude-sonnet-4',
+					api_key: 'sk-config',
+					timeout_ms: 900000,
+					annotation_timeout_ms: 45000,
+					trace_prompt_path: '/tmp/pi-prompt.txt',
+					trace_response_path: '/tmp/pi-response.txt',
+				},
+			},
+		},
+		params: {
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			selectedText: 'const value = 1;',
+		},
+	});
+
+	assert.deepEqual(parsed.config?.provider, {
+		name: 'pi',
+		pi: {
+			provider: 'anthropic',
+			model: 'claude-sonnet-4',
+			api_key: 'sk-config',
+			timeout_ms: 900000,
+			annotation_timeout_ms: 45000,
+			trace_prompt_path: '/tmp/pi-prompt.txt',
+			trace_response_path: '/tmp/pi-response.txt',
+		},
+	});
+});
+
 test('parseBackendRequest rejects invalid annotation budgets', () => {
 	assert.throws(
 		() =>

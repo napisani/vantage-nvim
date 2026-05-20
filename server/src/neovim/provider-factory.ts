@@ -2,93 +2,76 @@ import { ChatGptProvider } from './chatgpt-provider';
 import { CodexProvider } from './codex-provider';
 import { FakeProvider } from './fake-provider';
 import { OllamaProvider } from './ollama-provider';
+import { PiProvider } from './pi-provider';
+import type { BackendProviderConfig } from './protocol';
 import type { BackendProvider } from './provider';
 
 export interface ProviderEnvironment {
 	[key: string]: string | undefined;
-	VANTAGE_PROVIDER?: string;
-	VANTAGE_CODEX_COMMAND?: string;
-	VANTAGE_CODEX_MODEL?: string;
-	VANTAGE_CODEX_TIMEOUT_MS?: string;
-	VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS?: string;
-	VANTAGE_CODEX_TRACE_PROMPT_PATH?: string;
-	VANTAGE_CODEX_TRACE_RESPONSE_PATH?: string;
-	VANTAGE_OLLAMA_BASE_URL?: string;
-	VANTAGE_OLLAMA_MODEL?: string;
-	VANTAGE_OLLAMA_TIMEOUT_MS?: string;
-	VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS?: string;
-	VANTAGE_OLLAMA_TRACE_PROMPT_PATH?: string;
-	VANTAGE_OLLAMA_TRACE_RESPONSE_PATH?: string;
 	OPENAI_API_KEY?: string;
-	VANTAGE_CHATGPT_API_KEY?: string;
-	VANTAGE_CHATGPT_MODEL?: string;
-	VANTAGE_CHATGPT_TIMEOUT_MS?: string;
-	VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS?: string;
-	VANTAGE_CHATGPT_TRACE_PROMPT_PATH?: string;
-	VANTAGE_CHATGPT_TRACE_RESPONSE_PATH?: string;
+	ANTHROPIC_API_KEY?: string;
 }
 
-export function createProviderFromEnv(env: ProviderEnvironment): BackendProvider {
-	const providerName = env.VANTAGE_PROVIDER ?? 'fake';
+export function createProviderFromConfig(
+	config: BackendProviderConfig = {},
+	env: ProviderEnvironment = process.env
+): BackendProvider {
+	const providerName = config.name ?? 'fake';
 
 	if (providerName === 'fake') {
 		return new FakeProvider();
 	}
 
 	if (providerName === 'codex') {
+		const codex = config.codex ?? {};
 		return new CodexProvider({
-			command: env.VANTAGE_CODEX_COMMAND,
-			model: env.VANTAGE_CODEX_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_CODEX_TIMEOUT_MS, 'VANTAGE_CODEX_TIMEOUT_MS'),
-			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS,
-				'VANTAGE_CODEX_ANNOTATION_TIMEOUT_MS'
-			),
-			tracePromptPath: env.VANTAGE_CODEX_TRACE_PROMPT_PATH,
-			traceResponsePath: env.VANTAGE_CODEX_TRACE_RESPONSE_PATH,
+			command: codex.command,
+			model: codex.model,
+			timeoutMs: codex.timeout_ms,
+			annotationTimeoutMs: codex.annotation_timeout_ms,
+			tracePromptPath: codex.trace_prompt_path,
+			traceResponsePath: codex.trace_response_path,
 		});
 	}
 
 	if (providerName === 'ollama') {
+		const ollama = config.ollama ?? {};
 		return new OllamaProvider({
-			baseUrl: env.VANTAGE_OLLAMA_BASE_URL,
-			model: env.VANTAGE_OLLAMA_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_OLLAMA_TIMEOUT_MS, 'VANTAGE_OLLAMA_TIMEOUT_MS'),
-			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS,
-				'VANTAGE_OLLAMA_ANNOTATION_TIMEOUT_MS'
-			),
-			tracePromptPath: env.VANTAGE_OLLAMA_TRACE_PROMPT_PATH,
-			traceResponsePath: env.VANTAGE_OLLAMA_TRACE_RESPONSE_PATH,
+			baseUrl: ollama.base_url,
+			model: ollama.model,
+			timeoutMs: ollama.timeout_ms,
+			annotationTimeoutMs: ollama.annotation_timeout_ms,
+			tracePromptPath: ollama.trace_prompt_path,
+			traceResponsePath: ollama.trace_response_path,
 		});
 	}
 
 	if (providerName === 'chatgpt') {
+		const chatgpt = config.chatgpt ?? {};
 		return new ChatGptProvider({
 			env,
-			model: env.VANTAGE_CHATGPT_MODEL,
-			timeoutMs: parseOptionalPositiveInteger(env.VANTAGE_CHATGPT_TIMEOUT_MS, 'VANTAGE_CHATGPT_TIMEOUT_MS'),
-			annotationTimeoutMs: parseOptionalPositiveInteger(
-				env.VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS,
-				'VANTAGE_CHATGPT_ANNOTATION_TIMEOUT_MS'
-			),
-			tracePromptPath: env.VANTAGE_CHATGPT_TRACE_PROMPT_PATH,
-			traceResponsePath: env.VANTAGE_CHATGPT_TRACE_RESPONSE_PATH,
+			apiKey: chatgpt.api_key,
+			model: chatgpt.model,
+			timeoutMs: chatgpt.timeout_ms,
+			annotationTimeoutMs: chatgpt.annotation_timeout_ms,
+			tracePromptPath: chatgpt.trace_prompt_path,
+			traceResponsePath: chatgpt.trace_response_path,
 		});
 	}
 
-	throw new Error(`Unsupported provider "${providerName}". Expected "fake", "codex", "ollama", or "chatgpt".`);
-}
-
-function parseOptionalPositiveInteger(value: string | undefined, label: string): number | undefined {
-	if (value === undefined || value.trim() === '') {
-		return undefined;
+	if (providerName === 'pi') {
+		const pi = config.pi ?? {};
+		return new PiProvider({
+			env,
+			provider: pi.provider,
+			model: pi.model,
+			apiKey: pi.api_key,
+			timeoutMs: pi.timeout_ms,
+			annotationTimeoutMs: pi.annotation_timeout_ms,
+			tracePromptPath: pi.trace_prompt_path,
+			traceResponsePath: pi.trace_response_path,
+		});
 	}
 
-	const parsed = Number(value);
-	if (!Number.isInteger(parsed) || parsed <= 0) {
-		throw new Error(`${label} must be a positive integer.`);
-	}
-
-	return parsed;
+	throw new Error(`Unsupported provider "${String(providerName)}". Expected "fake", "codex", "ollama", "chatgpt", or "pi".`);
 }
