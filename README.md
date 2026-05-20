@@ -21,7 +21,7 @@ vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dis
 
 ```lua
 {
-  "napisani/learn-lsp",
+  "napisani/vantage-nvim",
   name = "vantage.nvim",
   branch = "dist",
   build = "npm ci --omit=dev",
@@ -36,7 +36,7 @@ vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dis
 ### vim-plug
 
 ```vim
-Plug 'napisani/learn-lsp', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
+Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
 ```
 
 Then configure vantage.nvim from your Lua config:
@@ -50,7 +50,7 @@ require("vantage").setup({
 ### Native Packages
 
 ```bash
-git clone --branch dist https://github.com/napisani/learn-lsp \
+git clone --branch dist https://github.com/napisani/vantage-nvim \
   "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
 cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
 npm ci --omit=dev
