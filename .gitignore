@@ -7,3 +7,4 @@ server/out
 .plugin-dist/
 .superpowers/
 .worktrees/
+.vantage/agent-context.md

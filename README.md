@@ -144,6 +144,42 @@ Provider-specific fields:
 - `chatgpt`: `api_key`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
 - `pi`: `api_key`, `provider`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
 
+### Planned Agent Task Context
+
+Vantage is planned to use task context produced by an adjacent coding agent such as Codex, Claude Code, opencode, or Pi. The integration is artifact-first: the adjacent agent writes a compact Markdown snapshot at `.vantage/agent-context.md`, and Vantage reads it when present. If the file is absent, Vantage commands work normally without the extra context.
+
+The context file is workspace/session state and should not be committed. This repository ignores `.vantage/agent-context.md` by default.
+
+Copy this instruction into your adjacent agent's project instructions:
+
+```md
+When working in this repository, maintain `.vantage/agent-context.md` as a compact snapshot for Vantage.
+
+Rewrite it when task state materially changes. Do not append a transcript.
+
+Use this structure:
+
+# Agent Task Context
+
+## Goal
+
+## Current Focus
+
+## Relevant Files
+
+## Decisions
+
+## Constraints
+
+## Open Questions
+
+## Recent Progress
+
+Keep it concise. Do not include secrets. This file is ignored by git. The producer of the file is responsible for pruning and compacting it.
+```
+
+See `docs/agent-context.md` for the planned artifact convention and design notes.
+
 ## Development
 
 Install dependencies:
