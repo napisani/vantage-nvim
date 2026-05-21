@@ -47,6 +47,8 @@ export interface PiAssistantMessage {
 		type: string;
 		text?: string;
 	}[];
+	stopReason?: string;
+	errorMessage?: string;
 }
 
 export interface PiRuntime {
@@ -130,9 +132,7 @@ export class PiProvider implements BackendProvider {
 		const apiKey = requireApiKey(this.apiKey, this.provider);
 		await writeOptionalTrace(this.tracePromptPath, prompt);
 		const startedAt = Date.now();
-		const content = extractAssistantText(await this.runtime.complete(
-			this.provider,
-			this.model,
+		const content = extractAssistantText(await this.completeWithTimeout(
 			{
 				messages: [{ role: 'user', content: prompt, timestamp: Date.now() }],
 			},
@@ -161,6 +161,51 @@ export class PiProvider implements BackendProvider {
 			},
 		};
 	}
+
+	private async completeWithTimeout(context: PiContext, options: PiCompleteOptions): Promise<PiAssistantMessage> {
+		const controller = new AbortController();
+		const runtimeOptions = { ...options, signal: controller.signal };
+		let timeout: ReturnType<typeof setTimeout> | undefined;
+		let removeAbortListener = (): void => {};
+
+		const completion = Promise.resolve().then(() =>
+			this.runtime.complete(this.provider, this.model, context, runtimeOptions)
+		);
+		completion.catch(() => undefined);
+
+		const timeoutPromise = new Promise<never>((_resolve, reject) => {
+			timeout = setTimeout(() => {
+				reject(new Error(`Pi request timed out after ${options.timeoutMs}ms.`));
+				controller.abort();
+			}, options.timeoutMs);
+		});
+
+		const abortPromise = new Promise<never>((_resolve, reject) => {
+			const abort = (): void => {
+				reject(new Error('Pi request cancelled.'));
+				controller.abort();
+			};
+
+			if (options.signal?.aborted) {
+				abort();
+				return;
+			}
+
+			options.signal?.addEventListener('abort', abort, { once: true });
+			removeAbortListener = (): void => {
+				options.signal?.removeEventListener('abort', abort);
+			};
+		});
+
+		try {
+			return await Promise.race([completion, timeoutPromise, abortPromise]);
+		} finally {
+			if (timeout) {
+				clearTimeout(timeout);
+			}
+			removeAbortListener();
+		}
+	}
 }
 
 export class PiSdkRuntime implements PiRuntime {
@@ -183,6 +228,10 @@ async function importPiAi(): Promise<typeof import('@earendil-works/pi-ai')> {
 }
 
 function extractAssistantText(message: PiAssistantMessage): string {
+	if (message.stopReason === 'error' && message.errorMessage) {
+		throw new Error(`Pi provider failed: ${message.errorMessage}`);
+	}
+
 	const parts = message.content
 		.filter((block) => block.type === 'text' && typeof block.text === 'string')
 		.map((block) => block.text?.trim() ?? '')

@@ -89,6 +89,27 @@ local function invoke_callback(callback, response)
 	end
 end
 
+local function backend_error(id, code, message)
+	return {
+		id = id,
+		ok = false,
+		error = {
+			code = code,
+			message = message,
+		},
+	}
+end
+
+local function fail_pending(code, message)
+	local callbacks = pending
+	pending = {}
+	for id, callback in pairs(callbacks) do
+		vim.schedule(function()
+			invoke_callback(callback, backend_error(id, code, message))
+		end)
+	end
+end
+
 local function handle_stdout_line(line)
 	if line == "" then
 		return
@@ -172,8 +193,8 @@ local function start_stdio()
 			end
 
 			job_id = nil
-			pending = {}
 			stdout_buffer = ""
+			fail_pending("backend_exit", "Vantage backend exited before responding.")
 		end,
 	})
 
@@ -218,7 +239,13 @@ function M.request(method, params, callback)
 		params = params or {},
 	}) .. "\n"
 
-	vim.fn.chansend(job_id, message)
+	local sent = vim.fn.chansend(job_id, message)
+	if sent <= 0 then
+		pending[id] = nil
+		invoke_callback(callback, backend_error(id, "send_failed", "Failed to send request to Vantage backend."))
+		return nil
+	end
+
 	return id
 end
 

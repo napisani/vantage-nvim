@@ -150,6 +150,40 @@ process.stdin.on('data', (chunk) => {
 	})
 end)
 
+test("stdio backend reports exit to pending callbacks", function()
+	local vantage = require("vantage")
+	local backend = require("vantage.backend")
+	local responses = {}
+
+	backend.stop()
+	vantage.setup({
+		backend = {
+			mode = "stdio",
+			command = {
+				"node",
+				"-e",
+				[=[
+process.stdin.resume();
+process.stdin.on('data', () => process.exit(7));
+]=],
+			},
+		},
+	})
+
+	backend.request("explainSelection", {}, function(result)
+		table.insert(responses, result)
+	end)
+
+	vim.wait(2000, function()
+		return #responses == 1
+	end)
+	backend.stop()
+
+	assert(#responses == 1, "expected backend exit to invoke pending callback")
+	assert(responses[1].ok == false, vim.inspect(responses[1]))
+	assert(tostring(responses[1].error.message):match("exited"), vim.inspect(responses[1]))
+end)
+
 test("state stores and clears a lens", function()
 	local vantage = require("vantage")
 	vantage.setup({ backend = { mode = "fake" } })
@@ -331,6 +365,48 @@ test("annotate reports request progress", function()
 
 	assert(notifications[1] and notifications[1]:match("requesting annotations"), vim.inspect(notifications))
 	assert(notifications[#notifications] and notifications[#notifications]:match("rendered 1 annotation"), vim.inspect(notifications))
+	local status = commands.annotation_status()
+	eq(status.status, "rendered")
+	eq(status.received, 1)
+	eq(status.rendered, 1)
+end)
+
+test("annotation status reports returned annotations that did not render", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+
+	vantage.setup({ backend = { mode = "fake" } })
+	annotations.clear(0)
+	lua_buffer({ "local value = 42" })
+
+	capture_backend_request({
+		ok = true,
+		result = {
+			kind = "annotations",
+			annotations = {
+				{
+					text = "Out of range annotation",
+					severity = "info",
+					range = {
+						startLine = 99,
+						startCharacter = 0,
+						endLine = 99,
+						endCharacter = 0,
+					},
+				},
+			},
+		},
+	}, function()
+		commands.annotate()
+	end)
+
+	local status = commands.annotation_status()
+	eq(status.status, "no_visible_annotations")
+	eq(status.received, 1)
+	eq(status.rendered, 0)
+	eq(status.skipped, 1)
+	assert(status.message:match("not visible"), status.message)
 end)
 
 test("registers explicit annotation commands without toggle command", function()
@@ -426,6 +502,51 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 	backend.request = original_request
 	backend.cancel = original_cancel
 	annotations.clear(0)
+	assert(ok, err)
+end)
+
+test("annotate times out when the backend leaves the request pending", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local backend = require("vantage.backend")
+	local original_request = backend.request
+	local original_cancel = backend.cancel
+	local cancelled_id
+
+	local ok, err = pcall(function()
+		backend.request = function()
+			return "orphaned-annotations"
+		end
+		backend.cancel = function(id)
+			cancelled_id = id
+		end
+
+		vantage.setup({
+			backend = { mode = "stdio" },
+			provider = {
+				name = "pi",
+				pi = {
+					provider = "openai",
+					model = "gpt-4o-mini",
+					annotation_timeout_ms = 20,
+				},
+			},
+		})
+		lua_buffer({ "local value = 42" })
+
+		commands.annotate()
+		vim.wait(500, function()
+			return commands.annotation_status().status == "failed"
+		end)
+
+		local status = commands.annotation_status()
+		eq(status.status, "failed")
+		assert(status.error:match("timed out"), vim.inspect(status))
+		assert(cancelled_id == "orphaned-annotations", "expected timeout to cancel backend request")
+	end)
+
+	backend.request = original_request
+	backend.cancel = original_cancel
 	assert(ok, err)
 end)
 

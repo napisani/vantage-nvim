@@ -38,6 +38,26 @@ class RecordingRuntime implements PiRuntime {
 	}
 }
 
+class HangingRuntime implements PiRuntime {
+	readonly calls: RuntimeCall[] = [];
+
+	complete(provider: string, model: string, context: PiContext, options: PiCompleteOptions): Promise<PiAssistantMessage> {
+		this.calls.push({ provider, model, context, options });
+		return new Promise<PiAssistantMessage>(() => {});
+	}
+}
+
+class ErrorRuntime implements PiRuntime {
+	async complete(): Promise<PiAssistantMessage> {
+		return {
+			role: 'assistant',
+			content: [],
+			stopReason: 'error',
+			errorMessage: 'Connection error.',
+		};
+	}
+}
+
 test('PiProvider explainSelection uses openai/gpt-4o-mini by default', async () => {
 	const runtime = new RecordingRuntime('## Pi explanation');
 	const provider = new PiProvider({ apiKey: 'sk-test', runtime });
@@ -108,6 +128,53 @@ test('PiProvider annotateRange parses JSON and uses annotation timeout', async (
 	assert.equal(runtime.calls[0].options.maxTokens, 256);
 	assert.match(String(runtime.calls[0].context.messages[0].content), /Candidate lines to annotate/i);
 	assert.match(String(runtime.calls[0].context.messages[0].content), /1\| const second = first \+ 1;/);
+});
+
+test('PiProvider annotateRange enforces annotation timeout when the runtime hangs', { timeout: 500 }, async () => {
+	const runtime = new HangingRuntime();
+	const provider = new PiProvider({
+		apiKey: 'sk-test',
+		annotationTimeoutMs: 25,
+		runtime,
+	});
+
+	await assert.rejects(
+		() =>
+			provider.annotateRange({
+				filePath: '/repo/example.ts',
+				language: 'typescript',
+				text: 'const first = 1;\nconst second = first + 1;',
+				cursor: { line: 40, character: 0 },
+				visibleRange: { startLine: 40, startCharacter: 0, endLine: 41, endCharacter: 25 },
+				scopeText: 'const first = 1;\nconst second = first + 1;',
+				candidateLines: [
+					{ line: 0, text: 'const first = 1;' },
+					{ line: 1, text: 'const second = first + 1;' },
+				],
+			}),
+		/Pi request timed out after 25ms/
+	);
+	assert.equal(runtime.calls[0].options.timeoutMs, 25);
+	assert.ok(runtime.calls[0].options.signal instanceof AbortSignal);
+});
+
+test('PiProvider reports Pi runtime error messages from empty responses', async () => {
+	const provider = new PiProvider({
+		apiKey: 'sk-test',
+		runtime: new ErrorRuntime(),
+	});
+
+	await assert.rejects(
+		() =>
+			provider.explainSelection({
+				filePath: '/repo/example.ts',
+				language: 'typescript',
+				text: 'const value = 1;',
+				cursor: { line: 0, character: 0 },
+				selectedText: 'const value = 1;',
+			}),
+		/Pi provider failed: Connection error/
+	);
 });
 
 test('PiProvider falls back to OPENAI_API_KEY for openai provider', async () => {
