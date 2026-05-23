@@ -1,4 +1,5 @@
 local state = require("vantage.state")
+local agent_context = require("vantage.agent_context")
 local M = {}
 
 local function cursor()
@@ -20,6 +21,7 @@ function M.visible()
 	local start_line = vim.fn.line("w0") - 1
 	local end_line = vim.fn.line("w$") - 1
 	local lines = vim.api.nvim_buf_get_lines(0, start_line, end_line + 1, false)
+	local snapshot = agent_context.snapshot()
 
 	return {
 		filePath = vim.api.nvim_buf_get_name(0),
@@ -28,6 +30,7 @@ function M.visible()
 		cursor = cursor(),
 		visibleRange = range_for_lines(start_line, end_line, lines),
 		lens = state.get_lens(),
+		agentContext = snapshot.context,
 	}
 end
 
@@ -38,6 +41,7 @@ function M.line_range(start_line, end_line)
 	local lines = vim.api.nvim_buf_get_lines(0, first_line, last_line + 1, false)
 	local text = table.concat(lines, "\n")
 	local range = range_for_lines(first_line, last_line, lines)
+	local snapshot = agent_context.snapshot()
 
 	return {
 		filePath = vim.api.nvim_buf_get_name(0),
@@ -48,6 +52,7 @@ function M.line_range(start_line, end_line)
 		range = range,
 		selectedText = text,
 		lens = state.get_lens(),
+		agentContext = snapshot.context,
 	}
 end
 

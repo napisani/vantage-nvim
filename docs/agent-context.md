@@ -1,6 +1,6 @@
 # Agent Task Context
 
-This document defines the planned artifact convention for letting Vantage use task context from an adjacent coding agent.
+This document defines the artifact convention for letting Vantage use task context from an adjacent coding agent.
 
 ## File
 
@@ -10,11 +10,11 @@ Adjacent agents should write:
 .vantage/agent-context.md
 ```
 
-Vantage will read this file when present. If it is missing, unreadable, or stale beyond configuration, Vantage will continue without blocking explain, annotate, or review commands. If it is too large, Vantage will defensively read the last configured byte range; the adjacent agent remains responsible for keeping the file compact.
+Vantage reads this file when present. If it is missing, unreadable, or stale beyond configuration, Vantage continues without blocking explain, annotate, or review commands. If it is too large, Vantage defensively reads the last configured byte range; the adjacent agent remains responsible for keeping the file compact.
 
 ## Agent Instruction Snippet
 
-Copy this into Codex, Claude Code, opencode, Pi, or another adjacent coding agent's project instructions:
+Copy this into Codex, Claude Code, opencode, Pi, or another adjacent coding agent's user-level or project-level instructions:
 
 ```md
 When working in this repository, maintain `.vantage/agent-context.md` as a compact snapshot for Vantage.

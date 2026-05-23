@@ -11,6 +11,7 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 - `:VantageExplain`
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
+- `:VantageContextStatus`
 - `:VantageReviewHunk`
 
 ## Installation
@@ -134,6 +135,12 @@ require("vantage").setup({
   annotations = {
     waiting_message_ms = 30000,
   },
+  agent_context = {
+    enabled = true,
+    path = ".vantage/agent-context.md",
+    max_bytes = 12000,
+    max_age_ms = nil,
+  },
 })
 ```
 
@@ -144,18 +151,42 @@ Provider-specific fields:
 - `chatgpt`: `api_key`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
 - `pi`: `api_key`, `provider`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
 
-### Planned Agent Task Context
+### Agent Task Context
 
-Vantage is planned to use task context produced by an adjacent coding agent such as Codex, Claude Code, opencode, or Pi. The integration is artifact-first: the adjacent agent writes a compact Markdown snapshot at `.vantage/agent-context.md`, and Vantage reads it when present. If the file is absent, Vantage commands work normally without the extra context.
+Vantage can use task context produced by an adjacent coding agent such as Codex, Claude Code, opencode, or Pi. The integration is artifact-first: the adjacent agent writes a compact Markdown snapshot at `.vantage/agent-context.md`, and Vantage reads it when present. If the file is absent, Vantage commands work normally without the extra context.
 
 The context file is workspace/session state and should not be committed. This repository ignores `.vantage/agent-context.md` by default.
 
-Copy this instruction into your adjacent agent's project instructions:
+#### Configure adjacent agents
+
+For personal Vantage usage, put the instruction in your agent's user-level rules so it follows you across repositories without changing team-shared project instructions:
+
+| Agent | Personal instruction file |
+| --- | --- |
+| Codex | `~/.codex/AGENTS.md` |
+| Claude Code | `~/.claude/CLAUDE.md` or a user-level rule under `~/.claude/rules/` |
+| opencode | `~/.config/opencode/AGENTS.md` |
+
+If a whole team wants the same behavior, put the same instruction in the repository's agent instructions instead. Use `AGENTS.md` for Codex and opencode, and `CLAUDE.md` for Claude Code. Claude Code reads `CLAUDE.md`, not `AGENTS.md`, but a `CLAUDE.md` file can import `AGENTS.md` with `@AGENTS.md`.
+
+Keep the generated artifact local. For a personal-only setup, add it to `.git/info/exclude` in each workspace:
+
+```gitignore
+.vantage/agent-context.md
+```
+
+For a team setup, commit that ignore rule to `.gitignore`.
+
+Copy this instruction into the adjacent agent configuration you chose:
 
 ```md
-When working in this repository, maintain `.vantage/agent-context.md` as a compact snapshot for Vantage.
+## Workspace Task Snapshot
 
-Rewrite it when task state materially changes. Do not append a transcript.
+If `.vantage/` exists in the current workspace, maintain `.vantage/agent-context.md` as a compact snapshot of the active task.
+
+Create `.vantage/agent-context.md` if it is missing. Rewrite the file when task state materially changes; do not append a running log or transcript.
+
+Keep the snapshot concise, current, and under 12 KB when practical. Do not include secrets, credentials, raw conversation, or unrelated project documentation.
 
 Use this structure:
 
@@ -175,10 +206,20 @@ Use this structure:
 
 ## Recent Progress
 
-Keep it concise. Do not include secrets. This file is ignored by git. The producer of the file is responsible for pruning and compacting it.
+Update it after meaningful changes: plan changes, important files or constraints are discovered, decisions are made, tests pass/fail in a relevant way, or before handing control back to the user.
+
+Do not update it after every command, file read, or tool call.
 ```
 
-See `docs/agent-context.md` for the planned artifact convention and design notes.
+Vantage gives the active command scope and lens higher priority than Agent Task Context. Use the context file for task state, not for overriding the user's selected lens or asking Vantage to inspect unrelated files.
+
+Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageAnnotate visible`, and `:VantageReviewHunk`; Vantage includes the snapshot automatically when it is available.
+
+See `docs/agent-context.md` for the full artifact convention and design notes. Tool-specific instruction docs are available from Codex, Claude Code, and opencode:
+
+- Codex: <https://developers.openai.com/codex/guides/agents-md>
+- Claude Code: <https://docs.anthropic.com/en/docs/claude-code/memory>
+- opencode: <https://dev.opencode.ai/docs/rules/>
 
 ## Development
 
@@ -341,6 +382,8 @@ Then run:
 ```
 
 `:VantageAnnotate` asks the active provider to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
+
+`:VantageContextStatus` opens a status float for the current workspace's Agent Context File. It reports the resolved path, whether the file was included, size and included bytes, freshness, truncation, and read errors when relevant.
 
 `VantageAnnotate` accepts simple scope and budget arguments:
 

@@ -30,6 +30,23 @@ local function lua_buffer(lines)
 	vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
 end
 
+local function temp_workspace()
+	local root = vim.fn.tempname()
+	vim.fn.mkdir(root .. "/.git", "p")
+	vim.fn.mkdir(root .. "/.vantage", "p")
+	return root
+end
+
+local function set_buffer_path(path)
+	vim.api.nvim_buf_set_name(0, path)
+end
+
+local function writefile(path, text)
+	local fd = assert(vim.loop.fs_open(path, "w", 420))
+	assert(vim.loop.fs_write(fd, text, 0))
+	vim.loop.fs_close(fd)
+end
+
 local function last_float_text()
 	local float_buf = require("vantage.ui").last_float_buf()
 	if not float_buf or not vim.api.nvim_buf_is_valid(float_buf) then
@@ -212,6 +229,95 @@ test("context captures visible buffer text", function()
 	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/vantage-context.lua")
 	eq(captured.text, "local x = 1\nlocal y = x + 1\nreturn y")
 	eq(captured.visibleRange.startLine, 0)
+end)
+
+test("agent context reads workspace markdown with tail truncation metadata", function()
+	local vantage = require("vantage")
+	local agent_context = require("vantage.agent_context")
+	local root = temp_workspace()
+	local context_path = root .. "/.vantage/agent-context.md"
+
+	vantage.setup({
+		backend = { mode = "fake" },
+		agent_context = {
+			max_bytes = 18,
+		},
+	})
+
+	fresh_buffer()
+	set_buffer_path(root .. "/lua/example.lua")
+	writefile(context_path, "# Agent Task Context\n\n## Recent Progress\nImplemented reader")
+
+	local snapshot = agent_context.snapshot()
+
+	eq(snapshot.status, "included")
+	eq(snapshot.workspace_root, root)
+	eq(snapshot.path, context_path)
+	eq(snapshot.exists, true)
+	eq(snapshot.truncated, true)
+	eq(snapshot.included_bytes, 18)
+	eq(snapshot.context.path, context_path)
+	eq(snapshot.context.truncated, true)
+	eq(snapshot.context.content, "Implemented reader")
+	assert(type(snapshot.context.ageMs) == "number", vim.inspect(snapshot.context))
+	assert(type(snapshot.context.modifiedAt) == "string", vim.inspect(snapshot.context))
+end)
+
+test("agent context status reports missing context without failing commands", function()
+	local vantage = require("vantage")
+	local agent_context = require("vantage.agent_context")
+	local root = temp_workspace()
+
+	vantage.setup({ backend = { mode = "fake" } })
+	fresh_buffer()
+	set_buffer_path(root .. "/lua/example.lua")
+
+	local snapshot = agent_context.snapshot()
+
+	eq(snapshot.status, "missing")
+	eq(snapshot.exists, false)
+	eq(snapshot.context, nil)
+end)
+
+test("VantageExplain attaches agent context when available", function()
+	local vantage = require("vantage")
+	local root = temp_workspace()
+
+	vantage.setup({ backend = { mode = "fake" } })
+	lua_buffer({ "local value = 42" })
+	set_buffer_path(root .. "/lua/example.lua")
+	writefile(root .. "/.vantage/agent-context.md", "# Agent Task Context\n\n## Goal\nExplain reader")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = { kind = "explanation", markdown = "ok" },
+	}, function()
+		vim.cmd("VantageExplain")
+	end)
+
+	eq(captured.method, "explainSelection")
+	assert(captured.params.agentContext, vim.inspect(captured.params))
+	eq(captured.params.agentContext.content, "# Agent Task Context\n\n## Goal\nExplain reader")
+	eq(captured.params.agentContext.truncated, false)
+end)
+
+test("VantageContextStatus shows context availability on demand", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local root = temp_workspace()
+
+	vantage.setup({ backend = { mode = "fake" } })
+	fresh_buffer()
+	set_buffer_path(root .. "/lua/example.lua")
+	writefile(root .. "/.vantage/agent-context.md", "# Agent Task Context\n\n## Goal\nShow status")
+
+	commands.show_agent_context_status()
+
+	local text = last_float_text()
+	assert(text ~= nil, "expected context status float")
+	assert(text:match("Vantage Agent Context Status"), text)
+	assert(text:match("Status: included"), text)
+	assert(text:match("%.vantage/agent%-context%.md"), text)
 end)
 
 test("context uses absolute file path for relative buffer name", function()

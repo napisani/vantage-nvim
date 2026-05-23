@@ -1,4 +1,5 @@
 local annotations = require("vantage.annotations")
+local agent_context = require("vantage.agent_context")
 local backend = require("vantage.backend")
 local context = require("vantage.context")
 local state = require("vantage.state")
@@ -454,6 +455,66 @@ function M.show_annotation_status()
 	vim.notify("Vantage annotation status: " .. tostring(status.status or "unknown"), vim.log.levels.INFO)
 end
 
+local function format_age(ms)
+	if type(ms) ~= "number" then
+		return "unknown"
+	end
+	if ms < 1000 then
+		return tostring(math.floor(ms)) .. "ms"
+	end
+	if ms < 60000 then
+		return tostring(math.floor((ms / 1000) + 0.5)) .. "s"
+	end
+	if ms < 3600000 then
+		return tostring(math.floor((ms / 60000) + 0.5)) .. "m"
+	end
+	return tostring(math.floor((ms / 3600000) + 0.5)) .. "h"
+end
+
+function M.agent_context_status()
+	return agent_context.snapshot()
+end
+
+function M.show_agent_context_status()
+	local snapshot = M.agent_context_status()
+	local lines = {
+		"## Vantage Agent Context Status",
+		"",
+		"- Enabled: " .. tostring(snapshot.enabled == true),
+		"- Status: " .. tostring(snapshot.status or "unknown"),
+		"- Workspace root: `" .. tostring(snapshot.workspace_root or "") .. "`",
+		"- Path: `" .. tostring(snapshot.path or "") .. "`",
+	}
+
+	if snapshot.exists ~= nil then
+		table.insert(lines, "- Exists: " .. tostring(snapshot.exists))
+	end
+	if snapshot.size_bytes ~= nil then
+		table.insert(lines, "- File size: " .. tostring(snapshot.size_bytes) .. " bytes")
+	end
+	if snapshot.included_bytes ~= nil then
+		table.insert(lines, "- Included: " .. tostring(snapshot.included_bytes) .. " bytes")
+	end
+	if snapshot.age_ms ~= nil then
+		table.insert(lines, "- Age: " .. format_age(snapshot.age_ms))
+	end
+	if snapshot.modified_at then
+		table.insert(lines, "- Modified: " .. tostring(snapshot.modified_at))
+	end
+	if snapshot.truncated ~= nil then
+		table.insert(lines, "- Tail truncated: " .. tostring(snapshot.truncated))
+	end
+	if snapshot.error then
+		table.insert(lines, "")
+		table.insert(lines, "### Error")
+		table.insert(lines, "")
+		table.insert(lines, tostring(snapshot.error))
+	end
+
+	ui.show_markdown(table.concat(lines, "\n"))
+	vim.notify("Vantage agent context status: " .. tostring(snapshot.status or "unknown"), vim.log.levels.INFO)
+end
+
 function M.set_lens(mode, text)
 	state.set_lens(mode, text)
 end
@@ -624,6 +685,10 @@ function M.register()
 
 	recreate_command("VantageAnnotationStatus", function()
 		M.show_annotation_status()
+	end)
+
+	recreate_command("VantageContextStatus", function()
+		M.show_agent_context_status()
 	end)
 
 	recreate_command("VantageReviewHunk", function()

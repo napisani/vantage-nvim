@@ -21,6 +21,16 @@ local function fake_response(method, params)
 		local lens = params.lens and params.lens.text or "No learning lens set."
 		local selected_code = params.selectedText or params.text or ""
 		local context_summary = params.contextSummary or "Visible editor context."
+		if params.agentContext then
+			local truncated = params.agentContext.truncated and ", truncated" or ""
+			context_summary = "Agent context: "
+				.. tostring(params.agentContext.path or "unknown")
+				.. " ("
+				.. tostring(#(params.agentContext.content or ""))
+				.. " chars"
+				.. truncated
+				.. ")"
+		end
 
 		return {
 			kind = "explanation",

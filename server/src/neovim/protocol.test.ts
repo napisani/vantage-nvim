@@ -49,6 +49,35 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 	]);
 });
 
+test('parseBackendRequest accepts agent task context', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-agent-context',
+		method: 'explainSelection',
+		params: {
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			selectedText: 'const value = 1;',
+			agentContext: {
+				path: '/repo/.vantage/agent-context.md',
+				content: '# Agent Task Context\n\n## Goal\nShip context',
+				modifiedAt: '2026-05-21T12:00:00.000Z',
+				ageMs: 1200,
+				truncated: true,
+			},
+		},
+	});
+
+	assert.deepEqual(parsed.params.agentContext, {
+		path: '/repo/.vantage/agent-context.md',
+		content: '# Agent Task Context\n\n## Goal\nShip context',
+		modifiedAt: '2026-05-21T12:00:00.000Z',
+		ageMs: 1200,
+		truncated: true,
+	});
+});
+
 test('parseBackendRequest accepts explicit provider config', () => {
 	const parsed = parseBackendRequest({
 		id: 'req-provider-config',

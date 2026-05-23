@@ -54,10 +54,17 @@ end
 ---@class VantageAnnotationsConfig
 ---@field waiting_message_ms? integer
 
+---@class VantageAgentContextConfig
+---@field enabled? boolean
+---@field path? string
+---@field max_bytes? integer
+---@field max_age_ms? integer
+
 ---@class VantageConfig
 ---@field backend? VantageBackendConfig Advanced backend transport settings.
 ---@field provider? VantageProviderConfig Model provider settings sent to the bundled backend.
 ---@field annotations? VantageAnnotationsConfig
+---@field agent_context? VantageAgentContextConfig
 
 local function default_config()
 	return {
@@ -70,6 +77,12 @@ local function default_config()
 		},
 		annotations = {
 			waiting_message_ms = 30000,
+		},
+		agent_context = {
+			enabled = true,
+			path = ".vantage/agent-context.md",
+			max_bytes = 12000,
+			max_age_ms = nil,
 		},
 	}
 end

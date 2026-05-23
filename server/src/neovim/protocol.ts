@@ -29,6 +29,14 @@ export interface GitContext {
 	touchedFiles?: string[];
 }
 
+export interface AgentContext {
+	path: string;
+	content: string;
+	modifiedAt?: string;
+	ageMs?: number;
+	truncated: boolean;
+}
+
 export interface BaseRequestParams {
 	filePath: string;
 	language: string;
@@ -36,6 +44,7 @@ export interface BaseRequestParams {
 	cursor: Position;
 	lens?: Lens;
 	git?: GitContext;
+	agentContext?: AgentContext;
 }
 
 export interface ExplainSelectionParams extends BaseRequestParams {
@@ -348,6 +357,7 @@ function parseBaseRequestParams(params: UnknownRecord): BaseRequestParams {
 		cursor: parsePosition(params.cursor, 'params.cursor'),
 		lens: parseOptionalLens(params.lens, 'params.lens'),
 		git: parseOptionalGitContext(params.git, 'params.git'),
+		agentContext: parseOptionalAgentContext(params.agentContext, 'params.agentContext'),
 	};
 }
 
@@ -417,6 +427,21 @@ function parseOptionalGitContext(value: unknown, label: string): GitContext | un
 	};
 }
 
+function parseOptionalAgentContext(value: unknown, label: string): AgentContext | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	return {
+		path: requireString(record.path, `${label}.path`),
+		content: requireString(record.content, `${label}.content`),
+		modifiedAt: parseOptionalString(record.modifiedAt, `${label}.modifiedAt`),
+		ageMs: parseOptionalNonNegativeNumber(record.ageMs, `${label}.ageMs`),
+		truncated: requireBoolean(record.truncated, `${label}.truncated`),
+	};
+}
+
 function parseOptionalStringArray(value: unknown, label: string): string[] | undefined {
 	if (value === undefined) {
 		return undefined;
@@ -424,6 +449,26 @@ function parseOptionalStringArray(value: unknown, label: string): string[] | und
 
 	if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) {
 		throw new Error(`${label} must be an array of strings`);
+	}
+
+	return value;
+}
+
+function parseOptionalNonNegativeNumber(value: unknown, label: string): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+		throw new Error(`${label} must be a non-negative number`);
+	}
+
+	return value;
+}
+
+function requireBoolean(value: unknown, label: string): boolean {
+	if (typeof value !== 'boolean') {
+		throw new Error(`${label} must be a boolean`);
 	}
 
 	return value;
