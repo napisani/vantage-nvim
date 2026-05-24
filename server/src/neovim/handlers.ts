@@ -1,21 +1,25 @@
 import { BackendRequest, BackendResponse } from './protocol';
-import { createProviderFromConfig } from './provider-factory';
-import type { BackendProvider, ProviderRequestContext } from './provider';
+import { createAgentRuntimeFromConfig } from './agent-runtime-factory';
+import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
 
 export async function handleBackendRequest(
 	request: BackendRequest,
-	provider: BackendProvider | undefined = undefined,
-	context: ProviderRequestContext = {}
+	agentRuntime: AgentRuntime | undefined = undefined,
+	context: AgentRuntimeRequestContext = {}
 ): Promise<BackendResponse> {
 	try {
-		const activeProvider = provider ?? createProviderFromConfig(request.config?.provider, process.env);
+		const activeRuntime = agentRuntime ?? createAgentRuntimeFromConfig(request.config);
 		switch (request.method) {
 			case 'explainSelection':
-				return { id: request.id, ok: true, result: await activeProvider.explainSelection(request.params, context) };
+				return { id: request.id, ok: true, result: await activeRuntime.explainSelection(request.params, context) };
 			case 'annotateRange':
-				return { id: request.id, ok: true, result: await activeProvider.annotateRange(request.params, context) };
+				return { id: request.id, ok: true, result: await activeRuntime.annotateRange(request.params, context) };
 			case 'reviewCurrentHunk':
-				return { id: request.id, ok: true, result: await activeProvider.reviewCurrentHunk(request.params, context) };
+				return { id: request.id, ok: true, result: await activeRuntime.reviewCurrentHunk(request.params, context) };
+			case 'agentSessionReset':
+				return { id: request.id, ok: true, result: await activeRuntime.agentSessionReset(request.params, context) };
+			case 'agentSessionStatus':
+				return { id: request.id, ok: true, result: await activeRuntime.agentSessionStatus(request.params, context) };
 		}
 	} catch (error) {
 		return {

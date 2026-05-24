@@ -8,7 +8,7 @@ The goal is to let Vantage use the adjacent agent's distilled task understanding
 
 ## Goals
 
-- Let all provider-backed Vantage commands use adjacent-agent task context when it is available.
+- Let all agent-runtime Vantage commands use adjacent-agent task context when it is available.
 - Keep Vantage useful when no adjacent-agent context exists.
 - Make the integration agent-agnostic and easy to adopt with Codex, Claude Code, opencode, Pi, or a future agent.
 - Preserve the active lens as the user's highest-priority steering mechanism.
@@ -21,12 +21,12 @@ The goal is to let Vantage use the adjacent agent's distilled task understanding
 - Vantage will not require Pi, Codex, Claude Code, opencode, or any other single adjacent agent.
 - Vantage will not summarize, compact, rewrite, or maintain the context artifact.
 - Vantage will not create the context file automatically during normal commands.
-- Vantage will not use agent context to choose providers, models, timeouts, or other configuration.
+- Vantage will not use agent context to choose the agent runtime, model target, timeouts, or other configuration.
 - Vantage will not add agent-specific hook integrations in the first implementation.
 
 ## Decision Summary
 
-Use an artifact-first integration. Adjacent agents write a workspace-local Markdown snapshot at `.vantage/agent-context.md`. Vantage reads that file when present, attaches it to each provider-backed request, and renders it into prompts as lower-priority, untrusted task context. If the file is absent, unreadable, or stale beyond configured limits, Vantage degrades without blocking the command. If the file is too large, Vantage tail-reads the last configured byte range and marks the context as truncated.
+Use an artifact-first integration. Adjacent agents write a workspace-local Markdown snapshot at `.vantage/agent-context.md`. Vantage reads that file when present, attaches it to each agent-runtime request, and renders it into prompts as lower-priority, untrusted task context. If the file is absent, unreadable, or stale beyond configured limits, Vantage degrades without blocking the command. If the file is too large, Vantage tail-reads the last configured byte range and marks the context as truncated.
 
 ## Agent Context File
 
@@ -66,9 +66,13 @@ The most current, high-value information should remain near the bottom because V
 Vantage should ship a copyable instruction snippet for adjacent coding agents:
 
 ```md
-When working in this repository, maintain `.vantage/agent-context.md` as a compact snapshot for Vantage.
+## Workspace Task Snapshot
 
-Rewrite it when task state materially changes. Do not append a transcript.
+If `.vantage/` exists in the current workspace, maintain `.vantage/agent-context.md` as a compact snapshot of the active task.
+
+Create `.vantage/agent-context.md` if it is missing. Rewrite the file when task state materially changes; do not append a running log or transcript.
+
+Keep the snapshot concise, current, and under 12 KB when practical. Do not include secrets, credentials, raw conversation, or unrelated project documentation.
 
 Use this structure:
 
@@ -88,7 +92,9 @@ Use this structure:
 
 ## Recent Progress
 
-Keep it concise. Do not include secrets. This file is ignored by git. The producer of the file is responsible for pruning and compacting it.
+Update it after meaningful changes: plan changes, important files or constraints are discovered, decisions are made, tests pass/fail in a relevant way, or before handing control back to the user.
+
+Do not update it after every command, file read, or tool call.
 ```
 
 Useful update moments include goal changes, plan changes, important discoveries, decisions, meaningful test results, implementation focus changes, and handoff points. Adjacent agents should not update the file after every tool call or file read.
@@ -119,17 +125,17 @@ Do not make headings, prompt labels, agent-specific settings, or command-specifi
 
 ## Workspace Resolution
 
-For a provider-backed command, the Lua plugin resolves the current buffer's workspace root by finding the nearest ancestor containing `.git`. If no git root is found, it falls back to Neovim's current working directory. The configured `agent_context.path` is resolved relative to that root unless it is absolute.
+For an agent-runtime command, the Lua plugin resolves the current buffer's workspace root by finding the nearest ancestor containing `.git`. If no git root is found, it falls back to Neovim's current working directory. The configured `agent_context.path` is resolved relative to that root unless it is absolute.
 
 ## Request Flow
 
 1. User invokes `:VantageExplain`, `:VantageAnnotate`, or `:VantageReviewHunk`.
 2. Lua captures the existing editor context and lens.
 3. Lua resolves and reads the Agent Context File when enabled.
-4. Lua attaches agent context metadata and content to request params.
+4. Lua attaches workspace root plus agent context metadata, revision, and content to request params.
 5. The backend parses `params.agentContext`.
-6. Prompt builders render an Agent Context Prompt Section when context is present.
-7. Providers receive prompts with code, lens, and agent context.
+6. When Vantage Agent Sessions are enabled, the runtime compares the revision to the current scoped session and adds an Agent Context update turn only when it changed.
+7. The agent runtime receives prompts with code and lens, plus the current scoped session context.
 
 Protocol shape:
 
@@ -137,12 +143,14 @@ Protocol shape:
 interface AgentContext {
   path: string;
   content: string;
+  revision?: string;
   modifiedAt?: string;
   ageMs?: number;
   truncated: boolean;
 }
 
 interface BaseRequestParams {
+  workspaceRoot?: string;
   filePath: string;
   language: string;
   text: string;
@@ -153,7 +161,7 @@ interface BaseRequestParams {
 }
 ```
 
-The context belongs in `params` because it is per-request input, not provider configuration.
+The context belongs in `params` because it is per-request input, not agent runtime configuration.
 
 ## Prompting Rules
 
@@ -200,7 +208,7 @@ It should show:
 - whether tail truncation occurred
 - read error details when relevant
 
-Normal provider-backed commands should not display context status automatically. Missing or unreadable context is not an error for explain, annotate, or review commands.
+Normal agent-runtime commands should not display context status automatically. Missing or unreadable context is not an error for explain, annotate, or review commands.
 
 ## Git Hygiene
 
@@ -235,7 +243,7 @@ Reading raw transcripts or terminal logs would be brittle and risky. It would al
 - Lua tests cover workspace-root resolution, path override, disabled config, missing file, unreadable file, freshness cutoff, and tail truncation.
 - Protocol tests cover parsing `params.agentContext`.
 - Prompt tests cover Lens Precedence, Context Trust Boundary text, truncation metadata, and annotation scope constraints.
-- Fake-provider tests expose a Fake Context Signal, such as context presence and metadata, without echoing the full context content.
+- Development-runtime tests expose a context signal, such as context presence and metadata, without echoing the full context content.
 - Neovim command tests cover `:VantageContextStatus`.
 
 ## Rollout

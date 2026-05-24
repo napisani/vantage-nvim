@@ -32,12 +32,14 @@ export interface GitContext {
 export interface AgentContext {
 	path: string;
 	content: string;
+	revision?: string;
 	modifiedAt?: string;
 	ageMs?: number;
 	truncated: boolean;
 }
 
 export interface BaseRequestParams {
+	workspaceRoot?: string;
 	filePath: string;
 	language: string;
 	text: string;
@@ -63,63 +65,74 @@ export interface ReviewCurrentHunkParams extends BaseRequestParams {
 	hunkText: string;
 }
 
-export type ProviderName = 'fake' | 'codex' | 'ollama' | 'chatgpt' | 'pi';
+export type AgentRuntimeName = 'pi' | 'development';
+export type AgentReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
+export type AgentCacheRetention = 'none' | 'short' | 'long';
 
-export interface CodexProviderConfig {
-	command?: string;
-	model?: string;
-	timeout_ms?: number;
-	annotation_timeout_ms?: number;
-	trace_prompt_path?: string;
-	trace_response_path?: string;
+export interface AgentOptionsConfig {
+	apiKey?: string;
+	temperature?: number;
+	maxTokens?: number;
+	timeoutMs?: number;
+	maxRetries?: number;
+	maxRetryDelayMs?: number;
+	reasoning?: AgentReasoningLevel;
+	metadata?: Record<string, unknown>;
+	headers?: Record<string, string>;
 }
 
-export interface OllamaProviderConfig {
-	base_url?: string;
-	model?: string;
-	timeout_ms?: number;
-	annotation_timeout_ms?: number;
-	trace_prompt_path?: string;
-	trace_response_path?: string;
+export interface AgentTraceConfig {
+	prompt_path?: string;
+	response_path?: string;
 }
 
-export interface ChatGptProviderConfig {
-	api_key?: string;
-	model?: string;
-	timeout_ms?: number;
-	annotation_timeout_ms?: number;
-	trace_prompt_path?: string;
-	trace_response_path?: string;
+export interface AgentSessionConfig {
+	enabled?: boolean;
+	max_turns?: number;
+	cacheRetention?: AgentCacheRetention;
 }
 
-export interface PiProviderConfig {
-	api_key?: string;
+export interface AgentRuntimeConfig {
+	runtime?: AgentRuntimeName;
 	provider?: string;
 	model?: string;
-	timeout_ms?: number;
-	annotation_timeout_ms?: number;
-	trace_prompt_path?: string;
-	trace_response_path?: string;
+	options?: AgentOptionsConfig;
+	session?: AgentSessionConfig;
+	trace?: AgentTraceConfig;
 }
 
-export interface BackendProviderConfig {
-	name?: ProviderName;
-	codex?: CodexProviderConfig;
-	ollama?: OllamaProviderConfig;
-	chatgpt?: ChatGptProviderConfig;
-	pi?: PiProviderConfig;
+export interface CommandConfig {
+	options?: AgentOptionsConfig;
+}
+
+export interface AnnotateCommandConfig extends CommandConfig {
+	waiting_message_ms?: number;
+}
+
+export interface CommandsConfig {
+	explain?: CommandConfig;
+	annotate?: AnnotateCommandConfig;
+	review?: CommandConfig;
 }
 
 export interface BackendRequestConfig {
-	provider?: BackendProviderConfig;
+	agent?: AgentRuntimeConfig;
+	commands?: CommandsConfig;
 }
 
-export type BackendMethod = 'explainSelection' | 'annotateRange' | 'reviewCurrentHunk';
+export type BackendMethod =
+	| 'explainSelection'
+	| 'annotateRange'
+	| 'reviewCurrentHunk'
+	| 'agentSessionReset'
+	| 'agentSessionStatus';
 
 export type BackendRequest =
 	| { id: string; method: 'explainSelection'; config?: BackendRequestConfig; params: ExplainSelectionParams }
 	| { id: string; method: 'annotateRange'; config?: BackendRequestConfig; params: AnnotateRangeParams }
-	| { id: string; method: 'reviewCurrentHunk'; config?: BackendRequestConfig; params: ReviewCurrentHunkParams };
+	| { id: string; method: 'reviewCurrentHunk'; config?: BackendRequestConfig; params: ReviewCurrentHunkParams }
+	| { id: string; method: 'agentSessionReset'; config?: BackendRequestConfig; params: BaseRequestParams }
+	| { id: string; method: 'agentSessionStatus'; config?: BackendRequestConfig; params: BaseRequestParams };
 
 export interface ExplanationResult {
 	kind: 'explanation';
@@ -136,11 +149,11 @@ export interface Annotation {
 export interface AnnotationResult {
 	kind: 'annotations';
 	annotations: Annotation[];
-	telemetry?: ProviderTelemetry;
+	telemetry?: AgentRuntimeTelemetry;
 }
 
-export interface ProviderTelemetry {
-	provider: string;
+export interface AgentRuntimeTelemetry {
+	runtime: string;
 	model?: string;
 	promptChars?: number;
 	promptLines?: number;
@@ -213,6 +226,14 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 					hunkText: requireString(params.hunkText, 'params.hunkText'),
 				},
 			};
+		case 'agentSessionReset':
+		case 'agentSessionStatus':
+			return {
+				id,
+				method,
+				config,
+				params: parseBaseRequestParams(params),
+			};
 	}
 }
 
@@ -223,112 +244,141 @@ function parseOptionalRequestConfig(value: unknown, label: string): BackendReque
 
 	const record = asRecord(value, label);
 	return {
-		provider: parseOptionalProviderConfig(record.provider, `${label}.provider`),
+		agent: parseOptionalAgentRuntimeConfig(record.agent, `${label}.agent`),
+		commands: parseOptionalCommandsConfig(record.commands, `${label}.commands`),
 	};
 }
 
-function parseOptionalProviderConfig(value: unknown, label: string): BackendProviderConfig | undefined {
+function parseOptionalAgentRuntimeConfig(value: unknown, label: string): AgentRuntimeConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
 	const record = asRecord(value, label);
-	const parsed: BackendProviderConfig = {};
-	assignDefined(parsed, 'name', parseOptionalProviderName(record.name, `${label}.name`));
-	assignDefined(parsed, 'codex', parseOptionalCodexProviderConfig(record.codex, `${label}.codex`));
-	assignDefined(parsed, 'ollama', parseOptionalOllamaProviderConfig(record.ollama, `${label}.ollama`));
-	assignDefined(parsed, 'chatgpt', parseOptionalChatGptProviderConfig(record.chatgpt, `${label}.chatgpt`));
-	assignDefined(parsed, 'pi', parseOptionalPiProviderConfig(record.pi, `${label}.pi`));
+	const parsed: AgentRuntimeConfig = {};
+	assignDefined(parsed, 'runtime', parseOptionalAgentRuntimeName(record.runtime, `${label}.runtime`));
+	assignDefined(parsed, 'provider', parseOptionalString(record.provider, `${label}.provider`));
+	assignDefined(parsed, 'model', parseOptionalString(record.model, `${label}.model`));
+	assignDefined(parsed, 'options', parseOptionalAgentOptionsConfig(record.options, `${label}.options`));
+	assignDefined(parsed, 'session', parseOptionalAgentSessionConfig(record.session, `${label}.session`));
+	assignDefined(parsed, 'trace', parseOptionalAgentTraceConfig(record.trace, `${label}.trace`));
 	return parsed;
 }
 
-function parseOptionalCodexProviderConfig(value: unknown, label: string): CodexProviderConfig | undefined {
+function parseOptionalAgentSessionConfig(value: unknown, label: string): AgentSessionConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: AgentSessionConfig = {};
+	assignDefined(parsed, 'enabled', parseOptionalBoolean(record.enabled, `${label}.enabled`));
+	assignDefined(parsed, 'max_turns', parseOptionalPositiveInteger(record.max_turns, `${label}.max_turns`));
+	assignDefined(parsed, 'cacheRetention', parseOptionalAgentCacheRetention(record.cacheRetention, `${label}.cacheRetention`));
+	return parsed;
+}
+
+function parseOptionalAgentTraceConfig(value: unknown, label: string): AgentTraceConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
 	const record = asRecord(value, label);
 	return {
-		command: parseOptionalString(record.command, `${label}.command`),
-		model: parseOptionalString(record.model, `${label}.model`),
-		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
-		annotation_timeout_ms: parseOptionalPositiveInteger(
-			record.annotation_timeout_ms,
-			`${label}.annotation_timeout_ms`
-		),
-		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
-		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+		prompt_path: parseOptionalString(record.prompt_path, `${label}.prompt_path`),
+		response_path: parseOptionalString(record.response_path, `${label}.response_path`),
 	};
 }
 
-function parseOptionalOllamaProviderConfig(value: unknown, label: string): OllamaProviderConfig | undefined {
+function parseOptionalCommandsConfig(value: unknown, label: string): CommandsConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: CommandsConfig = {};
+	assignDefined(parsed, 'explain', parseOptionalCommandConfig(record.explain, `${label}.explain`));
+	assignDefined(parsed, 'annotate', parseOptionalAnnotateCommandConfig(record.annotate, `${label}.annotate`));
+	assignDefined(parsed, 'review', parseOptionalCommandConfig(record.review, `${label}.review`));
+	return parsed;
+}
+
+function parseOptionalCommandConfig(value: unknown, label: string): CommandConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
 	const record = asRecord(value, label);
 	return {
-		base_url: parseOptionalString(record.base_url, `${label}.base_url`),
-		model: parseOptionalString(record.model, `${label}.model`),
-		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
-		annotation_timeout_ms: parseOptionalPositiveInteger(
-			record.annotation_timeout_ms,
-			`${label}.annotation_timeout_ms`
-		),
-		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
-		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
 	};
 }
 
-function parseOptionalChatGptProviderConfig(value: unknown, label: string): ChatGptProviderConfig | undefined {
+function parseOptionalAnnotateCommandConfig(value: unknown, label: string): AnnotateCommandConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
 	const record = asRecord(value, label);
 	return {
-		api_key: parseOptionalString(record.api_key, `${label}.api_key`),
-		model: parseOptionalString(record.model, `${label}.model`),
-		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
-		annotation_timeout_ms: parseOptionalPositiveInteger(
-			record.annotation_timeout_ms,
-			`${label}.annotation_timeout_ms`
-		),
-		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
-		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
+		waiting_message_ms: parseOptionalNonNegativeInteger(record.waiting_message_ms, `${label}.waiting_message_ms`),
+		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
 	};
 }
 
-function parseOptionalPiProviderConfig(value: unknown, label: string): PiProviderConfig | undefined {
+function parseOptionalAgentOptionsConfig(value: unknown, label: string): AgentOptionsConfig | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
 	const record = asRecord(value, label);
-	return {
-		api_key: parseOptionalString(record.api_key, `${label}.api_key`),
-		provider: parseOptionalString(record.provider, `${label}.provider`),
-		model: parseOptionalString(record.model, `${label}.model`),
-		timeout_ms: parseOptionalPositiveInteger(record.timeout_ms, `${label}.timeout_ms`),
-		annotation_timeout_ms: parseOptionalPositiveInteger(
-			record.annotation_timeout_ms,
-			`${label}.annotation_timeout_ms`
-		),
-		trace_prompt_path: parseOptionalString(record.trace_prompt_path, `${label}.trace_prompt_path`),
-		trace_response_path: parseOptionalString(record.trace_response_path, `${label}.trace_response_path`),
-	};
+	const parsed: AgentOptionsConfig = {};
+	assignDefined(parsed, 'apiKey', parseOptionalString(record.apiKey, `${label}.apiKey`));
+	assignDefined(parsed, 'temperature', parseOptionalNonNegativeNumber(record.temperature, `${label}.temperature`));
+	assignDefined(parsed, 'maxTokens', parseOptionalPositiveInteger(record.maxTokens, `${label}.maxTokens`));
+	assignDefined(parsed, 'timeoutMs', parseOptionalPositiveInteger(record.timeoutMs, `${label}.timeoutMs`));
+	assignDefined(parsed, 'maxRetries', parseOptionalNonNegativeInteger(record.maxRetries, `${label}.maxRetries`));
+	assignDefined(parsed, 'maxRetryDelayMs', parseOptionalNonNegativeInteger(record.maxRetryDelayMs, `${label}.maxRetryDelayMs`));
+	assignDefined(parsed, 'reasoning', parseOptionalAgentReasoningLevel(record.reasoning, `${label}.reasoning`));
+	assignDefined(parsed, 'metadata', parseOptionalUnknownRecord(record.metadata, `${label}.metadata`));
+	assignDefined(parsed, 'headers', parseOptionalStringRecord(record.headers, `${label}.headers`));
+	return parsed;
 }
 
-function parseOptionalProviderName(value: unknown, label: string): ProviderName | undefined {
+function parseOptionalAgentRuntimeName(value: unknown, label: string): AgentRuntimeName | undefined {
 	if (value === undefined) {
 		return undefined;
 	}
 
-	if (value === 'fake' || value === 'codex' || value === 'ollama' || value === 'chatgpt' || value === 'pi') {
+	if (value === 'pi' || value === 'development') {
 		return value;
 	}
 
-	throw new Error(`${label} must be fake, codex, ollama, chatgpt, or pi`);
+	throw new Error(`${label} must be pi or development`);
+}
+
+function parseOptionalAgentReasoningLevel(value: unknown, label: string): AgentReasoningLevel | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (value === 'minimal' || value === 'low' || value === 'medium' || value === 'high' || value === 'xhigh') {
+		return value;
+	}
+
+	throw new Error(`${label} must be minimal, low, medium, high, or xhigh`);
+}
+
+function parseOptionalAgentCacheRetention(value: unknown, label: string): AgentCacheRetention | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (value === 'none' || value === 'short' || value === 'long') {
+		return value;
+	}
+
+	throw new Error(`${label} must be none, short, or long`);
 }
 
 function parseOptionalCandidateLines(value: unknown, label: string): AnnotationCandidateLine[] | undefined {
@@ -351,6 +401,7 @@ function parseOptionalCandidateLines(value: unknown, label: string): AnnotationC
 
 function parseBaseRequestParams(params: UnknownRecord): BaseRequestParams {
 	return {
+		workspaceRoot: parseOptionalString(params.workspaceRoot, 'params.workspaceRoot'),
 		filePath: requireString(params.filePath, 'params.filePath'),
 		language: requireString(params.language, 'params.language'),
 		text: requireString(params.text, 'params.text'),
@@ -362,7 +413,13 @@ function parseBaseRequestParams(params: UnknownRecord): BaseRequestParams {
 }
 
 function parseMethod(value: unknown): BackendMethod {
-	if (value === 'explainSelection' || value === 'annotateRange' || value === 'reviewCurrentHunk') {
+	if (
+		value === 'explainSelection'
+		|| value === 'annotateRange'
+		|| value === 'reviewCurrentHunk'
+		|| value === 'agentSessionReset'
+		|| value === 'agentSessionStatus'
+	) {
 		return value;
 	}
 
@@ -436,6 +493,7 @@ function parseOptionalAgentContext(value: unknown, label: string): AgentContext 
 	return {
 		path: requireString(record.path, `${label}.path`),
 		content: requireString(record.content, `${label}.content`),
+		revision: parseOptionalString(record.revision, `${label}.revision`),
 		modifiedAt: parseOptionalString(record.modifiedAt, `${label}.modifiedAt`),
 		ageMs: parseOptionalNonNegativeNumber(record.ageMs, `${label}.ageMs`),
 		truncated: requireBoolean(record.truncated, `${label}.truncated`),
@@ -466,7 +524,54 @@ function parseOptionalNonNegativeNumber(value: unknown, label: string): number |
 	return value;
 }
 
+function parseOptionalNonNegativeInteger(value: unknown, label: string): number | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
+		throw new Error(`${label} must be a non-negative integer`);
+	}
+
+	return value;
+}
+
+function parseOptionalUnknownRecord(value: unknown, label: string): Record<string, unknown> | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	return { ...asRecord(value, label) };
+}
+
+function parseOptionalStringRecord(value: unknown, label: string): Record<string, string> | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	for (const [key, recordValue] of Object.entries(record)) {
+		if (typeof recordValue !== 'string') {
+			throw new Error(`${label}.${key} must be a string`);
+		}
+	}
+
+	return { ...record } as Record<string, string>;
+}
+
 function requireBoolean(value: unknown, label: string): boolean {
+	if (typeof value !== 'boolean') {
+		throw new Error(`${label} must be a boolean`);
+	}
+
+	return value;
+}
+
+function parseOptionalBoolean(value: unknown, label: string): boolean | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
 	if (typeof value !== 'boolean') {
 		throw new Error(`${label} must be a boolean`);
 	}

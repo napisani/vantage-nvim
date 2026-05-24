@@ -1,12 +1,15 @@
 import * as test from 'node:test';
 import * as assert from 'node:assert/strict';
 import { handleBackendRequest } from './handlers';
-import type { BackendProvider } from './provider';
+import type { AgentRuntime } from './agent-runtime';
 
-test('handleBackendRequest returns a fake explanation', async () => {
+test('handleBackendRequest uses development runtime when configured', async () => {
 	const response = await handleBackendRequest({
-		id: 'req-1',
+		id: 'req-development',
 		method: 'explainSelection',
+		config: {
+			agent: { runtime: 'development' },
+		},
 		params: {
 			filePath: '/repo/example.ex',
 			language: 'elixir',
@@ -17,20 +20,23 @@ test('handleBackendRequest returns a fake explanation', async () => {
 		},
 	});
 
-	assert.equal(response.id, 'req-1');
+	assert.equal(response.id, 'req-development');
 	assert.ok(response.ok);
 	if (!response.ok) {
 		assert.fail('expected successful response');
 	}
 	assert.equal(response.result.kind, 'explanation');
-	assert.match(response.result.markdown, /Fake provider/);
-	assert.match(response.result.markdown, /Fake provider response for \*\*elixir\*\*\./);
+	assert.match(response.result.markdown, /Development agent runtime/);
+	assert.match(response.result.markdown, /response for \*\*elixir\*\*\./);
 });
 
-test('handleBackendRequest returns capped annotations', async () => {
+test('handleBackendRequest returns capped development annotations', async () => {
 	const response = await handleBackendRequest({
 		id: 'req-2',
 		method: 'annotateRange',
+		config: {
+			agent: { runtime: 'development' },
+		},
 		params: {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
@@ -50,15 +56,17 @@ test('handleBackendRequest returns capped annotations', async () => {
 	assert.equal(response.result.kind, 'annotations');
 	assert.equal(response.result.annotations.length, 4);
 	assert.equal(response.result.annotations[0].range.startLine, 0);
-	assert.match(response.result.annotations[0].text, /Fake provider annotation/);
+	assert.match(response.result.annotations[0].text, /Development annotation/);
 	assert.match(response.result.annotations[0].detailMarkdown ?? '', /Annotation detail/);
 });
 
-test('handleBackendRequest can use an injected provider', async () => {
-	const provider: BackendProvider = {
+test('handleBackendRequest can use an injected agent runtime', async () => {
+	const agentRuntime: AgentRuntime = {
 		explainSelection: () => ({ kind: 'explanation', markdown: 'Injected explanation' }),
 		annotateRange: () => ({ kind: 'annotations', annotations: [] }),
 		reviewCurrentHunk: () => ({ kind: 'review', markdown: 'Injected review', findings: [] }),
+		agentSessionReset: () => ({ kind: 'explanation', markdown: 'Injected reset' }),
+		agentSessionStatus: () => ({ kind: 'explanation', markdown: 'Injected status' }),
 	};
 
 	const response = await handleBackendRequest(
@@ -73,7 +81,7 @@ test('handleBackendRequest can use an injected provider', async () => {
 				selectedText: 'const value = 1;',
 			},
 		},
-		provider
+		agentRuntime
 	);
 
 	assert.equal(response.id, 'req-injected');

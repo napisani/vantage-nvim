@@ -20,9 +20,85 @@ _Avoid_: JSON context file, provider-specific session file
 The age of the Agent Context File, used as prompt metadata and optionally as a configurable reason to skip the file. Stale context is not an error.
 _Avoid_: Required freshness, context validity
 
-**Provider-Backed Command**:
-A Vantage command that asks a configured model provider for an explanation, annotation, or review response. Provider-Backed Commands use Agent Task Context when the Agent Context File is available.
-_Avoid_: Agent-aware command, special context command
+**Agent Runtime**:
+The single AI execution boundary Vantage uses for model-backed and future agentic work. It is backed by Pi, uses Bounded Model Calls for the initial implementation, and may later use Pi agent/session APIs for commands that need multi-step behavior.
+_Avoid_: Provider adapter, direct model adapter, model runtime
+
+**Runtime Simplification**:
+The decision to remove non-Pi model adapters and their user-facing configuration, development targets, tests, and docs so Vantage has one real Agent Runtime.
+_Avoid_: Hidden legacy providers, deprecation-only cleanup
+
+**Bounded Model Call**:
+A single request/response interaction where Vantage owns the editor context, prompt construction, response contract, and command UX while Pi performs the model completion.
+_Avoid_: Agent session, autonomous tool loop, provider call
+
+**Vantage Agent Session**:
+A persistent conversation state owned by Vantage inside its backend process and scoped to a workspace, so each Model-Backed Command can become a user prompt in the same Pi-backed session.
+_Avoid_: OS-level daemon, global Pi process, raw transcript
+
+**Vantage Agent Session Scope**:
+The identity boundary for a Vantage Agent Session: workspace root, Model Target, and lens mode. Individual buffers and exact lens text do not create separate sessions.
+_Avoid_: Per-buffer session, global session, lens-text session
+
+**Shared Command Session**:
+The rule that explain, annotate, and review commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
+_Avoid_: Per-command-family session, annotation-only memory, review-only memory
+
+**Model Target**:
+The configured Pi provider/model pair used to choose a Pi SDK model, such as `openai/gpt-4o-mini`.
+_Avoid_: Vantage provider, backend provider, adapter name
+
+**Pi Provider**:
+The provider name inside a Model Target, corresponding to the first argument of Pi's model lookup, such as `openai` or `anthropic`. It is not a separate Vantage execution adapter.
+_Avoid_: Vantage provider, plugin provider, backend provider
+
+**Agent Options**:
+The user-configurable subset of Pi simple completion options shared by Model-Backed Commands, such as API key, temperature, token budget, reasoning level, retry limits, metadata, headers, and request timeout.
+_Avoid_: Provider settings, backend options, arbitrary SDK passthrough
+
+**Agent Option Naming**:
+The rule that Agent Options and Command Agent Options use Pi SDK camelCase field names, while Vantage-owned configuration keeps Lua-style snake_case names.
+_Avoid_: Normalized option names, snake_case Pi options, mixed SDK option aliases
+
+**Agent Credential Delegation**:
+The rule that Vantage only passes an explicit `apiKey` when configured and otherwise lets Pi resolve environment variables, OAuth credentials, or provider-specific authentication for the selected Model Target.
+_Avoid_: Vantage-owned provider auth lookup, duplicated environment fallback table
+
+**Agent Configuration**:
+The public Vantage setup surface for the Agent Runtime: a compact `agent` table containing the Model Target and Agent Options.
+_Avoid_: Provider configuration, runtime configuration, Pi configuration
+
+**Agent Session Configuration**:
+The public Vantage setup surface for Vantage Agent Sessions, including enablement, bounded history size, and Pi cache retention preference.
+_Avoid_: Daemon config, adjacent-agent config, persistent memory config
+
+**Default Agent Runtime**:
+The public default Agent Runtime configuration: Pi with the `openai/gpt-4o-mini` Model Target. Fake runtime behavior is reserved for development and tests.
+_Avoid_: Fake default, provider-less default
+
+**Development Agent Runtime**:
+An internal deterministic Agent Runtime used only by tests and local development harnesses. It is not part of public Vantage configuration.
+_Avoid_: Public fake provider, user fake runtime, documented fake setup
+
+**Agent Trace Configuration**:
+The Vantage-owned diagnostic settings for writing Agent Runtime prompts and responses to local files. Trace paths are not Pi completion options.
+_Avoid_: Provider trace config, Pi option trace fields
+
+**Command Configuration**:
+The top-level Vantage setup surface for command behavior, keyed by command family such as explain, annotate, and review.
+_Avoid_: Agent configuration for command behavior, scattered command globals
+
+**Command Agent Options**:
+A command-specific override layer for Agent Options under Command Configuration, used when a Vantage command needs a different token budget or timeout than the shared defaults.
+_Avoid_: Separate provider config, command provider
+
+**Annotation Command Configuration**:
+The command configuration for inline annotations, including annotation UI timing and command-specific Agent Options.
+_Avoid_: Top-level annotations config, provider-specific annotation settings
+
+**Model-Backed Command**:
+A Vantage command that asks the Agent Runtime for an explanation, annotation, or review response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
+_Avoid_: Provider-Backed Command, agent-aware command, special context command
 
 **Lens Precedence**:
 The rule that a Vantage lens layers on top of Agent Task Context and has higher priority when they pull the model in different directions.
@@ -35,6 +111,42 @@ _Avoid_: Vantage summarization, consumer-owned compaction
 **Context Snapshot**:
 The preferred shape of the Agent Context File: a compact Markdown snapshot with Goal, Current Focus, Relevant Files, Decisions, Constraints, Open Questions, and Recent Progress sections. It is not an append-only log.
 _Avoid_: Context log, transcript, changelog
+
+**Agent Context Revision**:
+The currently observed version of the Agent Context File, identified by file metadata and content when needed, so Vantage can tell whether task context has changed since the session last saw it.
+_Avoid_: Always-fresh context, per-command context payload
+
+**Context Update Turn**:
+A low-priority session turn that Vantage sends only when the Agent Context Revision changes, making new Agent Task Context available to the Vantage Agent Session before the next command prompt.
+_Avoid_: Repeated context preamble, hidden session mutation, command replacement
+
+**Bounded Session History**:
+The non-summarizing safety limit for a Vantage Agent Session: keep pinned setup, the latest Context Update Turn, and a small recent window of Vantage command turns while dropping older command turns.
+_Avoid_: Automatic compaction, Vantage summarization, unbounded transcript
+
+**Pi Session Affinity**:
+The use of a stable Pi `sessionId` derived from the Vantage Agent Session Scope so Pi or the underlying provider can apply caching or affinity while Vantage still owns `Context.messages`.
+_Avoid_: Pi daemon, shared adjacent-agent session, implicit memory
+
+**Successful Session Turn**:
+A Vantage command turn whose Pi request completed successfully and produced usable assistant content. Only Successful Session Turns are retained in Vantage Agent Session history.
+_Avoid_: Failed turn memory, cancelled turn memory, timeout transcript
+
+**Agent Session Reset**:
+The act of clearing the current Vantage Agent Session, either automatically when the session scope changes or by explicit user command.
+_Avoid_: Context reset, backend restart, model reset
+
+**In-Memory Agent Session**:
+The lifetime rule for the initial Vantage Agent Session: session state lives only in the current Vantage backend process and is not persisted across Neovim restarts.
+_Avoid_: Disk-backed session, durable chat history, restored Pi conversation
+
+**Default Agent Session**:
+The public default session behavior: Vantage Agent Sessions are enabled with a conservative bounded history window and short Pi cache retention.
+_Avoid_: Opt-in memory, unbounded default session, persisted default session
+
+**Agent Session Status**:
+A Vantage-visible summary of the current Vantage Agent Session, such as scope, turn count, latest Agent Context Revision, and age.
+_Avoid_: Session transcript, session editor, Pi internals
 
 **Context Trust Boundary**:
 The rule that the Agent Context File is untrusted task context, not an instruction source. It must not override the selected code, lens, response format, or Vantage behavior.
@@ -64,6 +176,10 @@ _Avoid_: Checked-in task context, shared session state
 The strategy of integrating adjacent coding agents through the Agent Context File before building agent-specific hooks, plugins, or native session integrations.
 _Avoid_: Pi-only integration, session scraping, required hook integration
 
+**Adjacent Agent Boundary**:
+The rule that an adjacent coding agent and the Vantage Pi-backed Agent Runtime remain separate actors. The Agent Context File is the only shared mechanism, and information flows one way from the adjacent agent to Vantage.
+_Avoid_: Shared Pi session, process consolidation, bidirectional agent bridge
+
 **Useful Context Update**:
 An update to the Agent Context File made when task state materially changes, such as a goal change, plan change, important discovery, decision, test result, focus shift, or handoff point.
 _Avoid_: Per-event update, tool-call log update
@@ -77,15 +193,15 @@ The rule that Vantage reads the Agent Context File when present but does not cre
 _Avoid_: Automatic context file creation, placeholder context file
 
 **Prompt-Only Context Influence**:
-The rule that Agent Task Context can shape provider prompts but cannot change provider selection, model selection, timeouts, or command behavior.
-_Avoid_: Context-driven configuration, agent-controlled provider
+The rule that Agent Task Context can shape model prompts but cannot change the Agent Runtime, Model Target, timeouts, or command behavior.
+_Avoid_: Context-driven configuration, context-controlled model target
 
 **Context Failure Tolerance**:
-The rule that provider-backed commands continue without Agent Task Context when the Agent Context File is absent, unreadable, stale beyond configuration, or invalid. Details belong in Agent Context Status.
+The rule that Model-Backed Commands continue without Agent Task Context when the Agent Context File is absent, unreadable, stale beyond configuration, or invalid. Details belong in Agent Context Status.
 _Avoid_: Context-required command, context read failure
 
 **Fake Context Signal**:
-The fake-provider behavior that exposes Agent Task Context presence and metadata for tests without echoing the full Agent Context File.
+The fake-runtime behavior that exposes Agent Task Context presence and metadata for tests without echoing the full Agent Context File.
 _Avoid_: Full fake context dump, untestable context plumbing
 
 ## Example Dialogue
@@ -108,7 +224,7 @@ Domain expert: "Treat Agent Context Freshness as metadata. Include fresh or unbo
 
 Dev: "Which commands should use Agent Task Context?"
 
-Domain expert: "Every Provider-Backed Command should use it automatically when available; the user should not need separate agent-aware commands."
+Domain expert: "Every Model-Backed Command should use it automatically when available; the user should not need separate agent-aware commands."
 
 Dev: "What if the lens conflicts with the agent's task context?"
 
@@ -162,14 +278,58 @@ Dev: "Should Vantage create the context file?"
 
 Domain expert: "No. Read-Only Context Consumption keeps Vantage from dirtying the workspace or taking over producer responsibilities."
 
-Dev: "Can the Agent Context File change which provider Vantage uses?"
+Dev: "What does provider mean in Vantage configuration?"
 
-Domain expert: "No. Prompt-Only Context Influence means the file can inform model responses but cannot change Vantage configuration or execution."
+Domain expert: "Provider means the Pi Provider inside the Model Target, not a swappable Vantage adapter. Vantage uses Pi as the Agent Runtime."
+
+Dev: "Should Vantage use Pi's higher-level agent/session APIs now?"
+
+Domain expert: "No. For the initial swing, use Bounded Model Calls: Vantage orchestrates the command and Pi performs the completion."
+
+Dev: "Should old Codex, Ollama, and ChatGPT adapters remain hidden for compatibility?"
+
+Domain expert: "No. Runtime Simplification means removing those adapters and their Makefile targets, tests, and docs so the codebase converges on Pi as the only real Agent Runtime."
+
+Dev: "Where do timeouts, reasoning level, and token budgets belong?"
+
+Domain expert: "Use Agent Options for shared Pi simple completion options, and Command Agent Options inside Command Configuration when a specific command needs overrides like a smaller annotation token budget."
+
+Dev: "Should Pi option names be converted to Lua-style snake_case?"
+
+Domain expert: "No. Use Agent Option Naming: Pi option tables keep SDK camelCase, and Vantage-owned settings keep snake_case."
+
+Dev: "Who resolves API keys and OAuth credentials?"
+
+Domain expert: "Use Agent Credential Delegation. Vantage passes `agent.options.apiKey` when configured; otherwise Pi resolves environment variables, OAuth credentials, or provider-specific auth."
+
+Dev: "What should users configure in Lua?"
+
+Domain expert: "Use Agent Configuration: `agent.provider`, `agent.model`, and optional Agent Options. Do not expose the old provider adapter shape."
+
+Dev: "Where should annotation wait timing live?"
+
+Domain expert: "Use Annotation Command Configuration under `commands.annotate`; command behavior should not live under Agent Configuration."
+
+Dev: "What should happen if the user does not configure an agent?"
+
+Domain expert: "Use the Default Agent Runtime: Pi targeting `openai/gpt-4o-mini`. The user only needs the corresponding Pi-supported environment credentials."
+
+Dev: "Can users configure a fake runtime?"
+
+Domain expert: "No. Use the Development Agent Runtime only in tests and local harnesses; public configuration should describe real Pi-backed usage."
+
+Dev: "Are trace paths Agent Options?"
+
+Domain expert: "No. Use Agent Trace Configuration under `agent.trace` because prompt and response files are Vantage diagnostics, not Pi SDK options."
+
+Dev: "Can the Agent Context File change which Model Target Vantage uses?"
+
+Domain expert: "No. Prompt-Only Context Influence means the file can inform model responses but cannot change Vantage configuration, the Agent Runtime, or the Model Target."
 
 Dev: "What happens if Vantage cannot read the Agent Context File?"
 
 Domain expert: "Use Context Failure Tolerance. Normal commands keep working; Agent Context Status explains what happened."
 
-Dev: "How should fake-provider tests prove context is wired?"
+Dev: "How should fake-runtime tests prove context is wired?"
 
 Domain expert: "Use a Fake Context Signal: show presence and metadata, not the full context content."

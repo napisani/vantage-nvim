@@ -1,8 +1,8 @@
 # vantage.nvim
 
-This project is being reworked into a Neovim-first AI review and learning tool.
+vantage.nvim is a Neovim-first AI review and learning assistant.
 
-The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and provider behavior.
+The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and agent runtime behavior.
 
 ## Commands
 
@@ -12,6 +12,8 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
 - `:VantageContextStatus`
+- `:VantageAgentStatus`
+- `:VantageAgentReset`
 - `:VantageReviewHunk`
 
 ## Installation
@@ -28,7 +30,10 @@ vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dis
   build = "npm ci --omit=dev",
   config = function()
     require("vantage").setup({
-      provider = { name = "fake" },
+      agent = {
+        provider = "openai",
+        model = "gpt-4o-mini",
+      },
     })
   end,
 }
@@ -44,7 +49,10 @@ Then configure vantage.nvim from your Lua config:
 
 ```lua
 require("vantage").setup({
-  provider = { name = "fake" },
+  agent = {
+    provider = "openai",
+    model = "gpt-4o-mini",
+  },
 })
 ```
 
@@ -57,83 +65,75 @@ cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nv
 npm ci --omit=dev
 ```
 
-### Provider Configuration
+## Agent Runtime
 
-The installed plugin starts the bundled stdio backend automatically. With `provider.name = "fake"`, commands use deterministic local responses and require no model setup.
-
-Use Codex CLI:
+Vantage uses Pi through `@earendil-works/pi-ai` as its agent runtime. The public `agent.provider` and `agent.model` fields are the Pi model target, for example `openai/gpt-4o-mini` or `anthropic/claude-sonnet-4`.
 
 ```lua
 require("vantage").setup({
-  provider = {
-    name = "codex",
-    codex = {
-      command = "codex",
-      model = "gpt-5.4-mini",
+  agent = {
+    provider = "openai",
+    model = "gpt-4o-mini",
+    session = {
+      enabled = true,
+      max_turns = 12,
+      cacheRetention = "short",
+    },
+    options = {
+      temperature = 0.1,
+      maxTokens = 1024,
+      timeoutMs = 300000,
+      -- apiKey = "sk-...", -- optional; Pi handles env/OAuth auth when omitted
     },
   },
 })
 ```
 
-Codex uses your existing `codex` CLI login.
+If `agent.options.apiKey` is set, Vantage passes it to Pi. If it is omitted, Vantage does not resolve credentials itself; Pi uses its normal provider authentication, including environment variables such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` and any OAuth/session auth Pi supports.
 
-Use Ollama:
+Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, annotate, and review commands share the same scoped session. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
 
-```lua
-require("vantage").setup({
-  provider = {
-    name = "ollama",
-    ollama = {
-      base_url = "http://localhost:11434",
-      model = "qwen3:1.7b",
-    },
-  },
-})
-```
-
-Use ChatGPT through the OpenAI SDK:
-
-```lua
-require("vantage").setup({
-  provider = {
-    name = "chatgpt",
-    chatgpt = {
-      model = "gpt-4o-mini",
-      -- api_key = "sk-...", -- optional; falls back to OPENAI_API_KEY
-    },
-  },
-})
-```
-
-Use Pi through `@earendil-works/pi-ai`:
-
-```lua
-require("vantage").setup({
-  provider = {
-    name = "pi",
-    pi = {
-      provider = "openai",
-      model = "gpt-4o-mini",
-      -- api_key = "sk-...", -- optional; falls back to OPENAI_API_KEY for openai
-    },
-  },
-})
-```
-
-For `pi.provider = "anthropic"`, `pi.api_key` falls back to `ANTHROPIC_API_KEY`. Timeout and trace fields are also available for each provider, for example `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, and `trace_response_path`.
-
-### Configuration Reference
+## Configuration Reference
 
 The Lua config is documented with `---@class` annotations in `lua/vantage/state.lua` so Lua language servers can complete fields from `VantageConfig`.
 
 ```lua
 ---@type VantageConfig
 require("vantage").setup({
-  provider = {
-    name = "fake", -- "fake" | "codex" | "ollama" | "chatgpt" | "pi"
+  agent = {
+    provider = "openai",
+    model = "gpt-4o-mini",
+    session = {
+      enabled = true,
+      max_turns = 12,
+      cacheRetention = "short",
+    },
+    options = {
+      temperature = 0.1,
+      maxTokens = 1024,
+      timeoutMs = 300000,
+      reasoning = "medium",
+      -- apiKey = "sk-...",
+    },
+    trace = {
+      prompt_path = ".nvim-dev/trace/pi-prompt.txt",
+      response_path = ".nvim-dev/trace/pi-response.txt",
+    },
   },
-  annotations = {
-    waiting_message_ms = 30000,
+  commands = {
+    explain = {
+      options = {},
+    },
+    annotate = {
+      waiting_message_ms = 30000,
+      options = {
+        maxTokens = 256,
+        timeoutMs = 30000,
+      },
+    },
+    review = {
+      options = {},
+    },
   },
   agent_context = {
     enabled = true,
@@ -144,20 +144,26 @@ require("vantage").setup({
 })
 ```
 
-Provider-specific fields:
+Config groups:
 
-- `codex`: `command`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
-- `ollama`: `base_url`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
-- `chatgpt`: `api_key`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
-- `pi`: `api_key`, `provider`, `model`, `timeout_ms`, `annotation_timeout_ms`, `trace_prompt_path`, `trace_response_path`
+- `agent.provider`: Pi provider name, default `openai`.
+- `agent.model`: Pi model name, default `gpt-4o-mini`.
+- `agent.session`: Vantage-owned in-memory Agent Session settings. `enabled` turns scoped sessions on or off, `max_turns` bounds retained successful command turns, and `cacheRetention` is passed to Pi as `none`, `short`, or `long`.
+- `agent.options`: Pi call options using Pi SDK-style camelCase keys, including `apiKey`, `temperature`, `maxTokens`, `timeoutMs`, `maxRetries`, `maxRetryDelayMs`, `reasoning`, `metadata`, and `headers`.
+- `agent.trace`: optional prompt and response trace paths.
+- `commands.annotate.waiting_message_ms`: when to show a still-waiting annotation notification.
+- `commands.*.options`: command-specific Pi options layered over `agent.options`.
+- `agent_context`: workspace task snapshot settings.
 
-### Agent Task Context
+The active lens and command scope take precedence over Agent Task Context, and command-specific options take precedence over shared `agent.options`.
+
+## Agent Task Context
 
 Vantage can use task context produced by an adjacent coding agent such as Codex, Claude Code, opencode, or Pi. The integration is artifact-first: the adjacent agent writes a compact Markdown snapshot at `.vantage/agent-context.md`, and Vantage reads it when present. If the file is absent, Vantage commands work normally without the extra context.
 
 The context file is workspace/session state and should not be committed. This repository ignores `.vantage/agent-context.md` by default.
 
-#### Configure adjacent agents
+### Configure Adjacent Agents
 
 For personal Vantage usage, put the instruction in your agent's user-level rules so it follows you across repositories without changing team-shared project instructions:
 
@@ -211,9 +217,9 @@ Update it after meaningful changes: plan changes, important files or constraints
 Do not update it after every command, file read, or tool call.
 ```
 
-Vantage gives the active command scope and lens higher priority than Agent Task Context. Use the context file for task state, not for overriding the user's selected lens or asking Vantage to inspect unrelated files.
-
 Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageAnnotate visible`, and `:VantageReviewHunk`; Vantage includes the snapshot automatically when it is available.
+
+When Agent Sessions are enabled, Vantage tracks the context file revision and injects an Agent Context update turn only when the file changes for the current scoped session. The active lens still has higher precedence than the adjacent-agent context.
 
 See `docs/agent-context.md` for the full artifact convention and design notes. Tool-specific instruction docs are available from Codex, Claude Code, and opencode:
 
@@ -229,7 +235,7 @@ Install dependencies:
 npm install
 ```
 
-Run the MVP tests:
+Run the full local test suite:
 
 ```bash
 make test
@@ -247,13 +253,13 @@ Run headless Neovim tests only:
 npm run test:nvim
 ```
 
-Run the annotation e2e test through the stdio backend with a deterministic Codex CLI stub:
+Run the annotation e2e test through the bundled stdio backend with the deterministic development agent runtime:
 
 ```bash
 make e2e-annotations
 ```
 
-This writes `.nvim-dev/e2e/annotations.json` with the extmarks Neovim rendered, `.nvim-dev/e2e/codex-prompt.txt` with the prompt sent to the provider, and `.nvim-dev/e2e/codex-response.txt` with the raw provider response.
+This writes `.nvim-dev/e2e/annotations.json` with the extmarks Neovim rendered.
 
 ## Manual Neovim Smoke Test
 
@@ -269,61 +275,12 @@ Open Neovim with only the repo-local development config:
 make run
 ```
 
-The repo-local development config uses the in-process fake provider by default so command plumbing is visible without starting a model or backend process.
+The repo-local development config uses the internal development agent runtime by default so command plumbing is visible without starting a model request.
 
-Open Neovim with the Codex CLI provider:
-
-```bash
-make run-codex
-```
-
-`make run-codex` reuses your existing `codex` CLI SSO login. It defaults to `gpt-5.4-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
+Open Neovim with the Pi agent runtime:
 
 ```bash
-make run-codex CODEX_MODEL=gpt-5.4-mini CODEX_TIMEOUT_MS=600000 CODEX_ANNOTATION_TIMEOUT_MS=45000
-```
-
-Manual Codex runs write `.nvim-dev/trace/codex-prompt.txt` when a request starts and `.nvim-dev/trace/codex-response.txt` when Codex returns. If Neovim shows `Vantage: still waiting for annotations` and only the prompt file exists, the request is still inside the Codex CLI.
-
-Open Neovim with the Codex provider plumbing but deterministic local responses:
-
-```bash
-make run-codex-stub
-```
-
-Open Neovim with the Ollama provider:
-
-```bash
-ollama pull qwen3:1.7b
-make run-ollama
-```
-
-`make run-ollama` uses `qwen3:1.7b` by default, expects Ollama at `http://localhost:11434`, and gives annotation requests a 20-second timeout. Override them when needed:
-
-```bash
-make run-ollama OLLAMA_MODEL=qwen3:1.7b OLLAMA_BASE_URL=http://localhost:11434 OLLAMA_ANNOTATION_TIMEOUT_MS=30000
-```
-
-Manual Ollama runs write `.nvim-dev/trace/ollama-prompt.txt` when a request starts and `.nvim-dev/trace/ollama-response.txt` when Ollama returns.
-
-Open Neovim with the ChatGPT provider through the official OpenAI Node SDK:
-
-```bash
-OPENAI_API_KEY=... make run-chatgpt
-```
-
-`make run-chatgpt` defaults to `gpt-4o-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
-
-```bash
-make run-chatgpt CHATGPT_MODEL=gpt-4o-mini CHATGPT_ANNOTATION_TIMEOUT_MS=45000
-```
-
-The provider uses the OpenAI SDK's Responses API. Manual ChatGPT runs write `.nvim-dev/trace/chatgpt-prompt.txt` when a request starts and `.nvim-dev/trace/chatgpt-response.txt` when the provider returns.
-
-Open Neovim with the Pi provider:
-
-```bash
-OPENAI_API_KEY=... make run-pi
+make run-pi
 ```
 
 `make run-pi` defaults to `openai/gpt-4o-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
@@ -332,32 +289,7 @@ OPENAI_API_KEY=... make run-pi
 make run-pi PI_PROVIDER=openai PI_MODEL=gpt-4o-mini PI_ANNOTATION_TIMEOUT_MS=45000
 ```
 
-Manual Pi runs write `.nvim-dev/trace/pi-prompt.txt` when a request starts and `.nvim-dev/trace/pi-response.txt` when the provider returns.
-
-Run the annotation e2e test against your real Codex CLI login:
-
-```bash
-make e2e-annotations-real
-```
-
-The real e2e target writes `.nvim-dev/e2e/annotations-real.json`, `.nvim-dev/e2e/codex-prompt-real.txt`, and `.nvim-dev/e2e/codex-response-real.txt`.
-It waits up to 30 seconds by default; override that with `E2E_WAIT_MS=60000` if your Codex calls are slower.
-
-Run the annotation e2e test against local Ollama:
-
-```bash
-make e2e-annotations-ollama E2E_WAIT_MS=60000
-```
-
-The Ollama e2e target writes `.nvim-dev/e2e/annotations-ollama.json`, `.nvim-dev/e2e/ollama-prompt.txt`, and `.nvim-dev/e2e/ollama-response.txt`.
-
-Run the annotation e2e test against ChatGPT:
-
-```bash
-OPENAI_API_KEY=... make e2e-annotations-chatgpt E2E_WAIT_MS=60000
-```
-
-The ChatGPT e2e target writes `.nvim-dev/e2e/annotations-chatgpt.json`, `.nvim-dev/e2e/chatgpt-prompt.txt`, and `.nvim-dev/e2e/chatgpt-response.txt`.
+Manual Pi runs write `.nvim-dev/trace/pi-prompt.txt` when a request starts and `.nvim-dev/trace/pi-response.txt` when Pi returns.
 
 Open a specific file:
 
@@ -372,18 +304,22 @@ Then run:
 :VantageExplain
 :VantageAnnotate
 :VantageAnnotationClear
+:VantageAgentStatus
+:VantageAgentReset
 ```
 
-`:VantageExplain` asks the active provider to explain the current line. It also accepts Vim line ranges:
+`:VantageExplain` asks the active agent runtime to explain the current line. It also accepts Vim line ranges:
 
 ```vim
 :10,20VantageExplain
 :'<,'>VantageExplain
 ```
 
-`:VantageAnnotate` asks the active provider to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
+`:VantageAnnotate` asks the active agent runtime to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
 
 `:VantageContextStatus` opens a status float for the current workspace's Agent Context File. It reports the resolved path, whether the file was included, size and included bytes, freshness, truncation, and read errors when relevant.
+
+`:VantageAgentStatus` opens a status float for the current Vantage Agent Session. `:VantageAgentReset` clears that session. The session scope is workspace root plus model target plus lens mode, so explain, annotate, and review share context without mixing separate workspaces or lens modes.
 
 `VantageAnnotate` accepts simple scope and budget arguments:
 

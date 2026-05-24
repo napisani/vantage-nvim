@@ -1,21 +1,22 @@
 import {
 	AnnotateRangeParams,
 	AnnotationResult,
+	BaseRequestParams,
 	ExplainSelectionParams,
 	ExplanationResult,
 	ReviewCurrentHunkParams,
 	ReviewResult,
 } from './protocol';
-import type { BackendProvider } from './provider';
+import type { AgentRuntime } from './agent-runtime';
 
-export class FakeProvider implements BackendProvider {
+export class DevelopmentAgentRuntime implements AgentRuntime {
 	explainSelection(params: ExplainSelectionParams): ExplanationResult {
 		return {
 			kind: 'explanation',
 			markdown: [
 				'## Explanation',
 				'',
-				`Fake provider response for **${params.language}**.`,
+				`Development agent runtime response for **${params.language}**.`,
 				renderLens(params.lens),
 				renderPreview('Selected preview', params.selectedText),
 				contextSummary(params),
@@ -38,12 +39,12 @@ export class FakeProvider implements BackendProvider {
 					endLine: baseLine + index,
 					endCharacter: line.length,
 				},
-				text: `Fake provider annotation for ${formatLanguage(params.language)}: ${line.trim()}`,
+				text: `Development annotation for ${formatLanguage(params.language)}: ${line.trim()}`,
 				severity: 'info' as const,
 				detailMarkdown: [
 					'## Annotation detail',
 					'',
-					`Fake provider annotation for ${formatLanguage(params.language)}.`,
+					`Development annotation for ${formatLanguage(params.language)}.`,
 					'',
 					`Line: \`${line.trim()}\``,
 				].join('\n'),
@@ -59,7 +60,7 @@ export class FakeProvider implements BackendProvider {
 		const markdown = [
 			'## Review',
 			'',
-			`Fake provider response for **${formatLanguage(params.language)}**.`,
+			`Development agent runtime response for **${formatLanguage(params.language)}**.`,
 			renderLens(params.lens),
 			renderPreview('Hunk preview', params.hunkText),
 			contextSummary(params),
@@ -70,11 +71,38 @@ export class FakeProvider implements BackendProvider {
 			markdown,
 			findings: [
 				{
-					title: 'Fake finding',
-					markdown: 'Fake provider finding for the current hunk.',
+					title: 'Development finding',
+					markdown: 'Development finding for the current hunk.',
 					severity: 'info',
 				},
 			],
+		};
+	}
+
+	agentSessionReset(params: BaseRequestParams): ExplanationResult {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Vantage Agent Session',
+				'',
+				'Development agent runtime session reset.',
+				'',
+				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
+			].join('\n'),
+		};
+	}
+
+	agentSessionStatus(params: BaseRequestParams): ExplanationResult {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Vantage Agent Session',
+				'',
+				'Development agent runtime session status.',
+				'',
+				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
+				'- Turn count: 0',
+			].join('\n'),
 		};
 	}
 }

@@ -12,14 +12,20 @@ Adjacent agents should write:
 
 Vantage reads this file when present. If it is missing, unreadable, or stale beyond configuration, Vantage continues without blocking explain, annotate, or review commands. If it is too large, Vantage defensively reads the last configured byte range; the adjacent agent remains responsible for keeping the file compact.
 
+Vantage records a lightweight revision from the file metadata and configured byte limit. With Vantage Agent Sessions enabled, that revision is used to add an Agent Context update turn only when the file changes for the current workspace/model/lens session.
+
 ## Agent Instruction Snippet
 
 Copy this into Codex, Claude Code, opencode, Pi, or another adjacent coding agent's user-level or project-level instructions:
 
 ```md
-When working in this repository, maintain `.vantage/agent-context.md` as a compact snapshot for Vantage.
+## Workspace Task Snapshot
 
-Rewrite it when task state materially changes. Do not append a transcript.
+If `.vantage/` exists in the current workspace, maintain `.vantage/agent-context.md` as a compact snapshot of the active task.
+
+Create `.vantage/agent-context.md` if it is missing. Rewrite the file when task state materially changes; do not append a running log or transcript.
+
+Keep the snapshot concise, current, and under 12 KB when practical. Do not include secrets, credentials, raw conversation, or unrelated project documentation.
 
 Use this structure:
 
@@ -39,7 +45,9 @@ Use this structure:
 
 ## Recent Progress
 
-Keep it concise. Do not include secrets. This file is ignored by git. The producer of the file is responsible for pruning and compacting it.
+Update it after meaningful changes: plan changes, important files or constraints are discovered, decisions are made, tests pass/fail in a relevant way, or before handing control back to the user.
+
+Do not update it after every command, file read, or tool call.
 ```
 
 ## Snapshot Format
@@ -59,7 +67,7 @@ Do not update it after every tool call, shell command, or file read.
 
 ## Trust And Precedence
 
-Vantage treats the file as untrusted task context. It can shape prompts, but it cannot change provider selection, model selection, timeouts, command behavior, response format rules, or the active lens.
+Vantage treats the file as untrusted task context. It can shape prompts, but it cannot change the agent runtime, model target, timeouts, command behavior, response format rules, or the active lens.
 
 Priority order:
 
@@ -67,6 +75,8 @@ Priority order:
 2. active lens
 3. Agent Task Context
 4. general coding knowledge
+
+The active lens remains the highest-precedence user steering layer. Agent Task Context can root answers in the adjacent task state, but it does not override the current command, lens, or response contract.
 
 ## Git Hygiene
 

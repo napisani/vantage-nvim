@@ -24,6 +24,7 @@ function M.visible()
 	local snapshot = agent_context.snapshot()
 
 	return {
+		workspaceRoot = snapshot.workspace_root,
 		filePath = vim.api.nvim_buf_get_name(0),
 		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
 		text = table.concat(lines, "\n"),
@@ -44,6 +45,7 @@ function M.line_range(start_line, end_line)
 	local snapshot = agent_context.snapshot()
 
 	return {
+		workspaceRoot = snapshot.workspace_root,
 		filePath = vim.api.nvim_buf_get_name(0),
 		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
 		text = text,

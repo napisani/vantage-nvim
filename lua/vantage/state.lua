@@ -5,54 +5,48 @@ local function plugin_root()
 	return vim.fn.fnamemodify(source, ":p:h:h:h")
 end
 
----@alias VantageProviderName "fake"|"codex"|"ollama"|"chatgpt"|"pi"
-
 ---@class VantageBackendConfig
----@field mode? "stdio"|"fake"
+---@field mode? "stdio"|"development"
 ---@field command? string[]
 
----@class VantageCodexConfig
----@field command? string
----@field model? string
----@field timeout_ms? integer
----@field annotation_timeout_ms? integer
----@field trace_prompt_path? string
----@field trace_response_path? string
+---@class VantageAgentOptions
+---@field apiKey? string
+---@field temperature? number
+---@field maxTokens? integer
+---@field timeoutMs? integer
+---@field maxRetries? integer
+---@field maxRetryDelayMs? integer
+---@field reasoning? "minimal"|"low"|"medium"|"high"|"xhigh"
+---@field metadata? table<string, any>
+---@field headers? table<string, string>
 
----@class VantageOllamaConfig
----@field base_url? string
----@field model? string
----@field timeout_ms? integer
----@field annotation_timeout_ms? integer
----@field trace_prompt_path? string
----@field trace_response_path? string
+---@class VantageAgentTraceConfig
+---@field prompt_path? string
+---@field response_path? string
 
----@class VantageChatGptConfig
----@field api_key? string
----@field model? string
----@field timeout_ms? integer
----@field annotation_timeout_ms? integer
----@field trace_prompt_path? string
----@field trace_response_path? string
+---@class VantageAgentSessionConfig
+---@field enabled? boolean
+---@field max_turns? integer
+---@field cacheRetention? "none"|"short"|"long"
 
----@class VantagePiConfig
----@field api_key? string
+---@class VantageAgentConfig
+---@field runtime? "pi"|"development" Internal; development is for tests/local harnesses.
 ---@field provider? string
 ---@field model? string
----@field timeout_ms? integer
----@field annotation_timeout_ms? integer
----@field trace_prompt_path? string
----@field trace_response_path? string
+---@field options? VantageAgentOptions
+---@field session? VantageAgentSessionConfig
+---@field trace? VantageAgentTraceConfig
 
----@class VantageProviderConfig
----@field name? VantageProviderName
----@field codex? VantageCodexConfig
----@field ollama? VantageOllamaConfig
----@field chatgpt? VantageChatGptConfig
----@field pi? VantagePiConfig
+---@class VantageCommandConfig
+---@field options? VantageAgentOptions
 
----@class VantageAnnotationsConfig
+---@class VantageAnnotateCommandConfig: VantageCommandConfig
 ---@field waiting_message_ms? integer
+
+---@class VantageCommandsConfig
+---@field explain? VantageCommandConfig
+---@field annotate? VantageAnnotateCommandConfig
+---@field review? VantageCommandConfig
 
 ---@class VantageAgentContextConfig
 ---@field enabled? boolean
@@ -62,8 +56,8 @@ end
 
 ---@class VantageConfig
 ---@field backend? VantageBackendConfig Advanced backend transport settings.
----@field provider? VantageProviderConfig Model provider settings sent to the bundled backend.
----@field annotations? VantageAnnotationsConfig
+---@field agent? VantageAgentConfig Agent runtime and model target settings.
+---@field commands? VantageCommandsConfig Command behavior and command-specific agent options.
 ---@field agent_context? VantageAgentContextConfig
 
 local function default_config()
@@ -72,11 +66,35 @@ local function default_config()
 			mode = "stdio",
 			command = { "node", plugin_root() .. "/server/out/neovim/stdio-server.js" },
 		},
-		provider = {
-			name = "fake",
+		agent = {
+			runtime = "pi",
+			provider = "openai",
+			model = "gpt-4o-mini",
+			options = {
+				temperature = 0.1,
+				maxTokens = 1024,
+				timeoutMs = 300000,
+			},
+			session = {
+				enabled = true,
+				max_turns = 12,
+				cacheRetention = "short",
+			},
 		},
-		annotations = {
-			waiting_message_ms = 30000,
+		commands = {
+			explain = {
+				options = {},
+			},
+			annotate = {
+				waiting_message_ms = 30000,
+				options = {
+					maxTokens = 256,
+					timeoutMs = 30000,
+				},
+			},
+			review = {
+				options = {},
+			},
 		},
 		agent_context = {
 			enabled = true,

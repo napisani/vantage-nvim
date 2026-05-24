@@ -80,6 +80,9 @@ test('stdio server responds to explainSelection', async () => {
 		child.stdin.write(`${JSON.stringify({
 			id: 'req-stdio',
 			method: 'explainSelection',
+			config: {
+				agent: { runtime: 'development' },
+			},
 			params: {
 				filePath: '/repo/example.ex',
 				language: 'elixir',
@@ -94,7 +97,7 @@ test('stdio server responds to explainSelection', async () => {
 
 		assert.equal(response.id, 'req-stdio');
 		assert.equal(response.ok, true);
-		assert.match(JSON.stringify(response), /Fake provider/);
+		assert.match(JSON.stringify(response), /Development agent runtime/);
 	} finally {
 		await killAndWait(child);
 	}

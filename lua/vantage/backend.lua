@@ -13,7 +13,7 @@ local function title_case(value)
 	return text:gsub("^%l", string.upper)
 end
 
-local function fake_response(method, params)
+local function development_response(method, params)
 	params = params or {}
 
 	if method == "explainSelection" then
@@ -37,7 +37,7 @@ local function fake_response(method, params)
 			markdown = table.concat({
 				"## Explanation",
 				"",
-				"Fake provider response for **" .. language .. "**.",
+				"Development agent runtime response for **" .. language .. "**.",
 				"",
 				"Lens: " .. lens,
 				"",
@@ -60,8 +60,8 @@ local function fake_response(method, params)
 			kind = "annotations",
 			annotations = {
 				{
-					text = "Fake annotation.",
-					detailMarkdown = "## Annotation\n\nFake annotation detail.",
+					text = "Development annotation.",
+					detailMarkdown = "## Annotation\n\nDevelopment annotation detail.",
 					severity = "info",
 					range = {
 						startLine = start_line,
@@ -77,19 +77,33 @@ local function fake_response(method, params)
 	if method == "reviewCurrentHunk" then
 		return {
 			kind = "review",
-			markdown = "## Review\n\nFake review response.",
+			markdown = "## Review\n\nDevelopment review response.",
 			findings = {
 				{
-					message = "Fake finding.",
+					message = "Development finding.",
 					severity = "info",
 				},
 			},
 		}
 	end
 
+	if method == "agentSessionReset" then
+		return {
+			kind = "explanation",
+			markdown = "## Vantage Agent Session\n\nDevelopment agent runtime session reset.",
+		}
+	end
+
+	if method == "agentSessionStatus" then
+		return {
+			kind = "explanation",
+			markdown = "## Vantage Agent Session\n\nDevelopment agent runtime session status.\n\nTurn count: 0",
+		}
+	end
+
 	return {
 		kind = "error",
-		markdown = "## Error\n\nUnknown fake backend method: " .. tostring(method),
+		markdown = "## Error\n\nUnknown development backend method: " .. tostring(method),
 	}
 end
 
@@ -118,6 +132,67 @@ local function fail_pending(code, message)
 			invoke_callback(callback, backend_error(id, code, message))
 		end)
 	end
+end
+
+local function json_object(value)
+	if type(value) ~= "table" or vim.tbl_isempty(value) then
+		return vim.empty_dict()
+	end
+	return vim.deepcopy(value)
+end
+
+local function agent_options_config(value)
+	local options = json_object(value)
+	if type(options.metadata) == "table" and vim.tbl_isempty(options.metadata) then
+		options.metadata = vim.empty_dict()
+	end
+	if type(options.headers) == "table" and vim.tbl_isempty(options.headers) then
+		options.headers = vim.empty_dict()
+	end
+	return options
+end
+
+local function command_config(value)
+	value = value or {}
+	return {
+		options = agent_options_config(value.options),
+	}
+end
+
+local function session_config(value)
+	value = value or {}
+	return {
+		enabled = value.enabled,
+		max_turns = value.max_turns,
+		cacheRetention = value.cacheRetention,
+	}
+end
+
+local function annotate_command_config(value)
+	local config = command_config(value)
+	if type(value) == "table" then
+		config.waiting_message_ms = value.waiting_message_ms
+	end
+	return config
+end
+
+local function request_config()
+	local agent = vim.deepcopy(state.config.agent or {})
+	agent.options = agent_options_config(agent.options)
+	agent.session = session_config(agent.session)
+	if type(agent.trace) == "table" and vim.tbl_isempty(agent.trace) then
+		agent.trace = vim.empty_dict()
+	end
+
+	local commands = state.config.commands or {}
+	return {
+		agent = agent,
+		commands = {
+			explain = command_config(commands.explain),
+			annotate = annotate_command_config(commands.annotate),
+			review = command_config(commands.review),
+		},
+	}
 end
 
 local function handle_stdout_line(line)
@@ -217,13 +292,13 @@ local function start_stdio()
 end
 
 function M.request(method, params, callback)
-	if state.config.backend.mode == "fake" then
+	if state.config.backend.mode == "development" then
 		invoke_callback(callback, {
-			id = "fake",
+			id = "development",
 			ok = true,
-			result = fake_response(method, params),
+			result = development_response(method, params),
 		})
-		return "fake"
+		return "development"
 	end
 
 	local start_error = start_stdio()
@@ -243,9 +318,7 @@ function M.request(method, params, callback)
 	local message = vim.json.encode({
 		id = id,
 		method = method,
-		config = {
-			provider = state.config.provider or {},
-		},
+		config = request_config(),
 		params = params or {},
 	}) .. "\n"
 
@@ -260,7 +333,7 @@ function M.request(method, params, callback)
 end
 
 function M.cancel(id)
-	if not id or id == "fake" then
+	if not id or id == "development" then
 		return
 	end
 

@@ -37,6 +37,10 @@ local function temp_workspace()
 	return root
 end
 
+local function normalized_path(path)
+	return ((vim.loop.fs_realpath(path) or vim.fn.fnamemodify(path, ":p")):gsub("/+$", ""))
+end
+
 local function set_buffer_path(path)
 	vim.api.nvim_buf_set_name(0, path)
 end
@@ -102,7 +106,7 @@ test("default stdio backend command resolves from plugin root", function()
 	})
 end)
 
-test("stdio backend sends provider config from setup", function()
+test("stdio backend sends agent and command config from setup", function()
 	local vantage = require("vantage")
 	local backend = require("vantage.backend")
 	local responses = {}
@@ -127,19 +131,36 @@ process.stdin.on('data', (chunk) => {
     console.log(JSON.stringify({
       id: request.id,
       ok: true,
-      result: { kind: 'explanation', markdown: JSON.stringify(request.config) }
+      result: {
+        kind: 'explanation',
+        markdown: JSON.stringify({
+          config: request.config,
+          shape: {
+            explainOptionsAreArray: Array.isArray(request.config.commands.explain.options),
+            reviewOptionsAreArray: Array.isArray(request.config.commands.review.options)
+          }
+        })
+      }
     }));
   }
 });
 ]=],
 			},
 		},
-		provider = {
-			name = "ollama",
-			ollama = {
-				base_url = "http://127.0.0.1:11435",
-				model = "qwen-test",
-				timeout_ms = 120000,
+		agent = {
+			provider = "anthropic",
+			model = "claude-test",
+			options = {
+				timeoutMs = 120000,
+				reasoning = "medium",
+			},
+		},
+		commands = {
+			annotate = {
+				waiting_message_ms = 10,
+				options = {
+					timeoutMs = 45000,
+				},
 			},
 		},
 	})
@@ -154,14 +175,41 @@ process.stdin.on('data', (chunk) => {
 	backend.stop()
 
 	assert(#responses == 1, "expected one stdio response")
-	local config = vim.json.decode(responses[1].result.markdown)
-	eq(config, {
-		provider = {
-			name = "ollama",
-			ollama = {
-				base_url = "http://127.0.0.1:11435",
-				model = "qwen-test",
-				timeout_ms = 120000,
+	local payload = vim.json.decode(responses[1].result.markdown)
+	eq(payload.shape, {
+		explainOptionsAreArray = false,
+		reviewOptionsAreArray = false,
+	})
+	eq(payload.config, {
+		agent = {
+			runtime = "pi",
+			provider = "anthropic",
+			model = "claude-test",
+			options = {
+				maxTokens = 1024,
+				timeoutMs = 120000,
+				temperature = 0.1,
+				reasoning = "medium",
+			},
+			session = {
+				enabled = true,
+				max_turns = 12,
+				cacheRetention = "short",
+			},
+		},
+		commands = {
+			explain = {
+				options = {},
+			},
+			annotate = {
+				waiting_message_ms = 10,
+				options = {
+					maxTokens = 256,
+					timeoutMs = 45000,
+				},
+			},
+			review = {
+				options = {},
 			},
 		},
 	})
@@ -203,7 +251,7 @@ end)
 
 test("state stores and clears a lens", function()
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	vantage.set_lens("learning", "I am learning Lua syntax")
 	eq(vantage.get_lens(), { mode = "learning", text = "I am learning Lua syntax" })
 	vantage.clear_lens()
@@ -213,7 +261,7 @@ end)
 test("context captures visible buffer text", function()
 	local vantage = require("vantage")
 	local context = require("vantage.context")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	fresh_buffer()
 	vim.bo.filetype = "lua"
@@ -238,7 +286,7 @@ test("agent context reads workspace markdown with tail truncation metadata", fun
 	local context_path = root .. "/.vantage/agent-context.md"
 
 	vantage.setup({
-		backend = { mode = "fake" },
+		backend = { mode = "development" },
 		agent_context = {
 			max_bytes = 18,
 		},
@@ -259,6 +307,7 @@ test("agent context reads workspace markdown with tail truncation metadata", fun
 	eq(snapshot.context.path, context_path)
 	eq(snapshot.context.truncated, true)
 	eq(snapshot.context.content, "Implemented reader")
+	assert(type(snapshot.context.revision) == "string", vim.inspect(snapshot.context))
 	assert(type(snapshot.context.ageMs) == "number", vim.inspect(snapshot.context))
 	assert(type(snapshot.context.modifiedAt) == "string", vim.inspect(snapshot.context))
 end)
@@ -268,8 +317,9 @@ test("agent context status reports missing context without failing commands", fu
 	local agent_context = require("vantage.agent_context")
 	local root = temp_workspace()
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	fresh_buffer()
+	vim.fn.mkdir(root .. "/lua", "p")
 	set_buffer_path(root .. "/lua/example.lua")
 
 	local snapshot = agent_context.snapshot()
@@ -283,8 +333,9 @@ test("VantageExplain attaches agent context when available", function()
 	local vantage = require("vantage")
 	local root = temp_workspace()
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	lua_buffer({ "local value = 42" })
+	vim.fn.mkdir(root .. "/lua", "p")
 	set_buffer_path(root .. "/lua/example.lua")
 	writefile(root .. "/.vantage/agent-context.md", "# Agent Task Context\n\n## Goal\nExplain reader")
 
@@ -298,7 +349,41 @@ test("VantageExplain attaches agent context when available", function()
 	eq(captured.method, "explainSelection")
 	assert(captured.params.agentContext, vim.inspect(captured.params))
 	eq(captured.params.agentContext.content, "# Agent Task Context\n\n## Goal\nExplain reader")
+	assert(captured.params.agentContext.revision, vim.inspect(captured.params.agentContext))
 	eq(captured.params.agentContext.truncated, false)
+	eq(captured.params.workspaceRoot, normalized_path(root))
+end)
+
+test("agent session reset and status call backend with workspace scope", function()
+	local vantage = require("vantage")
+	local root = temp_workspace()
+
+	vantage.setup({ backend = { mode = "development" } })
+	fresh_buffer()
+	vim.fn.mkdir(root .. "/lua", "p")
+	writefile(root .. "/lua/example.lua", "local value = 42")
+	set_buffer_path(root .. "/lua/example.lua")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = { kind = "explanation", markdown = "session reset" },
+	}, function()
+		vim.cmd("VantageAgentReset")
+	end)
+
+	eq(captured.method, "agentSessionReset")
+	eq(captured.params.workspaceRoot, normalized_path(root))
+	close_floating_windows()
+
+	captured = capture_backend_request({
+		ok = true,
+		result = { kind = "explanation", markdown = "session status" },
+	}, function()
+		vim.cmd("VantageAgentStatus")
+	end)
+
+	eq(captured.method, "agentSessionStatus")
+	eq(captured.params.workspaceRoot, normalized_path(root))
 end)
 
 test("VantageContextStatus shows context availability on demand", function()
@@ -306,7 +391,7 @@ test("VantageContextStatus shows context availability on demand", function()
 	local commands = require("vantage.commands")
 	local root = temp_workspace()
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	fresh_buffer()
 	set_buffer_path(root .. "/lua/example.lua")
 	writefile(root .. "/.vantage/agent-context.md", "# Agent Task Context\n\n## Goal\nShow status")
@@ -323,7 +408,7 @@ end)
 test("context uses absolute file path for relative buffer name", function()
 	local vantage = require("vantage")
 	local context = require("vantage.context")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	fresh_buffer()
 	vim.api.nvim_buf_set_name(0, "nvim/tests/relative-context.lua")
@@ -335,7 +420,7 @@ end)
 test("explain opens a markdown float for the current line", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	vantage.set_lens("learning", "I am learning Lua syntax")
 
 	lua_buffer({ "local value = 42" })
@@ -359,7 +444,7 @@ test("VantageExplain accepts an explicit line range", function()
 			markdown = "Range explanation",
 		},
 	}, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		lua_buffer({
 			"local a = 1",
 			"local b = 2",
@@ -384,7 +469,7 @@ end)
 test("registers unified explain command without selection or line variants", function()
 	local vantage = require("vantage")
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
 	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
@@ -395,7 +480,7 @@ test("annotate renders and clear_annotations clears extmarks", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	lua_buffer({
 		"local a = 1",
@@ -406,7 +491,7 @@ test("annotate renders and clear_annotations clears extmarks", function()
 	local marks = annotations.current_marks(0)
 	assert(#marks > 0, "expected annotation marks")
 	local virt_text = marks[1][4].virt_text
-	assert(virt_text and virt_text[1] and virt_text[1][1]:match("Fake annotation"), vim.inspect(marks))
+	assert(virt_text and virt_text[1] and virt_text[1][1]:match("Development annotation"), vim.inspect(marks))
 	assert(marks[1][4].virt_text_pos == nil or marks[1][4].virt_text_pos == "eol", vim.inspect(marks))
 	commands.clear_annotations()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
@@ -415,7 +500,7 @@ end)
 test("annotations render additively and overwrite the exact same position", function()
 	local vantage = require("vantage")
 	local annotations = require("vantage.annotations")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	lua_buffer({
 		"local a = 1",
@@ -462,7 +547,7 @@ test("annotate reports request progress", function()
 	local annotations = require("vantage.annotations")
 
 	local notifications = capture_notifications(function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({ "local value = 42" })
 
@@ -482,7 +567,7 @@ test("annotation status reports returned annotations that did not render", funct
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 	annotations.clear(0)
 	lua_buffer({ "local value = 42" })
 
@@ -518,7 +603,7 @@ end)
 test("registers explicit annotation commands without toggle command", function()
 	local vantage = require("vantage")
 
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	assert(vim.fn.exists(":VantageAnnotate") == 2, "expected VantageAnnotate command")
 	assert(vim.fn.exists(":VantageAnnotationClear") == 2, "expected VantageAnnotationClear command")
@@ -546,7 +631,7 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 			cancelled_id = id
 		end
 
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({ "local value = 42" })
 
@@ -629,12 +714,11 @@ test("annotate times out when the backend leaves the request pending", function(
 
 		vantage.setup({
 			backend = { mode = "stdio" },
-			provider = {
-				name = "pi",
-				pi = {
-					provider = "openai",
-					model = "gpt-4o-mini",
-					annotation_timeout_ms = 20,
+			commands = {
+				annotate = {
+					options = {
+						timeoutMs = 20,
+					},
 				},
 			},
 		})
@@ -662,7 +746,7 @@ test("annotate defaults to the current line", function()
 	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"-- heading",
@@ -699,7 +783,7 @@ test("VantageAnnotate line scopes annotation to the current line", function()
 	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local before = 1",
@@ -734,7 +818,7 @@ test("VantageAnnotate visible uses the visible range and lets the model choose o
 	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local one = 1",
@@ -777,7 +861,7 @@ test("VantageAnnotate numeric argument keeps the current-line default scope", fu
 	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local one = 1",
@@ -823,7 +907,7 @@ test("VantageAnnotate accepts an explicit line range", function()
 			},
 		},
 	}, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local a = 1",
@@ -862,7 +946,7 @@ test("VantageAnnotate range lets the model choose oversized selections", functio
 	local annotations = require("vantage.annotations")
 
 	local captured = capture_backend_request(nil, function()
-		vantage.setup({ backend = { mode = "fake" } })
+		vantage.setup({ backend = { mode = "development" } })
 		annotations.clear(0)
 		lua_buffer({
 			"local a = 1",
@@ -887,7 +971,7 @@ test("VantageAnnotate range lets the model choose oversized selections", functio
 	eq(captured.params.candidateLines, nil)
 end)
 
-test("annotate waiting status includes provider and elapsed time", function()
+test("annotate waiting status includes agent and elapsed time", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local backend = require("vantage.backend")
@@ -899,8 +983,12 @@ test("annotate waiting status includes provider and elapsed time", function()
 		end
 
 		vantage.setup({
-			backend = { mode = "fake" },
-			annotations = { waiting_message_ms = 10 },
+			backend = { mode = "development" },
+			commands = {
+				annotate = {
+					waiting_message_ms = 10,
+				},
+			},
 		})
 		lua_buffer({ "local value = 42" })
 
@@ -908,7 +996,7 @@ test("annotate waiting status includes provider and elapsed time", function()
 			commands.annotate()
 			local saw_waiting_status = vim.wait(200, function()
 				for _, notification in ipairs(notifications) do
-					if notification:match("still waiting for annotations from fake") and notification:match("after 0%.") then
+					if notification:match("still waiting for annotations from development") and notification:match("after 0%.") then
 						return true
 					end
 				end
@@ -920,11 +1008,11 @@ test("annotate waiting status includes provider and elapsed time", function()
 	end)
 
 	backend.request = original_request
-	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
+	vantage.setup({ commands = { annotate = { waiting_message_ms = 30000 } } })
 	assert(ok, err)
 end)
 
-test("pi annotation waiting status includes provider model and trace path", function()
+test("pi annotation waiting status includes model target and trace path", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local backend = require("vantage.backend")
@@ -937,13 +1025,16 @@ test("pi annotation waiting status includes provider model and trace path", func
 
 		vantage.setup({
 			backend = { mode = "stdio" },
-			provider = {
-				name = "pi",
-				pi = {
-					trace_response_path = ".nvim-dev/trace/pi-response.txt",
+			agent = {
+				trace = {
+					response_path = ".nvim-dev/trace/pi-response.txt",
 				},
 			},
-			annotations = { waiting_message_ms = 10 },
+			commands = {
+				annotate = {
+					waiting_message_ms = 10,
+				},
+			},
 		})
 		lua_buffer({ "local value = 42" })
 
@@ -952,7 +1043,7 @@ test("pi annotation waiting status includes provider model and trace path", func
 			local saw_waiting_status = vim.wait(200, function()
 				for _, notification in ipairs(notifications) do
 					if
-						notification:match("still waiting for annotations from pi %(openai/gpt%-4o%-mini%)")
+						notification:match("still waiting for annotations from openai/gpt%-4o%-mini")
 						and notification:match("response trace: %.nvim%-dev/trace/pi%-response%.txt")
 					then
 						return true
@@ -966,11 +1057,11 @@ test("pi annotation waiting status includes provider model and trace path", func
 	end)
 
 	backend.request = original_request
-	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
+	vantage.setup({ commands = { annotate = { waiting_message_ms = 30000 } } })
 	assert(ok, err)
 end)
 
-test("pi annotation status uses configured provider and model", function()
+test("annotation status uses configured model target", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local backend = require("vantage.backend")
@@ -983,14 +1074,15 @@ test("pi annotation status uses configured provider and model", function()
 
 		vantage.setup({
 			backend = { mode = "stdio" },
-			provider = {
-				name = "pi",
-				pi = {
-					provider = "anthropic",
-					model = "claude-sonnet-4",
+			agent = {
+				provider = "anthropic",
+				model = "claude-sonnet-4",
+			},
+			commands = {
+				annotate = {
+					waiting_message_ms = 30000,
 				},
 			},
-			annotations = { waiting_message_ms = 30000 },
 		})
 		lua_buffer({ "local value = 42" })
 
@@ -1000,20 +1092,20 @@ test("pi annotation status uses configured provider and model", function()
 		end)
 
 		assert(
-			notifications[1] == "Vantage: requesting annotations from pi (anthropic/claude-sonnet-4)",
+			notifications[1] == "Vantage: requesting annotations from anthropic/claude-sonnet-4",
 			vim.inspect(notifications)
 		)
 	end)
 
 	backend.request = original_request
-	vantage.setup({ annotations = { waiting_message_ms = 30000 } })
+	vantage.setup({ commands = { annotate = { waiting_message_ms = 30000 } } })
 	assert(ok, err)
 end)
 
 test("annotations skip out-of-range lines", function()
 	local vantage = require("vantage")
 	local annotations = require("vantage.annotations")
-	vantage.setup({ backend = { mode = "fake" } })
+	vantage.setup({ backend = { mode = "development" } })
 
 	lua_buffer({ "only one line" })
 
@@ -1180,6 +1272,9 @@ test("stdio backend opens a float through explain", function()
 				mode = "stdio",
 				command = { "node", "server/out/neovim/stdio-server.js" },
 			},
+			agent = {
+				runtime = "development",
+			},
 		})
 		vantage.set_lens("learning", "I am learning Lua syntax")
 
@@ -1190,12 +1285,12 @@ test("stdio backend opens a float through explain", function()
 		commands.explain()
 		vim.wait(2000, function()
 			local text = last_float_text()
-			return text and text:match("Fake provider") ~= nil
+			return text and text:match("Development agent runtime") ~= nil
 		end)
 
 		local text = last_float_text()
 		assert(text ~= nil, "expected stdio float buffer")
-		assert(text:match("Fake provider"), text)
+		assert(text:match("Development agent runtime"), text)
 	end)
 
 	backend.stop()
@@ -1216,6 +1311,9 @@ test("stdio backend renders non-empty annotation virtual text", function()
 				mode = "stdio",
 				command = { "node", "server/out/neovim/stdio-server.js" },
 			},
+			agent = {
+				runtime = "development",
+			},
 		})
 
 		fresh_buffer()
@@ -1232,13 +1330,13 @@ test("stdio backend renders non-empty annotation virtual text", function()
 				return false
 			end
 			local text = marks[1][4].virt_text[1] and marks[1][4].virt_text[1][1]
-			return text and text:match("Fake provider annotation") ~= nil
+			return text and text:match("Development annotation") ~= nil
 		end)
 
 		local marks = annotations.current_marks(0)
 		assert(#marks > 0, "expected stdio annotation marks")
 		local virt_text = marks[1][4].virt_text
-		assert(virt_text and virt_text[1] and virt_text[1][1]:match("Fake provider annotation"), vim.inspect(marks))
+		assert(virt_text and virt_text[1] and virt_text[1][1]:match("Development annotation"), vim.inspect(marks))
 	end)
 
 	annotations.clear(0)

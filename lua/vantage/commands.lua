@@ -12,7 +12,7 @@ local annotation_request = {
 	status = "idle",
 	token = 0,
 	started_at = 0,
-	provider = nil,
+	agent = nil,
 	backend_id = nil,
 }
 local last_annotation_status = {
@@ -33,59 +33,33 @@ local function annotation_count(value)
 	return 0
 end
 
-local function annotation_provider()
+local function annotation_agent()
 	local backend_config = state.config.backend or {}
 	local mode = backend_config.mode or "stdio"
-	local name = mode
-	local provider_config = state.config.provider or {}
-	if mode == "fake" then
-		name = "fake"
-	else
-		name = provider_config.name or "fake"
-	end
-	if name == "" then
-		name = mode
+	if mode == "development" then
+		return {
+			name = "development",
+			label = "development",
+			trace = nil,
+		}
 	end
 
-	local model = nil
-	local trace = nil
-	if name == "ollama" then
-		local ollama = provider_config.ollama or {}
-		model = ollama.model
-		trace = ollama.trace_response_path
-	elseif name == "codex" then
-		local codex = provider_config.codex or {}
-		model = codex.model
-		trace = codex.trace_response_path
-	elseif name == "chatgpt" then
-		local chatgpt = provider_config.chatgpt or {}
-		model = chatgpt.model
-		trace = chatgpt.trace_response_path
-	elseif name == "pi" then
-		local pi = provider_config.pi or {}
-		local pi_provider = pi.provider or "openai"
-		model = pi.model
-		if not model or model == "" then
-			model = "gpt-4o-mini"
-		end
-		model = pi_provider .. "/" .. model
-		trace = pi.trace_response_path
-	end
-
-	local label = name
-	if model and model ~= "" then
-		label = label .. " (" .. model .. ")"
-	end
+	local agent_config = state.config.agent or {}
+	local provider = agent_config.provider or "openai"
+	local model = agent_config.model or "gpt-4o-mini"
+	local trace = agent_config.trace and agent_config.trace.response_path or nil
+	local label = provider .. "/" .. model
 
 	return {
-		name = name,
+		name = "pi",
 		label = label,
 		trace = trace,
 	}
 end
 
 local function waiting_message_ms()
-	local config = state.config.annotations or {}
+	local commands = state.config.commands or {}
+	local config = commands.annotate or {}
 	local value = config.waiting_message_ms
 	if type(value) == "number" and value >= 0 then
 		return value
@@ -93,11 +67,11 @@ local function waiting_message_ms()
 	return 30000
 end
 
-local function annotation_timeout_ms(provider)
-	local provider_config = state.config.provider or {}
-	local name = provider and provider.name
-	local settings = name and provider_config[name] or nil
-	local value = settings and settings.annotation_timeout_ms
+local function annotation_request_timeout_ms()
+	local commands = state.config.commands or {}
+	local annotate = commands.annotate or {}
+	local options = annotate.options or {}
+	local value = options.timeoutMs
 	if type(value) == "number" and value > 0 then
 		return value
 	end
@@ -118,15 +92,15 @@ local function format_elapsed(seconds)
 	return tostring(math.floor(seconds + 0.5)) .. "s"
 end
 
-local function trace_suffix(provider)
-	if provider and provider.trace and provider.trace ~= "" then
-		return "; response trace: " .. provider.trace
+local function trace_suffix(agent)
+	if agent and agent.trace and agent.trace ~= "" then
+		return "; response trace: " .. agent.trace
 	end
 	return ""
 end
 
-local function provider_label(provider)
-	return provider and provider.label or "unknown"
+local function agent_label(agent)
+	return agent and agent.label or "unknown"
 end
 
 local function split_lines(text)
@@ -176,7 +150,7 @@ local function telemetry_suffix(result)
 
 	local details = {}
 	if type(telemetry.totalDurationMs) == "number" then
-		table.insert(details, "provider " .. format_elapsed(telemetry.totalDurationMs / 1000))
+		table.insert(details, "runtime " .. format_elapsed(telemetry.totalDurationMs / 1000))
 	end
 	if type(telemetry.promptEvalCount) == "number" then
 		table.insert(details, "prompt tokens " .. tostring(telemetry.promptEvalCount))
@@ -219,7 +193,7 @@ local function no_annotations_markdown()
 	return table.concat({
 		"## No annotations",
 		"",
-		"The provider did not return visible annotations for this window.",
+		"The agent runtime did not return visible annotations for this window.",
 	}, "\n")
 end
 
@@ -300,7 +274,7 @@ local function cancel_annotation_request(message_prefix)
 		return false
 	end
 
-	local provider = annotation_request.provider or annotation_provider()
+	local agent = annotation_request.agent or annotation_agent()
 	local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
 	backend.cancel(annotation_request.backend_id)
 	annotation_request.status = "idle"
@@ -308,44 +282,44 @@ local function cancel_annotation_request(message_prefix)
 	annotation_request.backend_id = nil
 	set_annotation_status({
 		status = "cancelled",
-		provider = provider_label(provider),
+		agent = agent_label(agent),
 		elapsed = elapsed,
 		message = "Annotation request cancelled after " .. elapsed .. ".",
-		trace = provider and provider.trace or nil,
+		trace = agent and agent.trace or nil,
 	})
 	if message_prefix then
-		vim.notify(message_prefix .. " " .. provider.label .. " after " .. elapsed, vim.log.levels.INFO)
+		vim.notify(message_prefix .. " " .. agent.label .. " after " .. elapsed, vim.log.levels.INFO)
 	end
 	return true
 end
 
-local function begin_annotation_request(provider)
+local function begin_annotation_request(agent)
 	annotation_request.status = "loading"
 	annotation_request.token = annotation_request.token + 1
 	annotation_request.started_at = vim.loop.hrtime()
-	annotation_request.provider = provider
+	annotation_request.agent = agent
 	annotation_request.backend_id = nil
 	local token = annotation_request.token
 
 	set_annotation_status({
 		status = "loading",
-		provider = provider_label(provider),
-		message = "Annotation request is still waiting for " .. provider_label(provider) .. ".",
-		trace = provider and provider.trace or nil,
+		agent = agent_label(agent),
+		message = "Annotation request is still waiting for " .. agent_label(agent) .. ".",
+		trace = agent and agent.trace or nil,
 	})
-	vim.notify("Vantage: requesting annotations from " .. provider.label, vim.log.levels.INFO)
+	vim.notify("Vantage: requesting annotations from " .. agent.label, vim.log.levels.INFO)
 	vim.defer_fn(function()
 		if annotation_request.status == "loading" and annotation_request.token == token then
 			local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
 			set_annotation_status({
 				status = "loading",
-				provider = provider_label(provider),
+				agent = agent_label(agent),
 				elapsed = elapsed,
 				message = "Annotation request is still waiting after " .. elapsed .. ".",
-				trace = provider and provider.trace or nil,
+				trace = agent and agent.trace or nil,
 			})
 			vim.notify(
-				"Vantage: still waiting for annotations from " .. provider.label .. " after " .. elapsed .. trace_suffix(provider),
+				"Vantage: still waiting for annotations from " .. agent.label .. " after " .. elapsed .. trace_suffix(agent),
 				vim.log.levels.WARN
 			)
 		end
@@ -354,7 +328,7 @@ local function begin_annotation_request(provider)
 	return token
 end
 
-local function schedule_annotation_timeout(token, provider)
+local function schedule_annotation_timeout(token, agent)
 	vim.defer_fn(function()
 		if annotation_request.status ~= "loading" or annotation_request.token ~= token then
 			return
@@ -373,22 +347,22 @@ local function schedule_annotation_timeout(token, provider)
 		local error_message = "Annotation request timed out after " .. elapsed .. " without a backend response."
 		set_annotation_status({
 			status = "failed",
-			provider = provider_label(provider),
+			agent = agent_label(agent),
 			elapsed = elapsed,
 			error = error_message,
 			message = error_message,
-			trace = provider and provider.trace or nil,
+			trace = agent and agent.trace or nil,
 		})
 		vim.notify(
 			"Vantage: annotation request from "
-				.. provider.label
+				.. agent.label
 				.. " timed out after "
 				.. elapsed
-				.. trace_suffix(provider),
+				.. trace_suffix(agent),
 			vim.log.levels.ERROR
 		)
 		ui.show_markdown("## Error\n\n" .. error_message)
-	end, annotation_timeout_ms(provider))
+	end, annotation_request_timeout_ms())
 end
 
 function complete_annotation_request(token)
@@ -407,10 +381,10 @@ function M.annotation_status()
 	if annotation_request.status == "loading" then
 		local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
 		status.status = "loading"
-		status.provider = provider_label(annotation_request.provider)
+		status.agent = agent_label(annotation_request.agent)
 		status.elapsed = elapsed
 		status.message = "Annotation request is still waiting after " .. elapsed .. "."
-		status.trace = annotation_request.provider and annotation_request.provider.trace or status.trace
+		status.trace = annotation_request.agent and annotation_request.agent.trace or status.trace
 	end
 	return status
 end
@@ -422,14 +396,14 @@ function M.show_annotation_status()
 		"",
 		"- Status: " .. tostring(status.status or "unknown"),
 	}
-	if status.provider then
-		table.insert(lines, "- Provider: " .. tostring(status.provider))
+	if status.agent then
+		table.insert(lines, "- Agent: " .. tostring(status.agent))
 	end
 	if status.elapsed then
 		table.insert(lines, "- Elapsed: " .. tostring(status.elapsed))
 	end
 	if status.received ~= nil then
-		table.insert(lines, "- Provider annotations returned: " .. tostring(status.received))
+		table.insert(lines, "- Runtime annotations returned: " .. tostring(status.received))
 	end
 	if status.rendered ~= nil then
 		table.insert(lines, "- Buffer annotations rendered: " .. tostring(status.rendered))
@@ -550,9 +524,9 @@ function M.annotate(opts)
 	if #candidate_lines > 0 and #candidate_lines <= params.maxAnnotations then
 		params.candidateLines = candidate_lines
 	end
-	local provider = annotation_provider()
-	local token = begin_annotation_request(provider)
-	schedule_annotation_timeout(token, provider)
+	local agent = annotation_agent()
+	local token = begin_annotation_request(agent)
+	schedule_annotation_timeout(token, agent)
 
 	local backend_id = backend.request("annotateRange", params, function(response)
 		local elapsed = complete_annotation_request(token)
@@ -564,14 +538,14 @@ function M.annotate(opts)
 			local error_message = error_markdown(response):gsub("^## Error\n\n", "")
 			set_annotation_status({
 				status = "failed",
-				provider = provider_label(provider),
+				agent = agent_label(agent),
 				elapsed = elapsed,
 				error = error_message,
 				message = "Annotation request failed after " .. elapsed .. ".",
-				trace = provider and provider.trace or nil,
+				trace = agent and agent.trace or nil,
 			})
 			vim.notify(
-				"Vantage: annotation request from " .. provider.label .. " failed after " .. elapsed .. trace_suffix(provider),
+				"Vantage: annotation request from " .. agent.label .. " failed after " .. elapsed .. trace_suffix(agent),
 				vim.log.levels.ERROR
 			)
 			ui.show_markdown(error_markdown(response))
@@ -585,23 +559,25 @@ function M.annotate(opts)
 			local skipped = math.max(0, received_count - count)
 			local message
 			if received_count == 0 then
-				message = "Provider returned no annotations."
+				message = "Agent runtime returned no annotations."
 			else
-				message = "Provider returned " .. tostring(received_count) .. " annotation(s), but they were not visible in this buffer."
+				message = "Agent runtime returned "
+					.. tostring(received_count)
+					.. " annotation(s), but they were not visible in this buffer."
 			end
 			set_annotation_status({
 				status = "no_visible_annotations",
-				provider = provider_label(provider),
+				agent = agent_label(agent),
 				elapsed = elapsed,
 				received = received_count,
 				rendered = count,
 				skipped = skipped,
 				message = message,
-				trace = provider and provider.trace or nil,
+				trace = agent and agent.trace or nil,
 			})
 			vim.notify(
 				"Vantage: "
-					.. provider.label
+					.. agent.label
 					.. " rendered 0 of "
 					.. tostring(received_count)
 					.. " returned annotations after "
@@ -615,13 +591,13 @@ function M.annotate(opts)
 		local suffix = count == 1 and "" or "s"
 		set_annotation_status({
 			status = "rendered",
-			provider = provider_label(provider),
+			agent = agent_label(agent),
 			elapsed = elapsed,
 			received = received_count,
 			rendered = count,
 			skipped = math.max(0, received_count - count),
 			message = "Rendered " .. tostring(count) .. " annotation" .. suffix .. ".",
-			trace = provider and provider.trace or nil,
+			trace = agent and agent.trace or nil,
 		})
 		vim.notify(
 			"Vantage: rendered "
@@ -629,7 +605,7 @@ function M.annotate(opts)
 				.. " annotation"
 				.. suffix
 				.. " from "
-				.. provider.label
+				.. agent.label
 				.. " in "
 				.. elapsed
 				.. telemetry_suffix(response.result),
@@ -645,6 +621,14 @@ function M.review_current_hunk()
 	local params = context.visible()
 	params.hunkText = params.text
 	request_markdown("reviewCurrentHunk", params)
+end
+
+function M.reset_agent_session()
+	request_markdown("agentSessionReset", context.current_line())
+end
+
+function M.show_agent_session_status()
+	request_markdown("agentSessionStatus", context.current_line())
 end
 
 local function recreate_command(name, command, opts)
@@ -689,6 +673,14 @@ function M.register()
 
 	recreate_command("VantageContextStatus", function()
 		M.show_agent_context_status()
+	end)
+
+	recreate_command("VantageAgentReset", function()
+		M.reset_agent_session()
+	end)
+
+	recreate_command("VantageAgentStatus", function()
+		M.show_agent_session_status()
 	end)
 
 	recreate_command("VantageReviewHunk", function()

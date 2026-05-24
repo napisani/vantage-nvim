@@ -46,9 +46,9 @@
 **Files:**
 - Modify: `README.md`
 
-- [ ] Document requirements: Neovim, Node.js, and provider-specific credentials/tools.
+- [ ] Document requirements: Neovim, Node.js, and Pi model target credentials/tools.
 - [ ] Add lazy.nvim, vim-plug, and native package examples using `branch = "dist"` and `npm ci --omit=dev`.
-- [ ] Document setup options for fake, Codex, Ollama, ChatGPT, and Pi providers.
+- [ ] Document setup options for the Pi agent runtime and internal development runtime.
 - [ ] Keep development workflow separate from user installation.
 
 ### Verification

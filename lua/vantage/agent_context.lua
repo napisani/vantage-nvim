@@ -4,6 +4,7 @@ local M = {}
 
 local DEFAULT_PATH = ".vantage/agent-context.md"
 local DEFAULT_MAX_BYTES = 12000
+local read_cache = nil
 
 local function trim_trailing_slash(path)
 	if path == "/" then
@@ -101,6 +102,29 @@ local function age_ms(stat)
 	return math.max(0, now_ms - mtime_ms)
 end
 
+local function stat_revision(path, stat, limit)
+	local mtime = stat and stat.mtime or {}
+	return table.concat({
+		path,
+		tostring(stat and stat.size or 0),
+		tostring(limit),
+		tostring(mtime.sec or 0),
+		tostring(mtime.nsec or 0),
+	}, ":")
+end
+
+local function cache_matches(path, stat, limit)
+	if not read_cache then
+		return false
+	end
+	local mtime = stat.mtime or {}
+	return read_cache.path == path
+		and read_cache.size == stat.size
+		and read_cache.limit == limit
+		and read_cache.mtime_sec == mtime.sec
+		and read_cache.mtime_nsec == mtime.nsec
+end
+
 local function read_tail(path, size, limit)
 	local offset = math.max(0, size - limit)
 	local length = size - offset
@@ -178,19 +202,37 @@ function M.snapshot()
 	end
 
 	local limit = max_bytes()
-	local content, read_err = read_tail(path, result.size_bytes, limit)
-	if not content then
-		result.status = "unavailable"
-		result.error = read_err
-		return result
+	local content
+	if cache_matches(path, stat, limit) then
+		content = read_cache.content
+	else
+		local read_err
+		content, read_err = read_tail(path, result.size_bytes, limit)
+		if not content then
+			result.status = "unavailable"
+			result.error = read_err
+			return result
+		end
+
+		local mtime = stat.mtime or {}
+		read_cache = {
+			path = path,
+			size = stat.size,
+			limit = limit,
+			mtime_sec = mtime.sec,
+			mtime_nsec = mtime.nsec,
+			content = content,
+		}
 	end
 
 	result.status = "included"
 	result.included_bytes = #content
 	result.truncated = result.size_bytes > limit
+	result.revision = stat_revision(path, stat, limit)
 	result.context = {
 		path = path,
 		content = content,
+		revision = result.revision,
 		modifiedAt = result.modified_at,
 		ageMs = result.age_ms,
 		truncated = result.truncated,

@@ -54,6 +54,7 @@ test('parseBackendRequest accepts agent task context', () => {
 		id: 'req-agent-context',
 		method: 'explainSelection',
 		params: {
+			workspaceRoot: '/repo',
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
@@ -62,6 +63,7 @@ test('parseBackendRequest accepts agent task context', () => {
 			agentContext: {
 				path: '/repo/.vantage/agent-context.md',
 				content: '# Agent Task Context\n\n## Goal\nShip context',
+				revision: 'rev-one',
 				modifiedAt: '2026-05-21T12:00:00.000Z',
 				ageMs: 1200,
 				truncated: true,
@@ -72,27 +74,46 @@ test('parseBackendRequest accepts agent task context', () => {
 	assert.deepEqual(parsed.params.agentContext, {
 		path: '/repo/.vantage/agent-context.md',
 		content: '# Agent Task Context\n\n## Goal\nShip context',
+		revision: 'rev-one',
 		modifiedAt: '2026-05-21T12:00:00.000Z',
 		ageMs: 1200,
 		truncated: true,
 	});
+	assert.equal(parsed.params.workspaceRoot, '/repo');
 });
 
-test('parseBackendRequest accepts explicit provider config', () => {
+test('parseBackendRequest accepts explicit agent and command config', () => {
 	const parsed = parseBackendRequest({
-		id: 'req-provider-config',
+		id: 'req-agent-config',
 		method: 'explainSelection',
 		config: {
-			provider: {
-				name: 'pi',
-				pi: {
-					provider: 'anthropic',
-					model: 'claude-sonnet-4',
-					api_key: 'sk-config',
-					timeout_ms: 900000,
-					annotation_timeout_ms: 45000,
-					trace_prompt_path: '/tmp/pi-prompt.txt',
-					trace_response_path: '/tmp/pi-response.txt',
+			agent: {
+				provider: 'anthropic',
+				model: 'claude-sonnet-4',
+				session: {
+					enabled: true,
+					max_turns: 8,
+					cacheRetention: 'long',
+				},
+				options: {
+					apiKey: 'sk-config',
+					reasoning: 'medium',
+					temperature: 0.2,
+					maxTokens: 2048,
+					timeoutMs: 900000,
+				},
+				trace: {
+					prompt_path: '/tmp/pi-prompt.txt',
+					response_path: '/tmp/pi-response.txt',
+				},
+			},
+			commands: {
+				annotate: {
+					waiting_message_ms: 10,
+					options: {
+						maxTokens: 128,
+						timeoutMs: 45000,
+					},
 				},
 			},
 		},
@@ -105,16 +126,31 @@ test('parseBackendRequest accepts explicit provider config', () => {
 		},
 	});
 
-	assert.deepEqual(parsed.config?.provider, {
-		name: 'pi',
-		pi: {
-			provider: 'anthropic',
-			model: 'claude-sonnet-4',
-			api_key: 'sk-config',
-			timeout_ms: 900000,
-			annotation_timeout_ms: 45000,
-			trace_prompt_path: '/tmp/pi-prompt.txt',
-			trace_response_path: '/tmp/pi-response.txt',
+	assert.deepEqual(parsed.config?.agent, {
+		provider: 'anthropic',
+		model: 'claude-sonnet-4',
+		session: {
+			enabled: true,
+			max_turns: 8,
+			cacheRetention: 'long',
+		},
+		options: {
+			apiKey: 'sk-config',
+			reasoning: 'medium',
+			temperature: 0.2,
+			maxTokens: 2048,
+			timeoutMs: 900000,
+		},
+		trace: {
+			prompt_path: '/tmp/pi-prompt.txt',
+			response_path: '/tmp/pi-response.txt',
+		},
+	});
+	assert.deepEqual(parsed.config?.commands?.annotate, {
+		waiting_message_ms: 10,
+		options: {
+			maxTokens: 128,
+			timeoutMs: 45000,
 		},
 	});
 });
