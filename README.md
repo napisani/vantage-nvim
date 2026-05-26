@@ -9,8 +9,11 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 - `:VantageSetLens learning I am learning Elixir syntax`
 - `:VantageClearLens`
 - `:VantageExplain`
+- `:VantageQuestion why is this function recursive?`
+- `:VantageEdit rename value to count`
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
+- `:VantageAnnotationStatus`
 - `:VantageContextStatus`
 - `:VantageAgentStatus`
 - `:VantageAgentReset`
@@ -74,6 +77,9 @@ require("vantage").setup({
   agent = {
     provider = "openai",
     model = "gpt-4o-mini",
+    -- auth = {
+    --   path = vim.fn.expand("~/.config/pi/auth.json"),
+    -- },
     session = {
       enabled = true,
       max_turns = 12,
@@ -83,15 +89,39 @@ require("vantage").setup({
       temperature = 0.1,
       maxTokens = 1024,
       timeoutMs = 300000,
-      -- apiKey = "sk-...", -- optional; Pi handles env/OAuth auth when omitted
+      -- apiKey = "sk-...",
     },
   },
 })
 ```
 
-If `agent.options.apiKey` is set, Vantage passes it to Pi. If it is omitted, Vantage does not resolve credentials itself; Pi uses its normal provider authentication, including environment variables such as `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` and any OAuth/session auth Pi supports.
+If `agent.options.apiKey` is set, Vantage passes it to Pi. If it is omitted, Vantage tries to resolve Pi OAuth credentials for OAuth-backed providers from `agent.auth.path`, `<workspace>/auth.json`, `./auth.json`, `~/.config/pi/auth.json`, then `~/.config/pi-ai/auth.json`. If no Pi OAuth credentials are found, Vantage leaves credentials unset so Pi can still use provider auth such as `OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, Google ADC, or AWS credentials.
 
-Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, annotate, and review commands share the same scoped session. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
+For subscription-backed providers such as `openai-codex`, log in with Pi once. If Pi writes `auth.json` to the current directory, move it to the default Pi config path:
+
+```bash
+npx @earendil-works/pi-ai login openai-codex
+mkdir -p ~/.config/pi
+mv auth.json ~/.config/pi/auth.json
+```
+
+```lua
+require("vantage").setup({
+  agent = {
+    provider = "openai-codex",
+    model = "gpt-5.3-codex",
+    options = {
+      reasoning = "medium",
+    },
+  },
+})
+```
+
+`openai-codex` rejects `temperature`; Vantage strips that option for Codex model targets even if it is present in shared `agent.options`.
+
+Do not commit Pi OAuth auth files. This repository ignores `auth.json` by default because it can contain refresh tokens.
+
+Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, question, edit, annotate, and review commands share the same scoped session. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
 
 ## Configuration Reference
 
@@ -103,6 +133,9 @@ require("vantage").setup({
   agent = {
     provider = "openai",
     model = "gpt-4o-mini",
+    auth = {
+      path = vim.fn.expand("~/.config/pi/auth.json"),
+    },
     session = {
       enabled = true,
       max_turns = 12,
@@ -124,11 +157,17 @@ require("vantage").setup({
     explain = {
       options = {},
     },
+    question = {
+      options = {},
+    },
+    edit = {
+      options = {},
+    },
     annotate = {
       waiting_message_ms = 30000,
       options = {
         maxTokens = 256,
-        timeoutMs = 30000,
+        timeoutMs = 300000,
       },
     },
     review = {
@@ -148,6 +187,7 @@ Config groups:
 
 - `agent.provider`: Pi provider name, default `openai`.
 - `agent.model`: Pi model name, default `gpt-4o-mini`.
+- `agent.auth.path`: optional Pi OAuth `auth.json` path. If omitted, Vantage checks `<workspace>/auth.json`, `./auth.json`, `~/.config/pi/auth.json`, then `~/.config/pi-ai/auth.json`.
 - `agent.session`: Vantage-owned in-memory Agent Session settings. `enabled` turns scoped sessions on or off, `max_turns` bounds retained successful command turns, and `cacheRetention` is passed to Pi as `none`, `short`, or `long`.
 - `agent.options`: Pi call options using Pi SDK-style camelCase keys, including `apiKey`, `temperature`, `maxTokens`, `timeoutMs`, `maxRetries`, `maxRetryDelayMs`, `reasoning`, `metadata`, and `headers`.
 - `agent.trace`: optional prompt and response trace paths.
@@ -217,7 +257,7 @@ Update it after meaningful changes: plan changes, important files or constraints
 Do not update it after every command, file read, or tool call.
 ```
 
-Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageAnnotate visible`, and `:VantageReviewHunk`; Vantage includes the snapshot automatically when it is available.
+Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, `:VantageAnnotate visible`, and `:VantageReviewHunk`; Vantage includes the snapshot automatically when it is available.
 
 When Agent Sessions are enabled, Vantage tracks the context file revision and injects an Agent Context update turn only when the file changes for the current scoped session. The active lens still has higher precedence than the adjacent-agent context.
 
@@ -283,7 +323,7 @@ Open Neovim with the Pi agent runtime:
 make run-pi
 ```
 
-`make run-pi` defaults to `openai/gpt-4o-mini`, a five-minute general request timeout, and a 30-second annotation timeout. Override them when needed:
+`make run-pi` defaults to `openai/gpt-4o-mini`, a five-minute general request timeout, and a five-minute annotation timeout. Override them when needed:
 
 ```bash
 make run-pi PI_PROVIDER=openai PI_MODEL=gpt-4o-mini PI_ANNOTATION_TIMEOUT_MS=45000
@@ -302,6 +342,8 @@ Then run:
 ```vim
 :VantageSetLens learning I am learning Lua syntax
 :VantageExplain
+:VantageQuestion why is this line useful?
+:VantageEdit simplify this line
 :VantageAnnotate
 :VantageAnnotationClear
 :VantageAgentStatus
@@ -315,11 +357,27 @@ Then run:
 :'<,'>VantageExplain
 ```
 
+`:VantageQuestion {question}` asks a specific question about the current line. It also accepts Vim line ranges:
+
+```vim
+:VantageQuestion why is this value immutable?
+:10,20VantageQuestion what is the data flow here?
+:'<,'>VantageQuestion what should I notice in this selection?
+```
+
+`:VantageEdit {instruction}` asks the active agent runtime for a single replacement of the current line. It also accepts Vim line ranges and replaces only the requested range:
+
+```vim
+:VantageEdit rename value to count
+:10,20VantageEdit simplify this branch
+:'<,'>VantageEdit convert this to early returns
+```
+
 `:VantageAnnotate` asks the active agent runtime to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
 
 `:VantageContextStatus` opens a status float for the current workspace's Agent Context File. It reports the resolved path, whether the file was included, size and included bytes, freshness, truncation, and read errors when relevant.
 
-`:VantageAgentStatus` opens a status float for the current Vantage Agent Session. `:VantageAgentReset` clears that session. The session scope is workspace root plus model target plus lens mode, so explain, annotate, and review share context without mixing separate workspaces or lens modes.
+`:VantageAgentStatus` opens a status float for the current Vantage Agent Session. `:VantageAgentReset` clears that session. The session scope is workspace root plus model target plus lens mode, so explain, question, edit, annotate, and review share context without mixing separate workspaces or lens modes.
 
 `VantageAnnotate` accepts simple scope and budget arguments:
 

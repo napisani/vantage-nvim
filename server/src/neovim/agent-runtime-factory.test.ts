@@ -25,6 +25,9 @@ test('createAgentRuntimeFromConfig passes model target, agent options, command o
 		agent: {
 			provider: 'anthropic',
 			model: 'claude-sonnet-test',
+			auth: {
+				path: '/tmp/pi-auth.json',
+			},
 			session: {
 				enabled: true,
 				max_turns: 8,
@@ -47,6 +50,16 @@ test('createAgentRuntimeFromConfig passes model target, agent options, command o
 			},
 		},
 		commands: {
+			question: {
+				options: {
+					maxTokens: 1536,
+				},
+			},
+			edit: {
+				options: {
+					timeoutMs: 60_000,
+				},
+			},
 			annotate: {
 				options: {
 					maxTokens: 128,
@@ -59,6 +72,9 @@ test('createAgentRuntimeFromConfig passes model target, agent options, command o
 	assert.ok(runtime instanceof PiAgentRuntime);
 	assert.equal(runtime.provider, 'anthropic');
 	assert.equal(runtime.model, 'claude-sonnet-test');
+	assert.deepEqual((runtime as PiAgentRuntime & { auth?: { path?: string } }).auth, {
+		path: '/tmp/pi-auth.json',
+	});
 	assert.deepEqual(runtime.session, {
 		enabled: true,
 		max_turns: 8,
@@ -78,6 +94,12 @@ test('createAgentRuntimeFromConfig passes model target, agent options, command o
 	assert.deepEqual(runtime.commandOptions.annotate, {
 		maxTokens: 128,
 		timeoutMs: 12_345,
+	});
+	assert.deepEqual(runtime.commandOptions.question, {
+		maxTokens: 1536,
+	});
+	assert.deepEqual(runtime.commandOptions.edit, {
+		timeoutMs: 60_000,
 	});
 	assert.equal(runtime.tracePromptPath, '/tmp/pi-prompt.txt');
 	assert.equal(runtime.traceResponsePath, '/tmp/pi-response.txt');

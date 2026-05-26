@@ -24,6 +24,9 @@ end
 ---@field prompt_path? string
 ---@field response_path? string
 
+---@class VantageAgentAuthConfig
+---@field path? string Path to a Pi OAuth auth.json file. Relative paths resolve from the workspace root in the backend.
+
 ---@class VantageAgentSessionConfig
 ---@field enabled? boolean
 ---@field max_turns? integer
@@ -33,6 +36,7 @@ end
 ---@field runtime? "pi"|"development" Internal; development is for tests/local harnesses.
 ---@field provider? string
 ---@field model? string
+---@field auth? VantageAgentAuthConfig
 ---@field options? VantageAgentOptions
 ---@field session? VantageAgentSessionConfig
 ---@field trace? VantageAgentTraceConfig
@@ -45,6 +49,8 @@ end
 
 ---@class VantageCommandsConfig
 ---@field explain? VantageCommandConfig
+---@field question? VantageCommandConfig
+---@field edit? VantageCommandConfig
 ---@field annotate? VantageAnnotateCommandConfig
 ---@field review? VantageCommandConfig
 
@@ -85,11 +91,17 @@ local function default_config()
 			explain = {
 				options = {},
 			},
+			question = {
+				options = {},
+			},
+			edit = {
+				options = {},
+			},
 			annotate = {
 				waiting_message_ms = 30000,
 				options = {
 					maxTokens = 256,
-					timeoutMs = 30000,
+					timeoutMs = 300000,
 				},
 			},
 			review = {

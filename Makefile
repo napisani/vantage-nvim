@@ -8,7 +8,7 @@ DEV_ROOT := --cmd "let g:vantage_nvim_root='$(ROOT)'"
 PI_PROVIDER ?= openai
 PI_MODEL ?= gpt-4o-mini
 PI_TIMEOUT_MS ?= 300000
-PI_ANNOTATION_TIMEOUT_MS ?= 30000
+PI_ANNOTATION_TIMEOUT_MS ?= 300000
 E2E_WAIT_MS ?= 30000
 E2E_DIR := $(DEV_HOME)/e2e
 TRACE_DIR := $(DEV_HOME)/trace

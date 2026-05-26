@@ -1,6 +1,7 @@
 import { BackendRequest, BackendResponse } from './protocol';
 import { createAgentRuntimeFromConfig } from './agent-runtime-factory';
 import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
+import { runBackendCommand } from './backend-command';
 
 export async function handleBackendRequest(
 	request: BackendRequest,
@@ -8,19 +9,18 @@ export async function handleBackendRequest(
 	context: AgentRuntimeRequestContext = {}
 ): Promise<BackendResponse> {
 	try {
+		context.reportProgress?.({
+			stage: 'backend_received',
+			message: `Backend received ${request.method}.`,
+			details: { method: request.method },
+		});
 		const activeRuntime = agentRuntime ?? createAgentRuntimeFromConfig(request.config);
-		switch (request.method) {
-			case 'explainSelection':
-				return { id: request.id, ok: true, result: await activeRuntime.explainSelection(request.params, context) };
-			case 'annotateRange':
-				return { id: request.id, ok: true, result: await activeRuntime.annotateRange(request.params, context) };
-			case 'reviewCurrentHunk':
-				return { id: request.id, ok: true, result: await activeRuntime.reviewCurrentHunk(request.params, context) };
-			case 'agentSessionReset':
-				return { id: request.id, ok: true, result: await activeRuntime.agentSessionReset(request.params, context) };
-			case 'agentSessionStatus':
-				return { id: request.id, ok: true, result: await activeRuntime.agentSessionStatus(request.params, context) };
-		}
+		context.reportProgress?.({
+			stage: 'runtime_ready',
+			message: 'Agent runtime is ready.',
+			details: runtimeDetails(request),
+		});
+		return { id: request.id, ok: true, result: await runBackendCommand(activeRuntime, request, context) };
 	} catch (error) {
 		return {
 			id: request.id,
@@ -31,4 +31,13 @@ export async function handleBackendRequest(
 			},
 		};
 	}
+}
+
+function runtimeDetails(request: BackendRequest): Record<string, unknown> {
+	const agent = request.config?.agent ?? {};
+	return {
+		runtime: agent.runtime ?? 'pi',
+		provider: agent.provider,
+		model: agent.model,
+	};
 }

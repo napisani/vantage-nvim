@@ -3,7 +3,9 @@ import type {
 	Annotation,
 	AnnotationCandidateLine,
 	AgentContext,
+	EditSelectionParams,
 	ExplainSelectionParams,
+	QuestionSelectionParams,
 	Range,
 	ReviewCurrentHunkParams,
 } from './protocol';
@@ -15,6 +17,38 @@ export function buildExplainPrompt(params: ExplainSelectionParams): string {
 		'Focus on the active lens when it is provided.',
 		renderRequestContext(params),
 		'Selected code:',
+		codeBlock(params.language, params.selectedText),
+	].join('\n\n');
+}
+
+export function buildQuestionPrompt(params: QuestionSelectionParams): string {
+	return [
+		'You are powering a Neovim code-question command.',
+		'Answer the user question in concise Markdown.',
+		'Focus on the selected code scope and the active lens when it is provided.',
+		'Do not answer about unrelated files unless adjacent agent context is needed to explain the selected scope.',
+		renderRequestContext(params),
+		'User question:',
+		params.question,
+		'Selected code:',
+		codeBlock(params.language, params.selectedText),
+	].join('\n\n');
+}
+
+export function buildEditPrompt(params: EditSelectionParams): string {
+	return [
+		'You are powering a Neovim code-edit command.',
+		'Apply the user instruction to the selected code scope.',
+		'Return only the complete replacement text for the selected scope.',
+		'Do not wrap the answer in Markdown or code fences.',
+		'Do not explain the change. Do not ask follow-up questions.',
+		'If no edit is needed, return the original selected code exactly.',
+		'Preserve surrounding indentation and line endings as plain text.',
+		'Use the active lens when it is provided, but the edit instruction has priority.',
+		renderRequestContext(params),
+		'User edit instruction:',
+		params.instruction,
+		'Selected code to replace:',
 		codeBlock(params.language, params.selectedText),
 	].join('\n\n');
 }
@@ -127,6 +161,15 @@ export function parseAnnotationResponse(
 	);
 }
 
+export function parseEditResponse(content: string): string {
+	const trimmed = content.trim();
+	const text = trimmed.startsWith('```') ? stripWholeFence(trimmed) : content;
+	if (text.trim().length === 0) {
+		throw new Error('Pi produced an empty edit response.');
+	}
+	return text;
+}
+
 function renderRequestContext(params: {
 	filePath: string;
 	language: string;
@@ -220,7 +263,7 @@ function addLineOffset(annotation: Annotation, lineOffset: number): Annotation {
 
 function parseJsonObject(content: string, label: string): Record<string, unknown> {
 	const trimmed = content.trim();
-	const jsonText = trimmed.startsWith('```') ? extractJsonFence(trimmed) : trimmed;
+	const jsonText = trimmed.startsWith('```') ? stripWholeFence(trimmed) : trimmed;
 
 	try {
 		const parsed = JSON.parse(jsonText) as unknown;
@@ -234,8 +277,8 @@ function parseJsonObject(content: string, label: string): Record<string, unknown
 	}
 }
 
-function extractJsonFence(content: string): string {
-	const match = content.match(/^```(?:json)?\s*\n([\s\S]*?)\n```$/);
+function stripWholeFence(content: string): string {
+	const match = content.match(/^```[^\n]*\n([\s\S]*?)\n```$/);
 	return match ? match[1].trim() : content;
 }
 

@@ -10,7 +10,7 @@ Adjacent agents should write:
 .vantage/agent-context.md
 ```
 
-Vantage reads this file when present. If it is missing, unreadable, or stale beyond configuration, Vantage continues without blocking explain, annotate, or review commands. If it is too large, Vantage defensively reads the last configured byte range; the adjacent agent remains responsible for keeping the file compact.
+Vantage reads this file when present. If it is missing, unreadable, or stale beyond configuration, Vantage continues without blocking explain, question, edit, annotate, or review commands. If it is too large, Vantage defensively reads the last configured byte range; the adjacent agent remains responsible for keeping the file compact.
 
 Vantage records a lightweight revision from the file metadata and configured byte limit. With Vantage Agent Sessions enabled, that revision is used to add an Agent Context update turn only when the file changes for the current workspace/model/lens session.
 

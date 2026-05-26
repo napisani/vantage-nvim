@@ -1,10 +1,14 @@
 import * as readline from 'node:readline';
 import { handleBackendRequest } from './handlers';
 import { parseBackendRequest } from './protocol';
-import type { BackendResponse } from './protocol';
+import type { AgentRuntimeProgress, BackendResponse } from './protocol';
 
 const writeResponse = (response: BackendResponse): void => {
 	process.stdout.write(`${JSON.stringify(response)}\n`);
+};
+
+const writeProgress = (id: string, progress: AgentRuntimeProgress): void => {
+	process.stdout.write(`${JSON.stringify({ id, type: 'progress', progress })}\n`);
 };
 
 const interfaceReader = readline.createInterface({
@@ -55,7 +59,14 @@ interfaceReader.on('line', (line) => {
 			const controller = new AbortController();
 			inFlight.set(request.id, controller);
 			try {
-				writeResponse(await handleBackendRequest(request, undefined, { signal: controller.signal }));
+				writeResponse(
+					await handleBackendRequest(request, undefined, {
+						signal: controller.signal,
+						reportProgress: (progress) => {
+							writeProgress(request.id, progress);
+						},
+					})
+				);
 			} finally {
 				inFlight.delete(request.id);
 			}

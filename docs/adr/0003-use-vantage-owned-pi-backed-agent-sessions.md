@@ -1,6 +1,6 @@
 # Use Vantage-owned Pi-backed agent sessions
 
-Vantage will move from purely bounded one-shot model calls toward Vantage-owned in-memory agent sessions. Each session is scoped by workspace root, Model Target, and lens mode. Explain, annotate, and review commands share the scoped session, and each successful command becomes a retained session turn. Agent Task Context remains a separate adjacent-agent artifact: Vantage observes Agent Context Revisions and injects a Context Update Turn only when the file changes.
+Vantage will move from purely bounded one-shot model calls toward Vantage-owned in-memory agent sessions. Each session is scoped by workspace root, Model Target, and lens mode. Explain, question, edit, annotate, and review commands share the scoped session, and each successful command becomes a retained session turn. Agent Task Context remains a separate adjacent-agent artifact: Vantage observes Agent Context Revisions and injects a Context Update Turn only when the file changes.
 
 ## Consequences
 

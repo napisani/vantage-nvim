@@ -22,6 +22,45 @@ test('parseBackendRequest accepts an explainSelection request', () => {
 	assert.equal(parsed.params.lens?.mode, 'learning');
 });
 
+test('parseBackendRequest accepts a questionSelection request', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-question',
+		method: 'questionSelection',
+		params: {
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			selectedText: 'const value = 1;',
+			question: 'Why is this constant useful?',
+		},
+	});
+
+	assert.equal(parsed.method, 'questionSelection');
+	assert.equal(parsed.params.question, 'Why is this constant useful?');
+	assert.equal(parsed.params.selectedText, 'const value = 1;');
+});
+
+test('parseBackendRequest accepts an editSelection request', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-edit',
+		method: 'editSelection',
+		params: {
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+			selectedText: 'const value = 1;',
+			instruction: 'Rename value to count.',
+		},
+	});
+
+	assert.equal(parsed.method, 'editSelection');
+	assert.equal(parsed.params.instruction, 'Rename value to count.');
+	assert.equal(parsed.params.range.startLine, 0);
+});
+
 test('parseBackendRequest accepts annotation candidate lines', () => {
 	const parsed = parseBackendRequest({
 		id: 'req-annotations',
@@ -87,12 +126,15 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 		id: 'req-agent-config',
 		method: 'explainSelection',
 		config: {
-			agent: {
-				provider: 'anthropic',
-				model: 'claude-sonnet-4',
-				session: {
-					enabled: true,
-					max_turns: 8,
+				agent: {
+					provider: 'anthropic',
+					model: 'claude-sonnet-4',
+					auth: {
+						path: '~/.config/pi-ai/auth.json',
+					},
+					session: {
+						enabled: true,
+						max_turns: 8,
 					cacheRetention: 'long',
 				},
 				options: {
@@ -108,11 +150,21 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 				},
 			},
 			commands: {
+				question: {
+					options: {
+						maxTokens: 1536,
+					},
+				},
 				annotate: {
 					waiting_message_ms: 10,
 					options: {
 						maxTokens: 128,
 						timeoutMs: 45000,
+					},
+				},
+				edit: {
+					options: {
+						timeoutMs: 60000,
 					},
 				},
 			},
@@ -126,12 +178,15 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 		},
 	});
 
-	assert.deepEqual(parsed.config?.agent, {
-		provider: 'anthropic',
-		model: 'claude-sonnet-4',
-		session: {
-			enabled: true,
-			max_turns: 8,
+		assert.deepEqual(parsed.config?.agent, {
+			provider: 'anthropic',
+			model: 'claude-sonnet-4',
+			auth: {
+				path: '~/.config/pi-ai/auth.json',
+			},
+			session: {
+				enabled: true,
+				max_turns: 8,
 			cacheRetention: 'long',
 		},
 		options: {
@@ -151,6 +206,16 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 		options: {
 			maxTokens: 128,
 			timeoutMs: 45000,
+		},
+	});
+	assert.deepEqual(parsed.config?.commands?.question, {
+		options: {
+			maxTokens: 1536,
+		},
+	});
+	assert.deepEqual(parsed.config?.commands?.edit, {
+		options: {
+			timeoutMs: 60000,
 		},
 	});
 });

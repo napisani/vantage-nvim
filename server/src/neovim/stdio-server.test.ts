@@ -6,16 +6,25 @@ import * as path from 'node:path';
 import type { ChildProcessWithoutNullStreams } from 'node:child_process';
 
 const responseTimeoutMs = 2_000;
+const stdoutBuffers = new WeakMap<NodeJS.ReadableStream, string>();
 
 const readJsonLineFromStdout = async (stream: NodeJS.ReadableStream): Promise<Record<string, unknown>> => {
 	const chunks: Buffer[] = [];
 
 	while (true) {
+		const buffered = stdoutBuffers.get(stream) ?? '';
+		const bufferedNewline = buffered.indexOf('\n');
+		if (bufferedNewline >= 0) {
+			stdoutBuffers.set(stream, buffered.slice(bufferedNewline + 1));
+			return JSON.parse(buffered.slice(0, bufferedNewline)) as Record<string, unknown>;
+		}
+
 		const [chunk] = await once(stream, 'data') as [Buffer];
 		chunks.push(chunk);
-		const text = Buffer.concat(chunks).toString('utf8');
+		const text = buffered + Buffer.concat(chunks).toString('utf8');
 		const newline = text.indexOf('\n');
 		if (newline >= 0) {
+			stdoutBuffers.set(stream, text.slice(newline + 1));
 			return JSON.parse(text.slice(0, newline)) as Record<string, unknown>;
 		}
 	}
@@ -93,11 +102,19 @@ test('stdio server responds to explainSelection', async () => {
 			},
 		})}\n`);
 
-		const response = await readJsonLine(child, stderrText);
+		let finalResponse = await readJsonLine(child, stderrText);
+		let sawBackendProgress = false;
+		while (finalResponse.type === 'progress') {
+			assert.equal(finalResponse.id, 'req-stdio');
+			sawBackendProgress = sawBackendProgress
+				|| (finalResponse.progress as { stage?: unknown }).stage === 'backend_received';
+			finalResponse = await readJsonLine(child, stderrText);
+		}
 
-		assert.equal(response.id, 'req-stdio');
-		assert.equal(response.ok, true);
-		assert.match(JSON.stringify(response), /Development agent runtime/);
+		assert.equal(sawBackendProgress, true);
+		assert.equal(finalResponse.id, 'req-stdio');
+		assert.equal(finalResponse.ok, true);
+		assert.match(JSON.stringify(finalResponse), /Development agent runtime/);
 	} finally {
 		await killAndWait(child);
 	}

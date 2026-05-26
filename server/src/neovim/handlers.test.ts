@@ -63,6 +63,8 @@ test('handleBackendRequest returns capped development annotations', async () => 
 test('handleBackendRequest can use an injected agent runtime', async () => {
 	const agentRuntime: AgentRuntime = {
 		explainSelection: () => ({ kind: 'explanation', markdown: 'Injected explanation' }),
+		questionSelection: () => ({ kind: 'explanation', markdown: 'Injected answer' }),
+		editSelection: () => ({ kind: 'edit', replacementText: 'const edited = true;' }),
 		annotateRange: () => ({ kind: 'annotations', annotations: [] }),
 		reviewCurrentHunk: () => ({ kind: 'review', markdown: 'Injected review', findings: [] }),
 		agentSessionReset: () => ({ kind: 'explanation', markdown: 'Injected reset' }),

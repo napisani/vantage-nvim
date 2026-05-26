@@ -1,3 +1,5 @@
+import { isBackendMethod } from './backend-command';
+
 export type LensMode = 'learning' | 'review' | 'general';
 
 export interface Lens {
@@ -53,6 +55,17 @@ export interface ExplainSelectionParams extends BaseRequestParams {
 	selectedText: string;
 }
 
+export interface QuestionSelectionParams extends BaseRequestParams {
+	selectedText: string;
+	question: string;
+}
+
+export interface EditSelectionParams extends BaseRequestParams {
+	range: Range;
+	selectedText: string;
+	instruction: string;
+}
+
 export interface AnnotateRangeParams extends BaseRequestParams {
 	visibleRange?: Range;
 	range?: Range;
@@ -86,6 +99,10 @@ export interface AgentTraceConfig {
 	response_path?: string;
 }
 
+export interface AgentAuthConfig {
+	path?: string;
+}
+
 export interface AgentSessionConfig {
 	enabled?: boolean;
 	max_turns?: number;
@@ -96,6 +113,7 @@ export interface AgentRuntimeConfig {
 	runtime?: AgentRuntimeName;
 	provider?: string;
 	model?: string;
+	auth?: AgentAuthConfig;
 	options?: AgentOptionsConfig;
 	session?: AgentSessionConfig;
 	trace?: AgentTraceConfig;
@@ -111,6 +129,8 @@ export interface AnnotateCommandConfig extends CommandConfig {
 
 export interface CommandsConfig {
 	explain?: CommandConfig;
+	question?: CommandConfig;
+	edit?: CommandConfig;
 	annotate?: AnnotateCommandConfig;
 	review?: CommandConfig;
 }
@@ -122,6 +142,8 @@ export interface BackendRequestConfig {
 
 export type BackendMethod =
 	| 'explainSelection'
+	| 'questionSelection'
+	| 'editSelection'
 	| 'annotateRange'
 	| 'reviewCurrentHunk'
 	| 'agentSessionReset'
@@ -129,6 +151,8 @@ export type BackendMethod =
 
 export type BackendRequest =
 	| { id: string; method: 'explainSelection'; config?: BackendRequestConfig; params: ExplainSelectionParams }
+	| { id: string; method: 'questionSelection'; config?: BackendRequestConfig; params: QuestionSelectionParams }
+	| { id: string; method: 'editSelection'; config?: BackendRequestConfig; params: EditSelectionParams }
 	| { id: string; method: 'annotateRange'; config?: BackendRequestConfig; params: AnnotateRangeParams }
 	| { id: string; method: 'reviewCurrentHunk'; config?: BackendRequestConfig; params: ReviewCurrentHunkParams }
 	| { id: string; method: 'agentSessionReset'; config?: BackendRequestConfig; params: BaseRequestParams }
@@ -152,6 +176,12 @@ export interface AnnotationResult {
 	telemetry?: AgentRuntimeTelemetry;
 }
 
+export interface EditResult {
+	kind: 'edit';
+	replacementText: string;
+	telemetry?: AgentRuntimeTelemetry;
+}
+
 export interface AgentRuntimeTelemetry {
 	runtime: string;
 	model?: string;
@@ -161,6 +191,12 @@ export interface AgentRuntimeTelemetry {
 	totalDurationMs?: number;
 	promptEvalCount?: number;
 	evalCount?: number;
+}
+
+export interface AgentRuntimeProgress {
+	stage: string;
+	message?: string;
+	details?: Record<string, unknown>;
 }
 
 export interface ReviewFinding {
@@ -176,7 +212,7 @@ export interface ReviewResult {
 	findings: ReviewFinding[];
 }
 
-export type BackendResult = ExplanationResult | AnnotationResult | ReviewResult;
+export type BackendResult = ExplanationResult | AnnotationResult | ReviewResult | EditResult;
 
 export type BackendResponse =
 	| { id: string; ok: true; result: BackendResult }
@@ -200,6 +236,29 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 				params: {
 					...parseBaseRequestParams(params),
 					selectedText: requireString(params.selectedText, 'params.selectedText'),
+				},
+			};
+		case 'questionSelection':
+			return {
+				id,
+				method,
+				config,
+				params: {
+					...parseBaseRequestParams(params),
+					selectedText: requireString(params.selectedText, 'params.selectedText'),
+					question: requireNonEmptyString(params.question, 'params.question'),
+				},
+			};
+		case 'editSelection':
+			return {
+				id,
+				method,
+				config,
+				params: {
+					...parseBaseRequestParams(params),
+					range: parseRange(params.range, 'params.range'),
+					selectedText: requireString(params.selectedText, 'params.selectedText'),
+					instruction: requireNonEmptyString(params.instruction, 'params.instruction'),
 				},
 			};
 		case 'annotateRange':
@@ -259,9 +318,21 @@ function parseOptionalAgentRuntimeConfig(value: unknown, label: string): AgentRu
 	assignDefined(parsed, 'runtime', parseOptionalAgentRuntimeName(record.runtime, `${label}.runtime`));
 	assignDefined(parsed, 'provider', parseOptionalString(record.provider, `${label}.provider`));
 	assignDefined(parsed, 'model', parseOptionalString(record.model, `${label}.model`));
+	assignDefined(parsed, 'auth', parseOptionalAgentAuthConfig(record.auth, `${label}.auth`));
 	assignDefined(parsed, 'options', parseOptionalAgentOptionsConfig(record.options, `${label}.options`));
 	assignDefined(parsed, 'session', parseOptionalAgentSessionConfig(record.session, `${label}.session`));
 	assignDefined(parsed, 'trace', parseOptionalAgentTraceConfig(record.trace, `${label}.trace`));
+	return parsed;
+}
+
+function parseOptionalAgentAuthConfig(value: unknown, label: string): AgentAuthConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: AgentAuthConfig = {};
+	assignDefined(parsed, 'path', parseOptionalString(record.path, `${label}.path`));
 	return parsed;
 }
 
@@ -298,6 +369,8 @@ function parseOptionalCommandsConfig(value: unknown, label: string): CommandsCon
 	const record = asRecord(value, label);
 	const parsed: CommandsConfig = {};
 	assignDefined(parsed, 'explain', parseOptionalCommandConfig(record.explain, `${label}.explain`));
+	assignDefined(parsed, 'question', parseOptionalCommandConfig(record.question, `${label}.question`));
+	assignDefined(parsed, 'edit', parseOptionalCommandConfig(record.edit, `${label}.edit`));
 	assignDefined(parsed, 'annotate', parseOptionalAnnotateCommandConfig(record.annotate, `${label}.annotate`));
 	assignDefined(parsed, 'review', parseOptionalCommandConfig(record.review, `${label}.review`));
 	return parsed;
@@ -413,13 +486,7 @@ function parseBaseRequestParams(params: UnknownRecord): BaseRequestParams {
 }
 
 function parseMethod(value: unknown): BackendMethod {
-	if (
-		value === 'explainSelection'
-		|| value === 'annotateRange'
-		|| value === 'reviewCurrentHunk'
-		|| value === 'agentSessionReset'
-		|| value === 'agentSessionStatus'
-	) {
+	if (isBackendMethod(value)) {
 		return value;
 	}
 
@@ -456,6 +523,10 @@ function parseOptionalRange(value: unknown, label: string): Range | undefined {
 		return undefined;
 	}
 
+	return parseRange(value, label);
+}
+
+function parseRange(value: unknown, label: string): Range {
 	const record = asRecord(value, label);
 	return {
 		startLine: requireCoordinate(record.startLine, `${label}.startLine`),

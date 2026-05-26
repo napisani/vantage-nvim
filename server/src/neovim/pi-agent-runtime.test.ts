@@ -11,6 +11,8 @@ import {
 	type PiContext,
 	type PiRuntime,
 } from './pi-agent-runtime';
+import type { PiOAuthCredentialRequest } from './pi-oauth-auth';
+import type { AgentRuntimeProgress } from './protocol';
 
 interface RuntimeCall {
 	provider: string;
@@ -121,6 +123,138 @@ test('PiAgentRuntime passes explicit apiKey but delegates credentials when absen
 		selectedText: 'const value = 1;',
 	});
 	assert.equal(delegatedRuntime.calls[0].options.apiKey, undefined);
+});
+
+test('PiAgentRuntime annotateRange uses the shared 300s default timeout', async () => {
+	const runtime = new RecordingRuntime(JSON.stringify({ annotations: [] }));
+	const agent = new PiAgentRuntime({ runtime });
+
+	await agent.annotateRange({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		scopeText: 'const value = 1;',
+	});
+
+	assert.equal(runtime.calls[0].options.timeoutMs, 300_000);
+	assert.equal(runtime.calls[0].options.maxTokens, 256);
+});
+
+test('PiAgentRuntime does not send temperature to openai-codex model targets', async () => {
+	const runtime = new RecordingRuntime(JSON.stringify({ annotations: [] }));
+	const agent = new PiAgentRuntime({
+		provider: 'openai-codex',
+		model: 'gpt-5.3-codex',
+		options: {
+			temperature: 0.7,
+		},
+		runtime,
+		credentialResolver: {
+			async resolveApiKey(): Promise<string> {
+				return 'oauth-token';
+			},
+		},
+	});
+
+	await agent.annotateRange({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		scopeText: 'const value = 1;',
+	});
+
+	assert.equal(runtime.calls[0].provider, 'openai-codex');
+	assert.equal(runtime.calls[0].options.temperature, undefined);
+});
+
+test('PiAgentRuntime resolves OAuth credentials when apiKey is absent', async () => {
+	const runtime = new RecordingRuntime('## From OAuth');
+	const resolverCalls: unknown[] = [];
+	const agent = new PiAgentRuntime({
+		provider: 'openai-codex',
+		model: 'gpt-5.3-codex',
+		auth: {
+			path: '/repo/auth.json',
+		},
+		runtime,
+		credentialResolver: {
+			async resolveApiKey(request: unknown): Promise<string> {
+				resolverCalls.push(request);
+				return 'oauth-token';
+			},
+		},
+	});
+
+	await agent.explainSelection({
+		workspaceRoot: '/repo',
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		selectedText: 'const value = 1;',
+	});
+
+	assert.equal(runtime.calls[0].options.apiKey, 'oauth-token');
+	assert.deepEqual(resolverCalls, [
+		{
+			provider: 'openai-codex',
+			auth: {
+				path: '/repo/auth.json',
+			},
+			workspaceRoot: '/repo',
+		},
+	]);
+});
+
+test('PiAgentRuntime reports annotation progress through credential lookup and model completion', async () => {
+	const runtime = new RecordingRuntime(JSON.stringify({ annotations: [] }));
+	const progress: AgentRuntimeProgress[] = [];
+	const agent = new PiAgentRuntime({
+		provider: 'openai-codex',
+		model: 'gpt-5.3-codex',
+		runtime,
+		credentialResolver: {
+			async resolveApiKey(request: PiOAuthCredentialRequest): Promise<string> {
+				request.reportProgress?.({
+					stage: 'oauth_auth_file_loaded',
+					message: 'Loaded Pi OAuth auth file.',
+					details: { path: '/repo/auth.json' },
+				});
+				return 'oauth-token';
+			},
+		},
+	});
+
+	await agent.annotateRange(
+		{
+			workspaceRoot: '/repo',
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 0, character: 0 },
+			scopeText: 'const value = 1;',
+		},
+		{
+			reportProgress: (event) => {
+				progress.push(event);
+			},
+		}
+	);
+
+	assert.deepEqual(progress.map((event) => event.stage), [
+		'prompt_ready',
+		'credentials_check',
+		'oauth_auth_file_loaded',
+		'credentials_resolved',
+		'model_request_started',
+		'model_response_received',
+	]);
+	assert.equal(progress[0].details?.command, 'annotate');
+	assert.equal(progress[1].details?.provider, 'openai-codex');
+	assert.equal(progress[4].details?.model, 'gpt-5.3-codex');
+	assert.equal(progress[4].details?.timeoutMs, 300_000);
 });
 
 test('PiAgentRuntime annotateRange uses command options over shared agent options', async () => {
@@ -292,14 +426,37 @@ test('PiAgentRuntime shares a scoped session across commands with Pi session aff
 		hunkText: 'const value = 1;',
 		lens: { mode: 'learning', text: 'I am learning TypeScript' },
 	});
+	await agent.questionSelection({
+		workspaceRoot: '/repo',
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		selectedText: 'const value = 1;',
+		question: 'Why is this immutable?',
+		lens: { mode: 'learning', text: 'I am learning TypeScript' },
+	});
+	await agent.editSelection({
+		workspaceRoot: '/repo',
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+		selectedText: 'const value = 1;',
+		instruction: 'Rename value to count.',
+		lens: { mode: 'learning', text: 'I am learning TypeScript' },
+	});
 
-	assert.equal(runtime.calls.length, 2);
-	assert.equal(runtime.calls[0].options.sessionId, runtime.calls[1].options.sessionId);
+	assert.equal(runtime.calls.length, 4);
+	assert.equal(runtime.calls[0].options.sessionId, runtime.calls[3].options.sessionId);
 	assert.equal(runtime.calls[0].options.cacheRetention, 'short');
 	assert.equal(runtime.calls[1].context.messages.length, 3);
 	assert.match(String(runtime.calls[1].context.messages[0].content), /Explain the selected code/i);
 	assert.equal(runtime.calls[1].context.messages[1].role, 'assistant');
 	assert.match(String(runtime.calls[1].context.messages[2].content), /Review the current hunk/i);
+	assert.match(String(runtime.calls[2].context.messages.at(-1)?.content), /Answer the user question/i);
+	assert.match(String(runtime.calls[3].context.messages.at(-1)?.content), /Return only the complete replacement text/i);
 });
 
 test('PiAgentRuntime injects agent context only when the context revision changes', async () => {

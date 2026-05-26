@@ -2,7 +2,9 @@ local annotations = require("vantage.annotations")
 local agent_context = require("vantage.agent_context")
 local backend = require("vantage.backend")
 local context = require("vantage.context")
+local model_command = require("vantage.model_command")
 local state = require("vantage.state")
+local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 
 local M = {}
@@ -14,6 +16,11 @@ local annotation_request = {
 	started_at = 0,
 	agent = nil,
 	backend_id = nil,
+	details = {},
+	progress_history = {},
+	progress_stage = nil,
+	progress_message = nil,
+	progress_details = nil,
 }
 local last_annotation_status = {
 	status = "idle",
@@ -24,6 +31,13 @@ local complete_annotation_request
 local function set_annotation_status(status)
 	last_annotation_status = vim.tbl_deep_extend("force", {}, status or {})
 	last_annotation_status.updated_at = vim.loop.hrtime()
+end
+
+local function copy_table(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+	return vim.deepcopy(value)
 end
 
 local function annotation_count(value)
@@ -75,7 +89,7 @@ local function annotation_request_timeout_ms()
 	if type(value) == "number" and value > 0 then
 		return value
 	end
-	return 30000
+	return 300000
 end
 
 local function elapsed_seconds(started_at)
@@ -103,6 +117,64 @@ local function agent_label(agent)
 	return agent and agent.label or "unknown"
 end
 
+local function annotation_progress_fields()
+	local fields = {}
+	if annotation_request.progress_stage then
+		fields.progress_stage = annotation_request.progress_stage
+	end
+	if annotation_request.progress_message then
+		fields.progress_message = annotation_request.progress_message
+	end
+	if annotation_request.progress_details then
+		fields.progress_details = copy_table(annotation_request.progress_details)
+	end
+	if annotation_request.progress_history and #annotation_request.progress_history > 0 then
+		fields.progress_history = copy_table(annotation_request.progress_history)
+	end
+	return fields
+end
+
+local function annotation_status_details()
+	return vim.tbl_deep_extend(
+		"force",
+		{},
+		annotation_request.details or {},
+		annotation_progress_fields(),
+		{
+			backend_id = annotation_request.backend_id,
+		}
+	)
+end
+
+local function push_annotation_progress(token, progress)
+	if annotation_request.status ~= "loading" or annotation_request.token ~= token then
+		return
+	end
+
+	progress = progress or {}
+	local event = {
+		stage = progress.stage or "progress",
+		message = progress.message,
+		details = progress.details,
+		elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at)),
+	}
+	table.insert(annotation_request.progress_history, event)
+	while #annotation_request.progress_history > 8 do
+		table.remove(annotation_request.progress_history, 1)
+	end
+
+	annotation_request.progress_stage = event.stage
+	annotation_request.progress_message = event.message
+	annotation_request.progress_details = event.details
+	set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
+		status = "loading",
+		agent = agent_label(annotation_request.agent),
+		elapsed = event.elapsed,
+		message = event.message or ("Annotation request reached " .. event.stage .. "."),
+		trace = annotation_request.agent and annotation_request.agent.trace or nil,
+	}))
+end
+
 local function split_lines(text)
 	if text == "" then
 		return { "" }
@@ -113,6 +185,10 @@ local function split_lines(text)
 		table.insert(lines, line)
 	end
 	return lines
+end
+
+local function line_count(text)
+	return #split_lines(text or "")
 end
 
 local function trim_start(text)
@@ -180,15 +256,6 @@ local function error_markdown(response)
 	return "## Error\n\n" .. tostring(message)
 end
 
-local function handle_markdown_response(response)
-	if not response or not response.ok then
-		ui.show_markdown(error_markdown(response))
-		return
-	end
-
-	ui.show_markdown(response.result.markdown or "")
-end
-
 local function no_annotations_markdown()
 	return table.concat({
 		"## No annotations",
@@ -197,8 +264,12 @@ local function no_annotations_markdown()
 	}, "\n")
 end
 
-local function request_markdown(method, params)
-	backend.request(method, params, handle_markdown_response)
+local function parse_positive_integer(text)
+	local value = tonumber(text)
+	if value and value > 0 and math.floor(value) == value then
+		return value
+	end
+	return nil
 end
 
 local function range_context(opts)
@@ -206,14 +277,6 @@ local function range_context(opts)
 		return context.line_range(opts.line1 - 1, opts.line2 - 1)
 	end
 
-	return nil
-end
-
-local function parse_positive_integer(text)
-	local value = tonumber(text)
-	if value and value > 0 and math.floor(value) == value then
-		return value
-	end
 	return nil
 end
 
@@ -265,10 +328,6 @@ local function annotation_limit(annotation_options, scope_kind)
 	return DEFAULT_ANNOTATION_LIMIT
 end
 
-local function explanation_context(opts)
-	return range_context(opts) or context.current_line()
-end
-
 local function cancel_annotation_request(message_prefix)
 	if annotation_request.status ~= "loading" then
 		return false
@@ -280,44 +339,49 @@ local function cancel_annotation_request(message_prefix)
 	annotation_request.status = "idle"
 	annotation_request.token = annotation_request.token + 1
 	annotation_request.backend_id = nil
-	set_annotation_status({
+	set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 		status = "cancelled",
 		agent = agent_label(agent),
 		elapsed = elapsed,
 		message = "Annotation request cancelled after " .. elapsed .. ".",
 		trace = agent and agent.trace or nil,
-	})
+	}))
 	if message_prefix then
 		vim.notify(message_prefix .. " " .. agent.label .. " after " .. elapsed, vim.log.levels.INFO)
 	end
 	return true
 end
 
-local function begin_annotation_request(agent)
+local function begin_annotation_request(agent, details)
 	annotation_request.status = "loading"
 	annotation_request.token = annotation_request.token + 1
 	annotation_request.started_at = vim.loop.hrtime()
 	annotation_request.agent = agent
 	annotation_request.backend_id = nil
+	annotation_request.details = details or {}
+	annotation_request.progress_history = {}
+	annotation_request.progress_stage = nil
+	annotation_request.progress_message = nil
+	annotation_request.progress_details = nil
 	local token = annotation_request.token
 
-	set_annotation_status({
+	set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 		status = "loading",
 		agent = agent_label(agent),
 		message = "Annotation request is still waiting for " .. agent_label(agent) .. ".",
 		trace = agent and agent.trace or nil,
-	})
+	}))
 	vim.notify("Vantage: requesting annotations from " .. agent.label, vim.log.levels.INFO)
 	vim.defer_fn(function()
 		if annotation_request.status == "loading" and annotation_request.token == token then
 			local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
-			set_annotation_status({
+			set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 				status = "loading",
 				agent = agent_label(agent),
 				elapsed = elapsed,
 				message = "Annotation request is still waiting after " .. elapsed .. ".",
 				trace = agent and agent.trace or nil,
-			})
+			}))
 			vim.notify(
 				"Vantage: still waiting for annotations from " .. agent.label .. " after " .. elapsed .. trace_suffix(agent),
 				vim.log.levels.WARN
@@ -345,14 +409,14 @@ local function schedule_annotation_timeout(token, agent)
 		end
 
 		local error_message = "Annotation request timed out after " .. elapsed .. " without a backend response."
-		set_annotation_status({
+		set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 			status = "failed",
 			agent = agent_label(agent),
 			elapsed = elapsed,
 			error = error_message,
 			message = error_message,
 			trace = agent and agent.trace or nil,
-		})
+		}))
 		vim.notify(
 			"Vantage: annotation request from "
 				.. agent.label
@@ -380,69 +444,21 @@ function M.annotation_status()
 	local status = vim.deepcopy(last_annotation_status)
 	if annotation_request.status == "loading" then
 		local elapsed = format_elapsed(elapsed_seconds(annotation_request.started_at))
-		status.status = "loading"
-		status.agent = agent_label(annotation_request.agent)
-		status.elapsed = elapsed
-		status.message = "Annotation request is still waiting after " .. elapsed .. "."
-		status.trace = annotation_request.agent and annotation_request.agent.trace or status.trace
+		status = vim.tbl_deep_extend("force", status, annotation_status_details(), {
+			status = "loading",
+			agent = agent_label(annotation_request.agent),
+			elapsed = elapsed,
+			message = annotation_request.progress_message or ("Annotation request is still waiting after " .. elapsed .. "."),
+			trace = annotation_request.agent and annotation_request.agent.trace or status.trace,
+		})
 	end
 	return status
 end
 
 function M.show_annotation_status()
 	local status = M.annotation_status()
-	local lines = {
-		"## Vantage Annotation Status",
-		"",
-		"- Status: " .. tostring(status.status or "unknown"),
-	}
-	if status.agent then
-		table.insert(lines, "- Agent: " .. tostring(status.agent))
-	end
-	if status.elapsed then
-		table.insert(lines, "- Elapsed: " .. tostring(status.elapsed))
-	end
-	if status.received ~= nil then
-		table.insert(lines, "- Runtime annotations returned: " .. tostring(status.received))
-	end
-	if status.rendered ~= nil then
-		table.insert(lines, "- Buffer annotations rendered: " .. tostring(status.rendered))
-	end
-	if status.skipped ~= nil then
-		table.insert(lines, "- Returned annotations skipped: " .. tostring(status.skipped))
-	end
-	if status.trace then
-		table.insert(lines, "- Response trace: `" .. tostring(status.trace) .. "`")
-	end
-	if status.error then
-		table.insert(lines, "")
-		table.insert(lines, "### Error")
-		table.insert(lines, "")
-		table.insert(lines, tostring(status.error))
-	end
-	if status.message then
-		table.insert(lines, "")
-		table.insert(lines, tostring(status.message))
-	end
-
-	ui.show_markdown(table.concat(lines, "\n"))
+	ui.show_markdown(status_view.annotation(status))
 	vim.notify("Vantage annotation status: " .. tostring(status.status or "unknown"), vim.log.levels.INFO)
-end
-
-local function format_age(ms)
-	if type(ms) ~= "number" then
-		return "unknown"
-	end
-	if ms < 1000 then
-		return tostring(math.floor(ms)) .. "ms"
-	end
-	if ms < 60000 then
-		return tostring(math.floor((ms / 1000) + 0.5)) .. "s"
-	end
-	if ms < 3600000 then
-		return tostring(math.floor((ms / 60000) + 0.5)) .. "m"
-	end
-	return tostring(math.floor((ms / 3600000) + 0.5)) .. "h"
 end
 
 function M.agent_context_status()
@@ -451,41 +467,7 @@ end
 
 function M.show_agent_context_status()
 	local snapshot = M.agent_context_status()
-	local lines = {
-		"## Vantage Agent Context Status",
-		"",
-		"- Enabled: " .. tostring(snapshot.enabled == true),
-		"- Status: " .. tostring(snapshot.status or "unknown"),
-		"- Workspace root: `" .. tostring(snapshot.workspace_root or "") .. "`",
-		"- Path: `" .. tostring(snapshot.path or "") .. "`",
-	}
-
-	if snapshot.exists ~= nil then
-		table.insert(lines, "- Exists: " .. tostring(snapshot.exists))
-	end
-	if snapshot.size_bytes ~= nil then
-		table.insert(lines, "- File size: " .. tostring(snapshot.size_bytes) .. " bytes")
-	end
-	if snapshot.included_bytes ~= nil then
-		table.insert(lines, "- Included: " .. tostring(snapshot.included_bytes) .. " bytes")
-	end
-	if snapshot.age_ms ~= nil then
-		table.insert(lines, "- Age: " .. format_age(snapshot.age_ms))
-	end
-	if snapshot.modified_at then
-		table.insert(lines, "- Modified: " .. tostring(snapshot.modified_at))
-	end
-	if snapshot.truncated ~= nil then
-		table.insert(lines, "- Tail truncated: " .. tostring(snapshot.truncated))
-	end
-	if snapshot.error then
-		table.insert(lines, "")
-		table.insert(lines, "### Error")
-		table.insert(lines, "")
-		table.insert(lines, tostring(snapshot.error))
-	end
-
-	ui.show_markdown(table.concat(lines, "\n"))
+	ui.show_markdown(status_view.agent_context(snapshot))
 	vim.notify("Vantage agent context status: " .. tostring(snapshot.status or "unknown"), vim.log.levels.INFO)
 end
 
@@ -498,7 +480,15 @@ function M.clear_lens()
 end
 
 function M.explain(opts)
-	request_markdown("explainSelection", explanation_context(opts))
+	model_command.explain(opts)
+end
+
+function M.question(opts)
+	model_command.question(opts)
+end
+
+function M.edit(opts)
+	model_command.edit(opts)
 end
 
 function M.clear_annotations()
@@ -525,7 +515,20 @@ function M.annotate(opts)
 		params.candidateLines = candidate_lines
 	end
 	local agent = annotation_agent()
-	local token = begin_annotation_request(agent)
+	local request_details = {
+		method = "annotateRange",
+		scope = annotation_options.scope or scope_kind,
+		scope_kind = scope_kind,
+		selected_line_count = line_count(params.scopeText or params.text or ""),
+		max_annotations = params.maxAnnotations,
+		candidate_line_count = #candidate_lines,
+		timeout_ms = annotation_request_timeout_ms(),
+		waiting_message_ms = waiting_message_ms(),
+		backend_mode = state.config.backend and state.config.backend.mode or "stdio",
+		file_path = params.filePath,
+		workspace_root = params.workspaceRoot,
+	}
+	local token = begin_annotation_request(agent, request_details)
 	schedule_annotation_timeout(token, agent)
 
 	local backend_id = backend.request("annotateRange", params, function(response)
@@ -536,14 +539,14 @@ function M.annotate(opts)
 
 		if not response or not response.ok then
 			local error_message = error_markdown(response):gsub("^## Error\n\n", "")
-			set_annotation_status({
+			set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 				status = "failed",
 				agent = agent_label(agent),
 				elapsed = elapsed,
 				error = error_message,
 				message = "Annotation request failed after " .. elapsed .. ".",
 				trace = agent and agent.trace or nil,
-			})
+			}))
 			vim.notify(
 				"Vantage: annotation request from " .. agent.label .. " failed after " .. elapsed .. trace_suffix(agent),
 				vim.log.levels.ERROR
@@ -565,7 +568,7 @@ function M.annotate(opts)
 					.. tostring(received_count)
 					.. " annotation(s), but they were not visible in this buffer."
 			end
-			set_annotation_status({
+			set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 				status = "no_visible_annotations",
 				agent = agent_label(agent),
 				elapsed = elapsed,
@@ -574,7 +577,7 @@ function M.annotate(opts)
 				skipped = skipped,
 				message = message,
 				trace = agent and agent.trace or nil,
-			})
+			}))
 			vim.notify(
 				"Vantage: "
 					.. agent.label
@@ -589,7 +592,7 @@ function M.annotate(opts)
 		end
 
 		local suffix = count == 1 and "" or "s"
-		set_annotation_status({
+		set_annotation_status(vim.tbl_deep_extend("force", annotation_status_details(), {
 			status = "rendered",
 			agent = agent_label(agent),
 			elapsed = elapsed,
@@ -598,7 +601,7 @@ function M.annotate(opts)
 			skipped = math.max(0, received_count - count),
 			message = "Rendered " .. tostring(count) .. " annotation" .. suffix .. ".",
 			trace = agent and agent.trace or nil,
-		})
+		}))
 		vim.notify(
 			"Vantage: rendered "
 				.. tostring(count)
@@ -611,24 +614,26 @@ function M.annotate(opts)
 				.. telemetry_suffix(response.result),
 			vim.log.levels.INFO
 		)
-	end)
+	end, {
+		on_progress = function(progress)
+			push_annotation_progress(token, progress)
+		end,
+	})
 	if annotation_request.token == token and annotation_request.status == "loading" then
 		annotation_request.backend_id = backend_id
 	end
 end
 
 function M.review_current_hunk()
-	local params = context.visible()
-	params.hunkText = params.text
-	request_markdown("reviewCurrentHunk", params)
+	model_command.review_current_hunk()
 end
 
 function M.reset_agent_session()
-	request_markdown("agentSessionReset", context.current_line())
+	model_command.reset_agent_session()
 end
 
 function M.show_agent_session_status()
-	request_markdown("agentSessionStatus", context.current_line())
+	model_command.show_agent_session_status()
 end
 
 local function recreate_command(name, command, opts)
@@ -657,6 +662,14 @@ function M.register()
 	recreate_command("VantageExplain", function(opts)
 		M.explain(opts)
 	end, { range = true })
+
+	recreate_command("VantageQuestion", function(opts)
+		M.question(opts)
+	end, { range = true, nargs = "+" })
+
+	recreate_command("VantageEdit", function(opts)
+		M.edit(opts)
+	end, { range = true, nargs = "+" })
 
 	delete_commands({ "VantageToggleAnnotations" })
 	recreate_command("VantageAnnotate", function(opts)

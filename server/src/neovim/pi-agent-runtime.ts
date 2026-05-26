@@ -1,33 +1,48 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
-import { createHash } from 'node:crypto';
 import type { Api, Context, KnownProvider, Model, SimpleStreamOptions, StopReason } from '@earendil-works/pi-ai';
 import type {
 	AgentCacheRetention,
-	AgentContext,
+	AgentAuthConfig,
 	AgentOptionsConfig,
 	AgentSessionConfig,
 	AnnotateRangeParams,
 	AnnotationResult,
 	BaseRequestParams,
+	EditResult,
+	EditSelectionParams,
 	ExplainSelectionParams,
 	ExplanationResult,
-	LensMode,
+	QuestionSelectionParams,
 	ReviewCurrentHunkParams,
 	ReviewResult,
+	AgentRuntimeProgress,
 } from './protocol';
 import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
 import {
 	annotationLineOffset,
-	buildAgentContextUpdatePrompt,
 	buildAnnotationPrompt,
+	buildEditPrompt,
 	buildExplainPrompt,
+	buildQuestionPrompt,
 	buildReviewPrompt,
 	parseAnnotationResponse,
+	parseEditResponse,
 } from './model-contract';
+import {
+	AgentSessionStore,
+	sessionPromptParams,
+	userMessageFor,
+	VantageAgentSessions,
+	type AgentSessionMessage,
+	type SessionState,
+} from './agent-session';
+import { PiOAuthCredentialResolver, type PiCredentialResolver } from './pi-oauth-auth';
 
 export interface CommandAgentOptions {
 	explain?: AgentOptionsConfig;
+	question?: AgentOptionsConfig;
+	edit?: AgentOptionsConfig;
 	annotate?: AgentOptionsConfig;
 	review?: AgentOptionsConfig;
 }
@@ -35,12 +50,14 @@ export interface CommandAgentOptions {
 export interface PiAgentRuntimeOptions {
 	provider?: string;
 	model?: string;
+	auth?: AgentAuthConfig;
 	options?: AgentOptionsConfig;
 	session?: AgentSessionConfig;
 	commandOptions?: CommandAgentOptions;
 	tracePromptPath?: string;
 	traceResponsePath?: string;
 	runtime?: PiRuntime;
+	credentialResolver?: PiCredentialResolver;
 	sessionStore?: AgentSessionStore;
 }
 
@@ -93,6 +110,8 @@ interface RunPiOptions {
 	command: keyof CommandAgentOptions;
 	defaults: AgentOptionsConfig;
 	signal?: AbortSignal;
+	reportProgress?: (progress: AgentRuntimeProgress) => void;
+	trimContent?: boolean;
 }
 
 interface RunPiResult {
@@ -115,12 +134,7 @@ const DEFAULT_OPTIONS: Required<Pick<AgentOptionsConfig, 'maxTokens' | 'temperat
 };
 const DEFAULT_ANNOTATION_OPTIONS: Pick<AgentOptionsConfig, 'maxTokens' | 'timeoutMs'> = {
 	maxTokens: 256,
-	timeoutMs: 30_000,
-};
-const DEFAULT_SESSION_CONFIG: Required<AgentSessionConfig> = {
-	enabled: true,
-	max_turns: 12,
-	cacheRetention: 'short',
+	timeoutMs: 300_000,
 };
 const usage = {
 	input: 0,
@@ -137,80 +151,31 @@ const usage = {
 	},
 };
 
-interface SessionScope {
-	workspaceRoot: string;
-	provider: string;
-	model: string;
-	lensMode: LensMode;
-}
-
-interface SessionTurn {
-	user: PiContext['messages'][number];
-	assistant: PiContext['messages'][number];
-}
-
-interface SessionState {
-	scope: SessionScope;
-	sessionId: string;
-	createdAt: number;
-	updatedAt: number;
-	latestContextRevision?: string;
-	latestContextTurn?: PiContext['messages'][number];
-	turns: SessionTurn[];
-}
-
-export class AgentSessionStore {
-	private readonly sessions = new Map<string, SessionState>();
-
-	get(scope: SessionScope): SessionState {
-		const key = scopeKey(scope);
-		const existing = this.sessions.get(key);
-		if (existing) {
-			return existing;
-		}
-
-		const now = Date.now();
-		const session: SessionState = {
-			scope,
-			sessionId: `vantage-${hashText(key).slice(0, 24)}`,
-			createdAt: now,
-			updatedAt: now,
-			turns: [],
-		};
-		this.sessions.set(key, session);
-		return session;
-	}
-
-	status(scope: SessionScope): SessionState | undefined {
-		return this.sessions.get(scopeKey(scope));
-	}
-
-	reset(scope: SessionScope): boolean {
-		return this.sessions.delete(scopeKey(scope));
-	}
-}
-
 export class PiAgentRuntime implements AgentRuntime {
 	readonly provider: string;
 	readonly model: string;
+	readonly auth?: AgentAuthConfig;
 	readonly options: AgentOptionsConfig;
 	readonly session: Required<AgentSessionConfig>;
 	readonly commandOptions: CommandAgentOptions;
 	readonly tracePromptPath?: string;
 	readonly traceResponsePath?: string;
 	private readonly runtime: PiRuntime;
-	private readonly sessionStore: AgentSessionStore;
+	private readonly credentialResolver: PiCredentialResolver;
+	private readonly sessions: VantageAgentSessions;
 
 	constructor(options: PiAgentRuntimeOptions = {}) {
 		this.provider = options.provider ?? DEFAULT_PROVIDER;
 		this.model = options.model ?? DEFAULT_MODEL;
+		this.auth = options.auth;
 		this.options = { ...DEFAULT_OPTIONS, ...(options.options ?? {}) };
-		this.session = { ...DEFAULT_SESSION_CONFIG, ...(options.session ?? {}) };
+		this.sessions = new VantageAgentSessions(options.session, options.sessionStore ?? new AgentSessionStore());
+		this.session = this.sessions.config;
 		this.commandOptions = options.commandOptions ?? {};
 		this.tracePromptPath = options.tracePromptPath;
 		this.traceResponsePath = options.traceResponsePath;
 		this.runtime = options.runtime ?? new PiSdkRuntime();
-		this.sessionStore = options.sessionStore ?? new AgentSessionStore();
+		this.credentialResolver = options.credentialResolver ?? new PiOAuthCredentialResolver();
 	}
 
 	async explainSelection(params: ExplainSelectionParams, context: AgentRuntimeRequestContext = {}): Promise<ExplanationResult> {
@@ -218,10 +183,39 @@ export class PiAgentRuntime implements AgentRuntime {
 			command: 'explain',
 			defaults: {},
 			signal: context.signal,
+			reportProgress: context.reportProgress,
 		});
 		return {
 			kind: 'explanation',
 			markdown,
+		};
+	}
+
+	async questionSelection(params: QuestionSelectionParams, context: AgentRuntimeRequestContext = {}): Promise<ExplanationResult> {
+		const { content: markdown } = await this.runPi(params, buildQuestionPrompt(sessionPromptParams(params, this.session.enabled)), {
+			command: 'question',
+			defaults: {},
+			signal: context.signal,
+			reportProgress: context.reportProgress,
+		});
+		return {
+			kind: 'explanation',
+			markdown,
+		};
+	}
+
+	async editSelection(params: EditSelectionParams, context: AgentRuntimeRequestContext = {}): Promise<EditResult> {
+		const { content, telemetry } = await this.runPi(params, buildEditPrompt(sessionPromptParams(params, this.session.enabled)), {
+			command: 'edit',
+			defaults: {},
+			signal: context.signal,
+			reportProgress: context.reportProgress,
+			trimContent: false,
+		});
+		return {
+			kind: 'edit',
+			replacementText: parseEditResponse(content),
+			telemetry,
 		};
 	}
 
@@ -230,6 +224,7 @@ export class PiAgentRuntime implements AgentRuntime {
 			command: 'annotate',
 			defaults: DEFAULT_ANNOTATION_OPTIONS,
 			signal: context.signal,
+			reportProgress: context.reportProgress,
 		});
 		return {
 			kind: 'annotations',
@@ -246,6 +241,7 @@ export class PiAgentRuntime implements AgentRuntime {
 			command: 'review',
 			defaults: {},
 			signal: context.signal,
+			reportProgress: context.reportProgress,
 		});
 		return {
 			kind: 'review',
@@ -255,59 +251,68 @@ export class PiAgentRuntime implements AgentRuntime {
 	}
 
 	async agentSessionReset(params: BaseRequestParams): Promise<ExplanationResult> {
-		if (!this.session.enabled) {
-			return { kind: 'explanation', markdown: '## Vantage Agent Session\n\nAgent sessions are disabled.' };
-		}
-
-		const scope = this.sessionScope(params);
-		const removed = this.sessionStore.reset(scope);
 		return {
 			kind: 'explanation',
-			markdown: [
-				'## Vantage Agent Session',
-				'',
-				removed ? 'Session reset.' : 'No active session existed for this scope.',
-				'',
-				`Workspace: \`${scope.workspaceRoot}\``,
-				`Model target: \`${scope.provider}/${scope.model}\``,
-				`Lens mode: \`${scope.lensMode}\``,
-			].join('\n'),
+			markdown: this.sessions.reset(params, this.modelTarget()),
 		};
 	}
 
 	async agentSessionStatus(params: BaseRequestParams): Promise<ExplanationResult> {
-		if (!this.session.enabled) {
-			return { kind: 'explanation', markdown: '## Vantage Agent Session\n\nAgent sessions are disabled.' };
-		}
-
-		const scope = this.sessionScope(params);
-		const session = this.sessionStore.status(scope);
 		return {
 			kind: 'explanation',
-			markdown: renderSessionStatus(scope, session),
+			markdown: this.sessions.status(params, this.modelTarget()),
 		};
 	}
 
 	private async runPi(params: BaseRequestParams, prompt: string, runOptions: RunPiOptions): Promise<RunPiResult> {
 		await writeOptionalTrace(this.tracePromptPath, prompt);
 		const startedAt = Date.now();
-		const options = mergeOptions(this.options, runOptions.defaults, this.commandOptions[runOptions.command], {
-			signal: runOptions.signal,
+		const options = normalizeOptionsForProvider(
+			this.provider,
+			mergeOptions(this.options, runOptions.defaults, this.commandOptions[runOptions.command], {
+				signal: runOptions.signal,
+			})
+		);
+		const promptLines = prompt.split('\n').length;
+		reportProgress(runOptions, 'prompt_ready', 'Prepared Pi prompt.', {
+			command: runOptions.command,
+			provider: this.provider,
+			model: this.model,
+			promptChars: prompt.length,
+			promptLines,
+			sessionEnabled: this.session.enabled,
+			timeoutMs: options.timeoutMs,
+			maxTokens: options.maxTokens,
+			reasoning: options.reasoning,
 		});
 		const userMessage = userMessageFor(prompt);
-		const session = this.session.enabled ? this.sessionStore.get(this.sessionScope(params)) : undefined;
-		const context = session
-			? this.sessionContext(session, params.agentContext, userMessage)
-			: { messages: [userMessage] };
-		const sessionOptions = session
-			? {
-				sessionId: session.sessionId,
-				cacheRetention: this.session.cacheRetention,
-			}
-			: {};
-		const assistantMessage = await this.completeWithTimeout(context, {
+		const invocation = this.session.enabled
+			? this.sessions.createInvocation(params, this.modelTarget(), userMessage)
+			: undefined;
+		const context = invocation?.context ?? { messages: [userMessage] };
+		const completionOptions = await this.resolveCredentials(params, {
 			...options,
-			...sessionOptions,
+			...(invocation?.options ?? {}),
+		}, runOptions.reportProgress);
+		reportProgress(runOptions, 'model_request_started', 'Sent request to Pi model runtime.', {
+			command: runOptions.command,
+			provider: this.provider,
+			model: this.model,
+			timeoutMs: completionOptions.timeoutMs,
+			maxTokens: completionOptions.maxTokens,
+			reasoning: completionOptions.reasoning,
+			sessionId: completionOptions.sessionId,
+			cacheRetention: completionOptions.cacheRetention,
+			hasApiKey: typeof completionOptions.apiKey === 'string' && completionOptions.apiKey.length > 0,
+		});
+		const assistantMessage = await this.completeWithTimeout(context, completionOptions);
+		reportProgress(runOptions, 'model_response_received', 'Pi model runtime returned a response.', {
+			command: runOptions.command,
+			provider: this.provider,
+			model: this.model,
+			elapsedMs: Date.now() - startedAt,
+			contentBlocks: assistantMessage.content.length,
+			stopReason: assistantMessage.stopReason,
 		});
 		const content = extractAssistantText(assistantMessage);
 
@@ -315,71 +320,88 @@ export class PiAgentRuntime implements AgentRuntime {
 			throw new Error('Pi produced an empty response.');
 		}
 
-		if (session) {
-			this.recordSuccessfulTurn(session, userMessage, assistantMessage);
+		if (invocation) {
+			this.recordSuccessfulTurn(invocation.session, userMessage, assistantMessage);
 		}
 
 		await writeOptionalTrace(this.traceResponsePath, content);
+		const returnedContent = runOptions.trimContent === false ? content : content.trim();
 		return {
-			content: content.trim(),
+			content: returnedContent,
 			telemetry: {
 				runtime: 'pi',
 				model: `${this.provider}/${this.model}`,
 				promptChars: prompt.length,
-				promptLines: prompt.split('\n').length,
+				promptLines,
 				elapsedMs: Date.now() - startedAt,
 			},
 		};
 	}
 
-	private sessionScope(params: BaseRequestParams): SessionScope {
-		return {
-			workspaceRoot: params.workspaceRoot ?? workspaceFromFilePath(params.filePath),
+	private async resolveCredentials(
+		params: BaseRequestParams,
+		options: PiCompleteOptions,
+		reporter: ((progress: AgentRuntimeProgress) => void) | undefined
+	): Promise<PiCompleteOptions> {
+		reporter?.({
+			stage: 'credentials_check',
+			message: 'Checking configured API key and Pi OAuth credentials.',
+			details: {
+				provider: this.provider,
+				authPath: this.auth?.path,
+				hasConfiguredApiKey: typeof options.apiKey === 'string' && options.apiKey.trim().length > 0,
+			},
+		});
+
+		if (typeof options.apiKey === 'string' && options.apiKey.trim().length > 0) {
+			reporter?.({
+				stage: 'credentials_configured',
+				message: 'Using API key from Vantage configuration.',
+				details: { provider: this.provider, source: 'agent.options.apiKey' },
+			});
+			return options;
+		}
+
+		const credentialRequest = {
 			provider: this.provider,
-			model: this.model,
-			lensMode: params.lens?.mode ?? 'general',
+			auth: this.auth,
+			workspaceRoot: params.workspaceRoot,
 		};
+		const apiKey = await this.credentialResolver.resolveApiKey(
+			reporter ? { ...credentialRequest, reportProgress: reporter } : credentialRequest
+		);
+
+		reporter?.({
+			stage: apiKey ? 'credentials_resolved' : 'credentials_unresolved',
+			message: apiKey
+				? 'Resolved Pi OAuth credentials for the model provider.'
+				: 'No Pi OAuth credentials were resolved; Pi/provider ambient auth may still be used.',
+			details: {
+				provider: this.provider,
+				source: apiKey ? 'pi_oauth' : 'ambient',
+			},
+		});
+
+		return apiKey ? { ...options, apiKey } : options;
 	}
 
-	private sessionContext(
-		session: SessionState,
-		agentContext: AgentContext | undefined,
-		userMessage: PiContext['messages'][number]
-	): PiContext {
-		const contextRevision = agentContext ? agentContextRevision(agentContext) : undefined;
-		if (agentContext && contextRevision !== session.latestContextRevision) {
-			session.latestContextRevision = contextRevision;
-			session.latestContextTurn = userMessageFor(buildAgentContextUpdatePrompt({
-				...agentContext,
-				revision: contextRevision,
-			}));
-			session.updatedAt = Date.now();
-		}
-
-		const messages: PiContext['messages'] = [];
-		if (session.latestContextTurn) {
-			messages.push(session.latestContextTurn);
-		}
-		for (const turn of session.turns) {
-			messages.push(turn.user, turn.assistant);
-		}
-		messages.push(userMessage);
-		return { messages };
+	private modelTarget(): { provider: string; model: string } {
+		return {
+			provider: this.provider,
+			model: this.model,
+		};
 	}
 
 	private recordSuccessfulTurn(
 		session: SessionState,
-		userMessage: PiContext['messages'][number],
+		userMessage: AgentSessionMessage,
 		assistantMessage: PiAssistantMessage
 	): void {
-		session.turns.push({
-			user: userMessage,
-			assistant: assistantMessageForHistory(assistantMessage, this.provider, this.model),
-		});
-		while (session.turns.length > this.session.max_turns) {
-			session.turns.shift();
-		}
-		session.updatedAt = Date.now();
+		this.sessions.recordSuccessfulTurn(
+			session,
+			userMessage,
+			assistantMessageForHistory(assistantMessage, this.provider, this.model)
+		);
 	}
 
 	private async completeWithTimeout(context: PiContext, options: PiCompleteOptions): Promise<PiAssistantMessage> {
@@ -429,6 +451,15 @@ export class PiAgentRuntime implements AgentRuntime {
 	}
 }
 
+function reportProgress(
+	runOptions: Pick<RunPiOptions, 'reportProgress'>,
+	stage: string,
+	message: string,
+	details?: Record<string, unknown>
+): void {
+	runOptions.reportProgress?.({ stage, message, details });
+}
+
 export class PiSdkRuntime implements PiRuntime {
 	async complete(provider: string, model: string, context: PiContext, options: PiCompleteOptions): Promise<PiAssistantMessage> {
 		const pi = await importPiAi();
@@ -462,36 +493,14 @@ function mergeOptions(
 	};
 }
 
-function scopeKey(scope: SessionScope): string {
-	return JSON.stringify(scope);
-}
-
-function hashText(text: string): string {
-	return createHash('sha256').update(text).digest('hex');
-}
-
-function agentContextRevision(agentContext: AgentContext): string {
-	return agentContext.revision ?? hashText([
-		agentContext.path,
-		agentContext.modifiedAt ?? '',
-		agentContext.truncated ? 'truncated' : 'full',
-		agentContext.content,
-	].join('\0'));
-}
-
-function workspaceFromFilePath(filePath: string): string {
-	if (filePath.trim().length === 0) {
-		return 'unknown-workspace';
+function normalizeOptionsForProvider(provider: string, options: PiCompleteOptions): PiCompleteOptions {
+	if (provider !== 'openai-codex') {
+		return options;
 	}
-	return path.dirname(filePath);
-}
 
-function userMessageFor(content: string): PiContext['messages'][number] {
-	return {
-		role: 'user',
-		content,
-		timestamp: Date.now(),
-	};
+	const sanitized = { ...options };
+	delete sanitized.temperature;
+	return sanitized;
 }
 
 function assistantMessageForHistory(
@@ -515,39 +524,6 @@ function assistantMessageForHistory(
 	};
 }
 
-function sessionPromptParams<T extends BaseRequestParams>(params: T, sessionEnabled: boolean): T {
-	if (!sessionEnabled || !params.agentContext) {
-		return params;
-	}
-
-	return {
-		...params,
-		agentContext: undefined,
-	};
-}
-
-function renderSessionStatus(scope: SessionScope, session: SessionState | undefined): string {
-	const lines = [
-		'## Vantage Agent Session',
-		'',
-		`Workspace: \`${scope.workspaceRoot}\``,
-		`Model target: \`${scope.provider}/${scope.model}\``,
-		`Lens mode: \`${scope.lensMode}\``,
-		`Turn count: ${session?.turns.length ?? 0}`,
-	];
-
-	if (session) {
-		lines.push(`Session id: \`${session.sessionId}\``);
-		lines.push(`Latest context revision: \`${session.latestContextRevision ?? 'none'}\``);
-		lines.push(`Created: ${new Date(session.createdAt).toISOString()}`);
-		lines.push(`Updated: ${new Date(session.updatedAt).toISOString()}`);
-	} else {
-		lines.push('No active session exists for this scope.');
-	}
-
-	return lines.join('\n');
-}
-
 function extractAssistantText(message: PiAssistantMessage): string {
 	if (message.stopReason === 'error' && message.errorMessage) {
 		throw new Error(`Pi agent runtime failed: ${message.errorMessage}`);
@@ -555,8 +531,8 @@ function extractAssistantText(message: PiAssistantMessage): string {
 
 	const parts = message.content
 		.filter((block) => block.type === 'text' && typeof block.text === 'string')
-		.map((block) => block.text?.trim() ?? '')
-		.filter((text) => text.length > 0);
+		.map((block) => block.text ?? '')
+		.filter((text) => text.trim().length > 0);
 
 	if (parts.length === 0) {
 		throw new Error('Pi agent runtime returned an unexpected response shape.');

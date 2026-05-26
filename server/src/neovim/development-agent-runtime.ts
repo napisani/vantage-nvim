@@ -2,8 +2,11 @@ import {
 	AnnotateRangeParams,
 	AnnotationResult,
 	BaseRequestParams,
+	EditResult,
+	EditSelectionParams,
 	ExplainSelectionParams,
 	ExplanationResult,
+	QuestionSelectionParams,
 	ReviewCurrentHunkParams,
 	ReviewResult,
 } from './protocol';
@@ -21,6 +24,29 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 				renderPreview('Selected preview', params.selectedText),
 				contextSummary(params),
 			].join('\n'),
+		};
+	}
+
+	questionSelection(params: QuestionSelectionParams): ExplanationResult {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Answer',
+				'',
+				`Development agent runtime response for **${formatLanguage(params.language)}**.`,
+				'',
+				`Question: ${params.question}`,
+				renderLens(params.lens),
+				renderPreview('Selected preview', params.selectedText),
+				contextSummary(params),
+			].join('\n'),
+		};
+	}
+
+	editSelection(params: EditSelectionParams): EditResult {
+		return {
+			kind: 'edit',
+			replacementText: params.selectedText,
 		};
 	}
 

@@ -50,6 +50,30 @@ local function development_response(method, params)
 		}
 	end
 
+	if method == "questionSelection" then
+		return {
+			kind = "explanation",
+			markdown = table.concat({
+				"## Answer",
+				"",
+				"Development agent runtime response for **" .. title_case(params.language) .. "**.",
+				"",
+				"Question: " .. tostring(params.question or ""),
+				"",
+				"```" .. (params.language or ""),
+				params.selectedText or params.text or "",
+				"```",
+			}, "\n"),
+		}
+	end
+
+	if method == "editSelection" then
+		return {
+			kind = "edit",
+			replacementText = params.selectedText or params.text or "",
+		}
+	end
+
 	if method == "annotateRange" then
 		local start_line = 0
 		if params.visibleRange and params.visibleRange.startLine then
@@ -113,6 +137,12 @@ local function invoke_callback(callback, response)
 	end
 end
 
+local function invoke_progress(callback, progress)
+	if callback then
+		callback(progress)
+	end
+end
+
 local function backend_error(id, code, message)
 	return {
 		id = id,
@@ -127,9 +157,9 @@ end
 local function fail_pending(code, message)
 	local callbacks = pending
 	pending = {}
-	for id, callback in pairs(callbacks) do
+	for id, request in pairs(callbacks) do
 		vim.schedule(function()
-			invoke_callback(callback, backend_error(id, code, message))
+			invoke_callback(request.callback, backend_error(id, code, message))
 		end)
 	end
 end
@@ -159,6 +189,21 @@ local function command_config(value)
 	}
 end
 
+local function auth_config(value)
+	if type(value) ~= "table" then
+		return nil
+	end
+
+	local config = {}
+	if value.path ~= nil then
+		config.path = value.path
+	end
+	if vim.tbl_isempty(config) then
+		return vim.empty_dict()
+	end
+	return config
+end
+
 local function session_config(value)
 	value = value or {}
 	return {
@@ -179,6 +224,7 @@ end
 local function request_config()
 	local agent = vim.deepcopy(state.config.agent or {})
 	agent.options = agent_options_config(agent.options)
+	agent.auth = auth_config(agent.auth)
 	agent.session = session_config(agent.session)
 	if type(agent.trace) == "table" and vim.tbl_isempty(agent.trace) then
 		agent.trace = vim.empty_dict()
@@ -189,6 +235,8 @@ local function request_config()
 		agent = agent,
 		commands = {
 			explain = command_config(commands.explain),
+			question = command_config(commands.question),
+			edit = command_config(commands.edit),
 			annotate = annotate_command_config(commands.annotate),
 			review = command_config(commands.review),
 		},
@@ -205,11 +253,22 @@ local function handle_stdout_line(line)
 		return
 	end
 
-	local callback = pending[decoded.id]
-	if callback then
+	if decoded.type == "progress" then
+		local request = pending[decoded.id]
+		if request and request.on_progress then
+			local progress = decoded.progress or {}
+			vim.schedule(function()
+				invoke_progress(request.on_progress, progress)
+			end)
+		end
+		return
+	end
+
+	local request = pending[decoded.id]
+	if request then
 		pending[decoded.id] = nil
 		vim.schedule(function()
-			invoke_callback(callback, decoded)
+			invoke_callback(request.callback, decoded)
 		end)
 	end
 end
@@ -291,7 +350,7 @@ local function start_stdio()
 	return nil
 end
 
-function M.request(method, params, callback)
+function M.request(method, params, callback, options)
 	if state.config.backend.mode == "development" then
 		invoke_callback(callback, {
 			id = "development",
@@ -313,7 +372,10 @@ function M.request(method, params, callback)
 
 	local id = tostring(next_id)
 	next_id = next_id + 1
-	pending[id] = callback
+	pending[id] = {
+		callback = callback,
+		on_progress = options and options.on_progress or nil,
+	}
 
 	local message = vim.json.encode({
 		id = id,

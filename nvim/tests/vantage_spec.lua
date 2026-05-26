@@ -104,6 +104,8 @@ test("default stdio backend command resolves from plugin root", function()
 		"node",
 		vim.fn.getcwd() .. "/server/out/neovim/stdio-server.js",
 	})
+	eq(state.config.agent.options.timeoutMs, 300000)
+	eq(state.config.commands.annotate.options.timeoutMs, 300000)
 end)
 
 test("stdio backend sends agent and command config from setup", function()
@@ -135,10 +137,12 @@ process.stdin.on('data', (chunk) => {
         kind: 'explanation',
         markdown: JSON.stringify({
           config: request.config,
-          shape: {
-            explainOptionsAreArray: Array.isArray(request.config.commands.explain.options),
-            reviewOptionsAreArray: Array.isArray(request.config.commands.review.options)
-          }
+            shape: {
+              explainOptionsAreArray: Array.isArray(request.config.commands.explain.options),
+              questionOptionsAreArray: Array.isArray(request.config.commands.question.options),
+              editOptionsAreArray: Array.isArray(request.config.commands.edit.options),
+              reviewOptionsAreArray: Array.isArray(request.config.commands.review.options)
+            }
         })
       }
     }));
@@ -150,6 +154,9 @@ process.stdin.on('data', (chunk) => {
 		agent = {
 			provider = "anthropic",
 			model = "claude-test",
+			auth = {
+				path = "~/.config/pi-ai/auth.json",
+			},
 			options = {
 				timeoutMs = 120000,
 				reasoning = "medium",
@@ -178,6 +185,8 @@ process.stdin.on('data', (chunk) => {
 	local payload = vim.json.decode(responses[1].result.markdown)
 	eq(payload.shape, {
 		explainOptionsAreArray = false,
+		questionOptionsAreArray = false,
+		editOptionsAreArray = false,
 		reviewOptionsAreArray = false,
 	})
 	eq(payload.config, {
@@ -185,6 +194,9 @@ process.stdin.on('data', (chunk) => {
 			runtime = "pi",
 			provider = "anthropic",
 			model = "claude-test",
+			auth = {
+				path = "~/.config/pi-ai/auth.json",
+			},
 			options = {
 				maxTokens = 1024,
 				timeoutMs = 120000,
@@ -199,6 +211,12 @@ process.stdin.on('data', (chunk) => {
 		},
 		commands = {
 			explain = {
+				options = {},
+			},
+			question = {
+				options = {},
+			},
+			edit = {
 				options = {},
 			},
 			annotate = {
@@ -466,12 +484,133 @@ test("VantageExplain accepts an explicit line range", function()
 	})
 end)
 
+test("VantageQuestion asks about the current line", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Question answer",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		vim.cmd("VantageQuestion why does this reuse a?")
+	end)
+
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "why does this reuse a?")
+	eq(captured.params.text, "local b = a + 1")
+	eq(captured.params.selectedText, "local b = a + 1")
+end)
+
+test("VantageQuestion accepts an explicit line range", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Range question answer",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+			"return b",
+		})
+
+		vim.cmd("1,2VantageQuestion what is the data flow?")
+	end)
+
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "what is the data flow?")
+	eq(captured.params.text, "local a = 1\nlocal b = a + 1")
+	eq(captured.params.range, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 1,
+		endCharacter = 15,
+	})
+end)
+
+test("VantageEdit replaces the current line with the backend edit result", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "edit",
+			replacementText = "local count = 1",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local value = 1",
+			"return value",
+		})
+		vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+		vim.cmd("VantageEdit rename value to count")
+	end)
+
+	eq(captured.method, "editSelection")
+	eq(captured.params.instruction, "rename value to count")
+	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
+		"local count = 1",
+		"return value",
+	})
+end)
+
+test("VantageEdit replaces an explicit line range with the backend edit result", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "edit",
+			replacementText = "local total = 3",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = 2",
+			"return a + b",
+		})
+
+		vim.cmd("1,2VantageEdit combine the locals")
+	end)
+
+	eq(captured.method, "editSelection")
+	eq(captured.params.instruction, "combine the locals")
+	eq(captured.params.range, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 1,
+		endCharacter = 11,
+	})
+	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
+		"local total = 3",
+		"return a + b",
+	})
+end)
+
 test("registers unified explain command without selection or line variants", function()
 	local vantage = require("vantage")
 
 	vantage.setup({ backend = { mode = "development" } })
 
 	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
+	assert(vim.fn.exists(":VantageQuestion") == 2, "expected VantageQuestion command")
+	assert(vim.fn.exists(":VantageEdit") == 2, "expected VantageEdit command")
 	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
 	assert(vim.fn.exists(":VantageExplainLine") == 0, "expected old line command to be removed")
 end)
@@ -598,6 +737,65 @@ test("annotation status reports returned annotations that did not render", funct
 	eq(status.rendered, 0)
 	eq(status.skipped, 1)
 	assert(status.message:match("not visible"), status.message)
+end)
+
+test("annotation status includes request details and backend progress", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+	local backend = require("vantage.backend")
+	local original_request = backend.request
+
+	local ok, err = pcall(function()
+		backend.request = function(_method, _params, _callback, options)
+			if options and options.on_progress then
+				options.on_progress({
+					stage = "credentials_check",
+					message = "Checking Pi OAuth credentials.",
+					details = {
+						provider = "openai-codex",
+						auth_path = "~/.config/pi/auth.json",
+					},
+				})
+			end
+			return "progress-annotations"
+		end
+
+		vantage.setup({
+			backend = { mode = "stdio" },
+			agent = {
+				provider = "openai-codex",
+				model = "gpt-5.3-codex",
+			},
+			commands = {
+				annotate = {
+					options = {
+						timeoutMs = 300000,
+					},
+				},
+			},
+		})
+		annotations.clear(0)
+		lua_buffer({ "local value = 42" })
+
+		commands.annotate()
+
+		local status = commands.annotation_status()
+		eq(status.status, "loading")
+		eq(status.agent, "openai-codex/gpt-5.3-codex")
+		eq(status.backend_id, "progress-annotations")
+		eq(status.timeout_ms, 300000)
+		eq(status.selected_line_count, 1)
+		eq(status.max_annotations, 1)
+		eq(status.progress_stage, "credentials_check")
+		assert(status.progress_message:match("OAuth"), vim.inspect(status))
+		assert(#status.progress_history == 1, vim.inspect(status.progress_history))
+
+		commands.clear_annotations()
+	end)
+
+	backend.request = original_request
+	assert(ok, err)
 end)
 
 test("registers explicit annotation commands without toggle command", function()

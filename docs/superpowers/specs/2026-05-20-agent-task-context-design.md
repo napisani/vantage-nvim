@@ -129,7 +129,7 @@ For an agent-runtime command, the Lua plugin resolves the current buffer's works
 
 ## Request Flow
 
-1. User invokes `:VantageExplain`, `:VantageAnnotate`, or `:VantageReviewHunk`.
+1. User invokes `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, `:VantageAnnotate`, or `:VantageReviewHunk`.
 2. Lua captures the existing editor context and lens.
 3. Lua resolves and reads the Agent Context File when enabled.
 4. Lua attaches workspace root plus agent context metadata, revision, and content to request params.
@@ -208,7 +208,7 @@ It should show:
 - whether tail truncation occurred
 - read error details when relevant
 
-Normal agent-runtime commands should not display context status automatically. Missing or unreadable context is not an error for explain, annotate, or review commands.
+Normal agent-runtime commands should not display context status automatically. Missing or unreadable context is not an error for explain, question, edit, annotate, or review commands.
 
 ## Git Hygiene
 

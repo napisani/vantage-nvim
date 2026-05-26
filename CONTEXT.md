@@ -41,7 +41,7 @@ The identity boundary for a Vantage Agent Session: workspace root, Model Target,
 _Avoid_: Per-buffer session, global session, lens-text session
 
 **Shared Command Session**:
-The rule that explain, annotate, and review commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
+The rule that explain, question, edit, annotate, and review commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
 _Avoid_: Per-command-family session, annotation-only memory, review-only memory
 
 **Model Target**:
@@ -60,9 +60,13 @@ _Avoid_: Provider settings, backend options, arbitrary SDK passthrough
 The rule that Agent Options and Command Agent Options use Pi SDK camelCase field names, while Vantage-owned configuration keeps Lua-style snake_case names.
 _Avoid_: Normalized option names, snake_case Pi options, mixed SDK option aliases
 
-**Agent Credential Delegation**:
-The rule that Vantage only passes an explicit `apiKey` when configured and otherwise lets Pi resolve environment variables, OAuth credentials, or provider-specific authentication for the selected Model Target.
-_Avoid_: Vantage-owned provider auth lookup, duplicated environment fallback table
+**Agent Credential Resolution**:
+The rule that Vantage passes an explicit `apiKey` when configured, otherwise resolves Pi OAuth `auth.json` credentials for OAuth-backed Model Targets when available, and then leaves credentials unset so Pi or the provider can use environment or ambient authentication.
+_Avoid_: Duplicated environment fallback table, provider-specific auth adapters, mandatory API keys
+
+**Agent Auth Configuration**:
+The optional `agent.auth` setup surface for Vantage-owned credential lookup, currently limited to an explicit Pi OAuth `auth.json` path. Without an explicit path, Vantage checks workspace-local auth files, then the Pi CLI default `~/.config/pi/auth.json`, then the older `~/.config/pi-ai/auth.json` location.
+_Avoid_: General provider config, secret storage, login flow config
 
 **Agent Configuration**:
 The public Vantage setup surface for the Agent Runtime: a compact `agent` table containing the Model Target and Agent Options.
@@ -85,7 +89,7 @@ The Vantage-owned diagnostic settings for writing Agent Runtime prompts and resp
 _Avoid_: Provider trace config, Pi option trace fields
 
 **Command Configuration**:
-The top-level Vantage setup surface for command behavior, keyed by command family such as explain, annotate, and review.
+The top-level Vantage setup surface for command behavior, keyed by command family such as explain, question, edit, annotate, and review.
 _Avoid_: Agent configuration for command behavior, scattered command globals
 
 **Command Agent Options**:
@@ -97,8 +101,52 @@ The command configuration for inline annotations, including annotation UI timing
 _Avoid_: Top-level annotations config, provider-specific annotation settings
 
 **Model-Backed Command**:
-A Vantage command that asks the Agent Runtime for an explanation, annotation, or review response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
+A Vantage command that asks the Agent Runtime for an answer, edit, explanation, annotation, or review response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
 _Avoid_: Provider-Backed Command, agent-aware command, special context command
+
+**Annotation Block**:
+A lens-driven explanation anchored to a relevant code line, intended to be read as a small multi-line note rather than as a terse inline hint.
+_Avoid_: Inline comment, virtual-text hint, code comment
+
+**Annotation Budget**:
+The upper bound on how many relevant code lines in a requested scope may receive Annotation Blocks. It limits visual noise but does not require the Agent Runtime to use every available slot.
+_Avoid_: Required annotation count, line-by-line coverage, annotation density setting
+
+**Percentage-Based Annotation Budget**:
+The rule that multi-line Annotation Scopes derive their Annotation Budget from the number of relevant candidate lines, with minimum and maximum guardrails, so larger scopes can receive more coverage without becoming unbounded.
+_Avoid_: Fixed annotation count, annotate every line, unbounded full-buffer annotation
+
+**Discretionary Annotation Count**:
+The rule that the Agent Runtime decides how many Annotation Blocks to return within the Annotation Budget, based on the lens and requested code scope.
+_Avoid_: Fill every slot, fixed density, always annotate budget
+
+**Discretionary Annotation Depth**:
+The rule that each Annotation Block should be as deep as the lens and code warrant, usually ranging from a short note to a richer multi-line explanation, rather than using a uniform configured length.
+_Avoid_: Fixed annotation height, one-line-only annotation, equal-length annotation
+
+**Virtual Annotation Surface**:
+The rule that Annotation Blocks are explanatory overlays and must not modify buffer text, line contents, git diffs, formatter input, or copied source.
+_Avoid_: Inserted annotation lines, generated comments, buffer mutation
+
+**Annotation Scope**:
+The requested code region Vantage asks the Agent Runtime to annotate: current line, explicit selection/range, visible viewport, or full buffer. Scope constrains where Annotation Blocks may be anchored.
+_Avoid_: Global annotation, project annotation, unrelated file annotation
+
+**Model-Backed Command Module**:
+The Lua responsibility that turns a Neovim command invocation into scoped editor context, backend request parameters, and command-specific result handling for read-only and edit-producing Model-Backed Commands.
+_Avoid_: Command wrapper, command controller, one-off command glue
+
+**Backend Command Contract**:
+The TypeScript responsibility that defines supported backend command names, request parsing, and runtime dispatch for Model-Backed Commands and Agent Session commands.
+_Avoid_: Ad hoc method switch, duplicated protocol list, backend API surface
+
+**Buffer Edit Application**:
+The Lua responsibility that validates and applies a single Agent Runtime replacement to the requested buffer range for `VantageEdit`.
+_Avoid_: Raw model patch, multi-file agent edit, command-local mutation
+
+**Status View**:
+The Lua responsibility for rendering Vantage status markdown, including annotation status and Agent Context Status, without mixing display formatting into command orchestration.
+_Avoid_: Inline status text, status command logic, diagnostics backend
 
 **Lens Precedence**:
 The rule that a Vantage lens layers on top of Agent Task Context and has higher priority when they pull the model in different directions.
@@ -300,11 +348,11 @@ Domain expert: "No. Use Agent Option Naming: Pi option tables keep SDK camelCase
 
 Dev: "Who resolves API keys and OAuth credentials?"
 
-Domain expert: "Use Agent Credential Delegation. Vantage passes `agent.options.apiKey` when configured; otherwise Pi resolves environment variables, OAuth credentials, or provider-specific auth."
+Domain expert: "Use Agent Credential Resolution. Vantage passes `agent.options.apiKey` when configured; otherwise it can resolve Pi OAuth `auth.json` credentials and leaves non-OAuth or missing credentials to Pi/provider auth."
 
 Dev: "What should users configure in Lua?"
 
-Domain expert: "Use Agent Configuration: `agent.provider`, `agent.model`, and optional Agent Options. Do not expose the old provider adapter shape."
+Domain expert: "Use Agent Configuration: `agent.provider`, `agent.model`, optional `agent.auth`, and optional Agent Options. Do not expose the old provider adapter shape."
 
 Dev: "Where should annotation wait timing live?"
 
