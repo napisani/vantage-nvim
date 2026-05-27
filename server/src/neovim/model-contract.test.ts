@@ -27,6 +27,29 @@ test('buildAnnotationPrompt uses the requested annotation budget', () => {
 	assert.doesNotMatch(prompt, /Return at most 3 annotations/);
 });
 
+test('buildAnnotationPrompt asks for lens-driven annotation blocks with discretionary depth', () => {
+	const prompt = buildAnnotationPrompt({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const total = values.reduce((sum, value) => sum + value, 0);',
+		cursor: { line: 0, character: 0 },
+		visibleRange: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 62 },
+		scopeText: 'const total = values.reduce((sum, value) => sum + value, 0);',
+		maxAnnotations: 1,
+		lens: { mode: 'learning', text: 'I am learning JavaScript array reductions' },
+		candidateLines: [
+			{ line: 0, text: 'const total = values.reduce((sum, value) => sum + value, 0);' },
+		],
+	});
+
+	assert.match(prompt, /Annotation Blocks/);
+	assert.match(prompt, /one to four concise sentences/i);
+	assert.match(prompt, /Use more depth only when the active lens or anchored code warrants it/i);
+	assert.match(prompt, /Prefer fewer, stronger Annotation Blocks/i);
+	assert.doesNotMatch(prompt, /virtual-text/i);
+	assert.doesNotMatch(prompt, /Keep text short enough for virtual text/i);
+});
+
 test('buildAnnotationPrompt asks the model to choose critical lens-relevant lines for oversized scopes', () => {
 	const prompt = buildAnnotationPrompt({
 		filePath: '/repo/example.ts',

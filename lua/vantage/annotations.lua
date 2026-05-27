@@ -32,6 +32,69 @@ local function remove_existing_at(bufnr, line, character)
 	end
 end
 
+local function annotation_width()
+	local ok, width = pcall(vim.api.nvim_win_get_width, 0)
+	if not ok or type(width) ~= "number" then
+		width = vim.o.columns
+	end
+	return math.max(24, width - 6)
+end
+
+local function append_wrapped_word(lines, word, width)
+	while #word > width do
+		table.insert(lines, word:sub(1, width))
+		word = word:sub(width + 1)
+	end
+	return word
+end
+
+local function wrap_paragraph(paragraph, width)
+	if paragraph == "" then
+		return { "" }
+	end
+
+	local lines = {}
+	local current = ""
+	for word in paragraph:gmatch("%S+") do
+		if current == "" then
+			current = append_wrapped_word(lines, word, width)
+		elseif #current + 1 + #word <= width then
+			current = current .. " " .. word
+		else
+			table.insert(lines, current)
+			current = append_wrapped_word(lines, word, width)
+		end
+	end
+
+	if current ~= "" then
+		table.insert(lines, current)
+	end
+	if #lines == 0 then
+		table.insert(lines, paragraph)
+	end
+	return lines
+end
+
+local function wrap_text(text)
+	local width = annotation_width()
+	local wrapped = {}
+	for paragraph in ((text or "") .. "\n"):gmatch("(.-)\n") do
+		for _, line in ipairs(wrap_paragraph(paragraph, width)) do
+			table.insert(wrapped, line)
+		end
+	end
+	return wrapped
+end
+
+local function virt_lines(annotation)
+	local highlight = annotation.severity == "warning" and "WarningMsg" or "Comment"
+	local lines = {}
+	for _, line in ipairs(wrap_text(annotation.text)) do
+		table.insert(lines, { { line, highlight } })
+	end
+	return lines
+end
+
 function M.render(bufnr, annotations)
 	bufnr = bufnr or 0
 	local line_count = vim.api.nvim_buf_line_count(bufnr)
@@ -43,7 +106,8 @@ function M.render(bufnr, annotations)
 		if type(line) == "number" and line >= 0 and line < line_count and annotation.text and annotation.text ~= "" then
 			remove_existing_at(bufnr, line, character)
 			vim.api.nvim_buf_set_extmark(bufnr, namespace, line, character, {
-				virt_text = { { annotation.text, "Comment" } },
+				virt_lines = virt_lines(annotation),
+				virt_lines_above = true,
 			})
 			rendered = rendered + 1
 		end

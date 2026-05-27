@@ -1,6 +1,7 @@
 local backend = require("vantage.backend")
 local buffer_edit = require("vantage.buffer_edit")
 local context = require("vantage.context")
+local input_ui = require("vantage.input")
 local ui = require("vantage.ui")
 
 local M = {}
@@ -42,40 +43,25 @@ local function scoped_context(opts)
 	return range_context(opts) or context.current_line()
 end
 
-local function command_text(opts, label)
-	local text = opts and opts.args or ""
+local function trim(text)
+	return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
+local function optional_command_text(opts)
+	local text = trim(opts and opts.args or "")
 	if text:match("%S") == nil then
-		return nil, "Vantage: " .. label .. " requires text."
+		return nil
 	end
-	return text, nil
+	return text
 end
 
-function M.explain(opts)
-	request_markdown("explainSelection", scoped_context(opts))
-end
-
-function M.question(opts)
-	local question, err = command_text(opts, "question")
-	if not question then
-		vim.notify(err, vim.log.levels.ERROR)
-		return
-	end
-
-	local params = scoped_context(opts)
+local function request_question(params, question)
 	params.selectedText = params.selectedText or params.text
 	params.question = question
 	request_markdown("questionSelection", params)
 end
 
-function M.edit(opts)
-	local instruction, err = command_text(opts, "edit")
-	if not instruction then
-		vim.notify(err, vim.log.levels.ERROR)
-		return
-	end
-
-	local bufnr = vim.api.nvim_get_current_buf()
-	local params = scoped_context(opts)
+local function request_edit(bufnr, params, instruction)
 	params.selectedText = params.selectedText or params.text
 	params.instruction = instruction
 
@@ -97,6 +83,47 @@ function M.edit(opts)
 		end
 
 		vim.notify("Vantage: applied edit replacing " .. tostring(applied.line_count) .. " line(s)", vim.log.levels.INFO)
+	end)
+end
+
+function M.explain(opts)
+	request_markdown("explainSelection", scoped_context(opts))
+end
+
+function M.question(opts)
+	local params = scoped_context(opts)
+	local question = optional_command_text(opts)
+	if question then
+		request_question(params, question)
+		return
+	end
+
+	input_ui.prompt("question", nil, function(input)
+		input = optional_command_text({ args = input })
+		if not input then
+			return
+		end
+		request_question(params, input)
+	end)
+end
+
+function M.edit(opts)
+	local bufnr = vim.api.nvim_get_current_buf()
+	local params = scoped_context(opts)
+
+	local instruction = optional_command_text(opts)
+	if instruction then
+		request_edit(bufnr, params, instruction)
+		return
+	end
+
+	input_ui.prompt("edit", nil, function(input)
+		input = optional_command_text({ args = input })
+		if not input then
+			return
+		end
+
+		request_edit(bufnr, params, input)
 	end)
 end
 

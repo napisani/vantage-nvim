@@ -2,14 +2,20 @@ local annotations = require("vantage.annotations")
 local agent_context = require("vantage.agent_context")
 local backend = require("vantage.backend")
 local context = require("vantage.context")
+local input_ui = require("vantage.input")
 local model_command = require("vantage.model_command")
 local state = require("vantage.state")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 
 local M = {}
-local DEFAULT_ANNOTATION_LIMIT = 3
 local LINE_ANNOTATION_LIMIT = 1
+local SCOPE_ANNOTATION_PERCENT = 0.25
+local SCOPE_ANNOTATION_MIN = 1
+local SCOPE_ANNOTATION_MAX = 12
+local BUFFER_ANNOTATION_PERCENT = 0.15
+local BUFFER_ANNOTATION_MIN = 3
+local BUFFER_ANNOTATION_MAX = 24
 local annotation_request = {
 	status = "idle",
 	token = 0,
@@ -272,6 +278,10 @@ local function parse_positive_integer(text)
 	return nil
 end
 
+local function trim(text)
+	return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
+end
+
 local function range_context(opts)
 	if opts and type(opts.range) == "number" and opts.range > 0 then
 		return context.line_range(opts.line1 - 1, opts.line2 - 1)
@@ -291,7 +301,7 @@ local function parse_annotation_options(opts)
 		local max_annotations = parse_positive_integer(arg)
 		if max_annotations then
 			parsed.max_annotations = max_annotations
-		elseif arg == "line" or arg == "visible" then
+		elseif arg == "line" or arg == "visible" or arg == "buffer" then
 			parsed.scope = arg
 		else
 			return nil, 'unsupported annotation option "' .. tostring(arg) .. '"'
@@ -307,7 +317,11 @@ local function annotation_context(opts, annotation_options)
 	end
 
 	if annotation_options.scope == "visible" then
-		return context.visible(), "range"
+		return context.visible(), "visible"
+	end
+
+	if annotation_options.scope == "buffer" then
+		return context.buffer(), "buffer"
 	end
 
 	local selected_range = range_context(opts)
@@ -318,14 +332,22 @@ local function annotation_context(opts, annotation_options)
 	return context.current_line(), "line"
 end
 
-local function annotation_limit(annotation_options, scope_kind)
+local function percentage_budget(candidate_count, percent, minimum, maximum)
+	local budget = math.ceil(math.max(0, candidate_count or 0) * percent)
+	return math.max(minimum, math.min(maximum, budget))
+end
+
+local function annotation_limit(annotation_options, scope_kind, candidate_count)
 	if annotation_options.max_annotations then
 		return annotation_options.max_annotations
 	end
 	if scope_kind == "line" then
 		return LINE_ANNOTATION_LIMIT
 	end
-	return DEFAULT_ANNOTATION_LIMIT
+	if scope_kind == "buffer" then
+		return percentage_budget(candidate_count, BUFFER_ANNOTATION_PERCENT, BUFFER_ANNOTATION_MIN, BUFFER_ANNOTATION_MAX)
+	end
+	return percentage_budget(candidate_count, SCOPE_ANNOTATION_PERCENT, SCOPE_ANNOTATION_MIN, SCOPE_ANNOTATION_MAX)
 end
 
 local function cancel_annotation_request(message_prefix)
@@ -475,6 +497,18 @@ function M.set_lens(mode, text)
 	state.set_lens(mode, text)
 end
 
+local function prompt_lens(mode)
+	local active_lens = state.get_lens()
+	local default = active_lens and active_lens.mode == mode and active_lens.text or ""
+	input_ui.prompt("lens", { default = default }, function(input)
+		local text = trim(input)
+		if text == "" then
+			return
+		end
+		M.set_lens(mode, text)
+	end)
+end
+
 function M.clear_lens()
 	state.clear_lens()
 end
@@ -509,8 +543,8 @@ function M.annotate(opts)
 	end
 	local params, scope_kind = annotation_context(opts, annotation_options)
 	params.scopeText = params.text
-	params.maxAnnotations = annotation_limit(annotation_options, scope_kind)
 	local candidate_lines = annotation_candidate_lines(params)
+	params.maxAnnotations = annotation_limit(annotation_options, scope_kind, #candidate_lines)
 	if #candidate_lines > 0 and #candidate_lines <= params.maxAnnotations then
 		params.candidateLines = candidate_lines
 	end
@@ -649,10 +683,15 @@ end
 
 function M.register()
 	recreate_command("VantageSetLens", function(opts)
-		local mode = opts.fargs[1]
-		local text = table.concat(vim.list_slice(opts.fargs, 2), " ")
+		local active_lens = state.get_lens()
+		local mode = opts.fargs[1] or (active_lens and active_lens.mode) or "general"
+		local text = trim(table.concat(vim.list_slice(opts.fargs, 2), " "))
+		if text == "" then
+			prompt_lens(mode)
+			return
+		end
 		M.set_lens(mode, text)
-	end, { nargs = "+" })
+	end, { nargs = "*" })
 
 	recreate_command("VantageClearLens", function()
 		M.clear_lens()
@@ -665,11 +704,11 @@ function M.register()
 
 	recreate_command("VantageQuestion", function(opts)
 		M.question(opts)
-	end, { range = true, nargs = "+" })
+	end, { range = true, nargs = "*" })
 
 	recreate_command("VantageEdit", function(opts)
 		M.edit(opts)
-	end, { range = true, nargs = "+" })
+	end, { range = true, nargs = "*" })
 
 	delete_commands({ "VantageToggleAnnotations" })
 	recreate_command("VantageAnnotate", function(opts)

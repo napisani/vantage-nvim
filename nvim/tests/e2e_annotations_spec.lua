@@ -13,9 +13,11 @@ local function annotation_texts(marks)
 	local texts = {}
 	for _, mark in ipairs(marks) do
 		local details = mark[4] or {}
-		local virt_text = details.virt_text or {}
-		for _, chunk in ipairs(virt_text) do
-			table.insert(texts, chunk[1])
+		local virt_lines = details.virt_lines or {}
+		for _, line in ipairs(virt_lines) do
+			for _, chunk in ipairs(line) do
+				table.insert(texts, chunk[1])
+			end
 		end
 	end
 	return texts
@@ -128,7 +130,7 @@ function M.run()
 
 	local texts = annotation_texts(marks)
 	if #texts == 0 then
-		fail("expected annotation extmarks to include virtual text; artifact: " .. tostring(artifact_path))
+		fail("expected annotation extmarks to include annotation block text; artifact: " .. tostring(artifact_path))
 	end
 
 	vim.cmd("silent! bufdo setlocal nomodified")

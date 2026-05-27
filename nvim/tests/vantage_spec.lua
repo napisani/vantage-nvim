@@ -96,6 +96,28 @@ local function capture_backend_request(response, run)
 	return captured
 end
 
+local function with_ui_input(input_fn, run)
+	local original_input = vim.ui.input
+	local ok, err = pcall(function()
+		vim.ui.input = input_fn
+		run()
+	end)
+
+	vim.ui.input = original_input
+	assert(ok, err)
+end
+
+local function with_fn_input(input_fn, run)
+	local original_input = vim.fn.input
+	local ok, err = pcall(function()
+		vim.fn.input = input_fn
+		run()
+	end)
+
+	vim.fn.input = original_input
+	assert(ok, err)
+end
+
 test("default stdio backend command resolves from plugin root", function()
 	local state = require("vantage.state")
 
@@ -510,6 +532,139 @@ test("VantageQuestion asks about the current line", function()
 	eq(captured.params.selectedText, "local b = a + 1")
 end)
 
+test("VantageQuestion prompts for missing question text", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Prompted question answer",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		with_ui_input(function(opts, callback)
+			eq(opts.prompt, "Vantage question: ")
+			callback("why does this reuse a?")
+		end, function()
+			vim.cmd("VantageQuestion")
+		end)
+	end)
+
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "why does this reuse a?")
+	eq(captured.params.text, "local b = a + 1")
+	eq(captured.params.selectedText, "local b = a + 1")
+end)
+
+test("VantageQuestion prompt uses configured vim.ui.input options", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Configured question answer",
+		},
+	}, function()
+		vantage.setup({
+			backend = { mode = "development" },
+			ui = {
+				input = {
+					question = {
+						prompt = "Ask Vantage: ",
+						default = "what changed here?",
+						scope = "buffer",
+					},
+				},
+			},
+		})
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		with_ui_input(function(opts, callback)
+			eq(opts.prompt, "Ask Vantage: ")
+			eq(opts.default, "what changed here?")
+			eq(opts.scope, "buffer")
+			callback("why does this reuse a?")
+		end, function()
+			vim.cmd("VantageQuestion")
+		end)
+	end)
+
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "why does this reuse a?")
+	eq(captured.params.text, "local b = a + 1")
+end)
+
+test("Vantage prompts can force the ui2 input provider", function()
+	local vantage = require("vantage")
+	local fn_input_prompts = {}
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "UI2 question answer",
+		},
+	}, function()
+		vantage.setup({
+			backend = { mode = "development" },
+			ui = {
+				input = {
+					provider = "ui2",
+					question = {
+						prompt = "UI2 question: ",
+					},
+					lens = {
+						prompt = "UI2 lens: ",
+					},
+				},
+			},
+		})
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 2, 0 })
+
+		with_ui_input(function()
+			error("expected Vantage to bypass vim.ui.input when ui2 provider is configured")
+		end, function()
+			with_fn_input(function(opts)
+				table.insert(fn_input_prompts, opts.prompt)
+				if opts.prompt == "UI2 question: " then
+					return "why does this reuse a?"
+				end
+				if opts.prompt == "UI2 lens: " then
+					return "Prefer concrete examples"
+				end
+				error("unexpected prompt: " .. tostring(opts.prompt))
+			end, function()
+				vim.cmd("VantageQuestion")
+				vim.cmd("VantageSetLens learning")
+			end)
+		end)
+	end)
+
+	eq(fn_input_prompts, { "UI2 question: ", "UI2 lens: " })
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "why does this reuse a?")
+	eq(vantage.get_lens(), {
+		mode = "learning",
+		text = "Prefer concrete examples",
+	})
+end)
+
 test("VantageQuestion accepts an explicit line range", function()
 	local vantage = require("vantage")
 
@@ -541,6 +696,91 @@ test("VantageQuestion accepts an explicit line range", function()
 	})
 end)
 
+test("VantageQuestion prompts for missing question text with an explicit line range", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "explanation",
+			markdown = "Prompted range question answer",
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local a = 1",
+			"local b = a + 1",
+			"return b",
+		})
+
+		with_ui_input(function(opts, callback)
+			eq(opts.prompt, "Vantage question: ")
+			callback("what is the data flow?")
+		end, function()
+			vim.cmd("1,2VantageQuestion")
+		end)
+	end)
+
+	eq(captured.method, "questionSelection")
+	eq(captured.params.question, "what is the data flow?")
+	eq(captured.params.text, "local a = 1\nlocal b = a + 1")
+	eq(captured.params.range, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 1,
+		endCharacter = 15,
+	})
+end)
+
+test("VantageSetLens prompts for missing lens text", function()
+	local vantage = require("vantage")
+
+	vantage.setup({ backend = { mode = "development" } })
+
+	with_ui_input(function(opts, callback)
+		eq(opts.prompt, "Vantage lens: ")
+		callback("I am learning Lua syntax")
+	end, function()
+		vim.cmd("VantageSetLens learning")
+	end)
+
+	eq(vantage.get_lens(), {
+		mode = "learning",
+		text = "I am learning Lua syntax",
+	})
+end)
+
+test("VantageSetLens prompt uses configured vim.ui.input options", function()
+	local vantage = require("vantage")
+
+	vantage.setup({
+		backend = { mode = "development" },
+		ui = {
+			input = {
+				lens = {
+					prompt = "Lens: ",
+					default = "Review naming clarity",
+					scope = "global",
+				},
+			},
+		},
+	})
+
+	with_ui_input(function(opts, callback)
+		eq(opts.prompt, "Lens: ")
+		eq(opts.default, "Review naming clarity")
+		eq(opts.scope, "global")
+		callback("Check data flow")
+	end, function()
+		vim.cmd("VantageSetLens review")
+	end)
+
+	eq(vantage.get_lens(), {
+		mode = "review",
+		text = "Check data flow",
+	})
+end)
+
 test("VantageEdit replaces the current line with the backend edit result", function()
 	local vantage = require("vantage")
 
@@ -561,6 +801,55 @@ test("VantageEdit replaces the current line with the backend edit result", funct
 		vim.cmd("VantageEdit rename value to count")
 	end)
 
+	eq(captured.method, "editSelection")
+	eq(captured.params.instruction, "rename value to count")
+	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
+		"local count = 1",
+		"return value",
+	})
+end)
+
+test("VantageEdit prompts for missing instruction with the ui2 input provider", function()
+	local vantage = require("vantage")
+	local fn_input_prompts = {}
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "edit",
+			replacementText = "local count = 1",
+		},
+	}, function()
+		vantage.setup({
+			backend = { mode = "development" },
+			ui = {
+				input = {
+					provider = "ui2",
+					edit = {
+						prompt = "UI2 edit: ",
+					},
+				},
+			},
+		})
+		lua_buffer({
+			"local value = 1",
+			"return value",
+		})
+		vim.api.nvim_win_set_cursor(0, { 1, 0 })
+
+		with_ui_input(function()
+			error("expected VantageEdit to bypass vim.ui.input when ui2 provider is configured")
+		end, function()
+			with_fn_input(function(opts)
+				table.insert(fn_input_prompts, opts.prompt)
+				return "rename value to count"
+			end, function()
+				vim.cmd("VantageEdit")
+			end)
+		end)
+	end)
+
+	eq(fn_input_prompts, { "UI2 edit: " })
 	eq(captured.method, "editSelection")
 	eq(captured.params.instruction, "rename value to count")
 	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
@@ -629,11 +918,40 @@ test("annotate renders and clear_annotations clears extmarks", function()
 	commands.annotate()
 	local marks = annotations.current_marks(0)
 	assert(#marks > 0, "expected annotation marks")
-	local virt_text = marks[1][4].virt_text
-	assert(virt_text and virt_text[1] and virt_text[1][1]:match("Development annotation"), vim.inspect(marks))
-	assert(marks[1][4].virt_text_pos == nil or marks[1][4].virt_text_pos == "eol", vim.inspect(marks))
+	local virt_lines = marks[1][4].virt_lines
+	assert(virt_lines and virt_lines[1] and virt_lines[1][1][1]:match("Development annotation"), vim.inspect(marks))
+	eq(marks[1][4].virt_lines_above, true)
+	eq(marks[1][4].virt_text, nil)
 	commands.clear_annotations()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
+end)
+
+test("annotations render as wrapped above-line virtual blocks", function()
+	local vantage = require("vantage")
+	local annotations = require("vantage.annotations")
+	vantage.setup({ backend = { mode = "development" } })
+
+	lua_buffer({
+		"local value = compute_value(input)",
+	})
+	vim.o.columns = 48
+
+	annotations.render(0, {
+		{
+			text = "The `compute_value` call is where the incoming `input` crosses into domain-specific transformation logic, so this line is the best anchor for understanding the data flow under the lens.",
+			severity = "info",
+			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 32 },
+		},
+	})
+
+	local marks = annotations.current_marks(0)
+	assert(#marks == 1, vim.inspect(marks))
+	local details = marks[1][4]
+	eq(details.virt_lines_above, true)
+	assert(#details.virt_lines >= 2, vim.inspect(details.virt_lines))
+	assert(details.virt_lines[1][1][1]:match("compute_value"), vim.inspect(details.virt_lines))
+	assert(details.virt_text == nil, vim.inspect(details))
+	annotations.clear(0)
 end)
 
 test("annotations render additively and overwrite the exact same position", function()
@@ -672,7 +990,7 @@ test("annotations render additively and overwrite the exact same position", func
 	assert(#marks == 2, vim.inspect(marks))
 	local texts = {}
 	for _, mark in ipairs(marks) do
-		table.insert(texts, mark[4].virt_text[1][1])
+		table.insert(texts, mark[4].virt_lines[1][1][1])
 	end
 	local combined = table.concat(texts, "\n")
 	assert(combined:match("Updated first line annotation"), combined)
@@ -1034,7 +1352,7 @@ test("VantageAnnotate visible uses the visible range and lets the model choose o
 	end)
 
 	annotations.clear(0)
-	eq(captured.params.maxAnnotations, 3)
+	eq(captured.params.maxAnnotations, 2)
 	eq(captured.params.scopeText, table.concat({
 		"local one = 1",
 		"local two = one + 1",
@@ -1049,6 +1367,60 @@ test("VantageAnnotate visible uses the visible range and lets the model choose o
 		startCharacter = 0,
 		endLine = 6,
 		endCharacter = 21,
+	})
+	eq(captured.params.candidateLines, nil)
+end)
+
+test("VantageAnnotate buffer uses full-buffer scope with percentage budget", function()
+	local vantage = require("vantage")
+	local commands = require("vantage.commands")
+	local annotations = require("vantage.annotations")
+
+	local captured = capture_backend_request(nil, function()
+		vantage.setup({ backend = { mode = "development" } })
+		annotations.clear(0)
+		lua_buffer({
+			"-- setup",
+			"",
+			"local one = 1",
+			"local two = one + 1",
+			"local three = two + 1",
+			"local four = three + 1",
+			"local five = four + 1",
+			"local six = five + 1",
+			"local seven = six + 1",
+			"local eight = seven + 1",
+			"local nine = eight + 1",
+			"local ten = nine + 1",
+		})
+		vim.api.nvim_win_set_cursor(0, { 5, 0 })
+
+		vim.cmd("VantageAnnotate buffer")
+		commands.clear_annotations()
+	end)
+
+	annotations.clear(0)
+	eq(captured.method, "annotateRange")
+	eq(captured.params.maxAnnotations, 3)
+	eq(captured.params.scopeText, table.concat({
+		"-- setup",
+		"",
+		"local one = 1",
+		"local two = one + 1",
+		"local three = two + 1",
+		"local four = three + 1",
+		"local five = four + 1",
+		"local six = five + 1",
+		"local seven = six + 1",
+		"local eight = seven + 1",
+		"local nine = eight + 1",
+		"local ten = nine + 1",
+	}, "\n"))
+	eq(captured.params.visibleRange, {
+		startLine = 0,
+		startCharacter = 0,
+		endLine = 11,
+		endCharacter = 20,
 	})
 	eq(captured.params.candidateLines, nil)
 end)
@@ -1132,11 +1504,8 @@ test("VantageAnnotate accepts an explicit line range", function()
 		endLine = 3,
 		endCharacter = 8,
 	})
-	eq(captured.params.candidateLines, {
-		{ line = 0, text = "local b = 2" },
-		{ line = 1, text = "local c = b + 1" },
-		{ line = 2, text = "return c" },
-	})
+	eq(captured.params.maxAnnotations, 1)
+	eq(captured.params.candidateLines, nil)
 end)
 
 test("VantageAnnotate range lets the model choose oversized selections", function()
@@ -1158,7 +1527,7 @@ test("VantageAnnotate range lets the model choose oversized selections", functio
 
 	annotations.clear(0)
 	eq(captured.method, "annotateRange")
-	eq(captured.params.maxAnnotations, 3)
+	eq(captured.params.maxAnnotations, 1)
 	eq(captured.params.scopeText, "local a = 1\nlocal b = a + 1\nlocal c = b + 1\nlocal d = c + 1")
 	eq(captured.params.visibleRange, {
 		startLine = 0,
@@ -1495,7 +1864,7 @@ test("stdio backend opens a float through explain", function()
 	assert(ok, err)
 end)
 
-test("stdio backend renders non-empty annotation virtual text", function()
+test("stdio backend renders non-empty annotation block", function()
 	local vantage = require("vantage")
 	local commands = require("vantage.commands")
 	local annotations = require("vantage.annotations")
@@ -1524,17 +1893,18 @@ test("stdio backend renders non-empty annotation virtual text", function()
 		commands.annotate()
 		vim.wait(2000, function()
 			local marks = annotations.current_marks(0)
-			if #marks == 0 or not marks[1][4] or not marks[1][4].virt_text then
+			if #marks == 0 or not marks[1][4] or not marks[1][4].virt_lines then
 				return false
 			end
-			local text = marks[1][4].virt_text[1] and marks[1][4].virt_text[1][1]
+			local text = marks[1][4].virt_lines[1] and marks[1][4].virt_lines[1][1][1]
 			return text and text:match("Development annotation") ~= nil
 		end)
 
 		local marks = annotations.current_marks(0)
 		assert(#marks > 0, "expected stdio annotation marks")
-		local virt_text = marks[1][4].virt_text
-		assert(virt_text and virt_text[1] and virt_text[1][1]:match("Development annotation"), vim.inspect(marks))
+		local virt_lines = marks[1][4].virt_lines
+		assert(virt_lines and virt_lines[1] and virt_lines[1][1][1]:match("Development annotation"), vim.inspect(marks))
+		eq(marks[1][4].virt_lines_above, true)
 	end)
 
 	annotations.clear(0)

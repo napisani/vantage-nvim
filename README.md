@@ -2,14 +2,14 @@
 
 vantage.nvim is a Neovim-first AI review and learning assistant.
 
-The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual text annotations. The backend owns request contracts and agent runtime behavior.
+The current architecture is a Lua Neovim plugin plus a local TypeScript backend. The plugin owns commands, floating markdown windows, and virtual annotation blocks. The backend owns request contracts and agent runtime behavior.
 
 ## Commands
 
-- `:VantageSetLens learning I am learning Elixir syntax`
+- `:VantageSetLens learning`
 - `:VantageClearLens`
 - `:VantageExplain`
-- `:VantageQuestion why is this function recursive?`
+- `:VantageQuestion`
 - `:VantageEdit rename value to count`
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
@@ -174,6 +174,20 @@ require("vantage").setup({
       options = {},
     },
   },
+  ui = {
+    input = {
+      provider = "vim.ui.input",
+      lens = {
+        prompt = "Vantage lens: ",
+      },
+      question = {
+        prompt = "Vantage question: ",
+      },
+      edit = {
+        prompt = "Vantage edit: ",
+      },
+    },
+  },
   agent_context = {
     enabled = true,
     path = ".vantage/agent-context.md",
@@ -193,6 +207,8 @@ Config groups:
 - `agent.trace`: optional prompt and response trace paths.
 - `commands.annotate.waiting_message_ms`: when to show a still-waiting annotation notification.
 - `commands.*.options`: command-specific Pi options layered over `agent.options`.
+- `ui.input.provider`: prompt provider. The default, `vim.ui.input`, uses the active Neovim input provider. Set `ui2` to bypass `vim.ui.input` overrides and use Neovim's builtin input path, which is rendered by UI2 when it is enabled.
+- `ui.input.lens`, `ui.input.question`, and `ui.input.edit`: option tables passed to the selected input provider, such as `prompt`, `default`, `completion`, `highlight`, and `scope`.
 - `agent_context`: workspace task snapshot settings.
 
 The active lens and command scope take precedence over Agent Task Context, and command-specific options take precedence over shared `agent.options`.
@@ -340,9 +356,9 @@ make run FILE=path/to/file.lua
 Then run:
 
 ```vim
-:VantageSetLens learning I am learning Lua syntax
+:VantageSetLens learning
 :VantageExplain
-:VantageQuestion why is this line useful?
+:VantageQuestion
 :VantageEdit simplify this line
 :VantageAnnotate
 :VantageAnnotationClear
@@ -357,23 +373,34 @@ Then run:
 :'<,'>VantageExplain
 ```
 
-`:VantageQuestion {question}` asks a specific question about the current line. It also accepts Vim line ranges:
+`:VantageSetLens [mode] [lens]` sets the active lens. If the lens text is omitted, Vantage prompts with the configured input provider. Without a mode, it reuses the current lens mode or falls back to `general`. Configure prompt metadata with `ui.input.lens`; set `ui.input.provider = "ui2"` to force UI2-backed command-line input.
 
 ```vim
+:VantageSetLens learning
+:VantageSetLens review Check naming clarity
+```
+
+`:VantageQuestion [question]` asks a specific question about the current line. If the question is omitted, Vantage prompts with the configured input provider. Configure prompt metadata with `ui.input.question`; set `ui.input.provider = "ui2"` to force UI2-backed command-line input. It also accepts Vim line ranges:
+
+```vim
+:VantageQuestion
 :VantageQuestion why is this value immutable?
+:10,20VantageQuestion
 :10,20VantageQuestion what is the data flow here?
 :'<,'>VantageQuestion what should I notice in this selection?
 ```
 
-`:VantageEdit {instruction}` asks the active agent runtime for a single replacement of the current line. It also accepts Vim line ranges and replaces only the requested range:
+`:VantageEdit [instruction]` asks the active agent runtime for a single replacement of the current line. If the instruction is omitted, Vantage prompts with the configured input provider. Configure prompt metadata with `ui.input.edit`; set `ui.input.provider = "ui2"` to force UI2-backed command-line input. It also accepts Vim line ranges and replaces only the requested range:
 
 ```vim
+:VantageEdit
 :VantageEdit rename value to count
+:10,20VantageEdit
 :10,20VantageEdit simplify this branch
 :'<,'>VantageEdit convert this to early returns
 ```
 
-`:VantageAnnotate` asks the active agent runtime to annotate the current line, visible window, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
+`:VantageAnnotate` asks the active agent runtime to add virtual Annotation Blocks above relevant code lines in the current line, visible window, full buffer, or explicit line range. New annotations are additive; an annotation returned for the exact same buffer position replaces the older annotation at that position. `:VantageAnnotationClear` removes all vantage.nvim annotations from the current buffer.
 
 `:VantageContextStatus` opens a status float for the current workspace's Agent Context File. It reports the resolved path, whether the file was included, size and included bytes, freshness, truncation, and read errors when relevant.
 
@@ -386,9 +413,13 @@ Then run:
 :VantageAnnotate line
 :VantageAnnotate visible
 :VantageAnnotate visible 10
+:VantageAnnotate buffer
+:VantageAnnotate buffer 20
 ```
 
-With no arguments, `VantageAnnotate` annotates only the current line. `line` is an explicit form of the same behavior. `visible` annotates the currently visible buffer lines, equivalent to selecting those lines and running `VantageAnnotate`. A numeric argument sets the maximum annotation budget for that request, which is most useful with `visible` or a Vim line range.
+With no arguments, `VantageAnnotate` annotates only the current line. `line` is an explicit form of the same behavior. `visible` annotates the currently visible buffer lines, and `buffer` annotates the full current buffer. A numeric argument sets the maximum annotation budget for that request.
+
+Without a numeric override, multi-line scopes derive their maximum annotation budget from relevant non-empty, non-comment lines. Visual ranges and `visible` use 25% of relevant lines with a minimum of 1 and maximum of 12. `buffer` uses 15% with a minimum of 3 and maximum of 24. The agent can return fewer Annotation Blocks when fewer lines are noteworthy, and each block can vary in depth based on the active lens.
 
 `VantageAnnotate` also accepts Vim line ranges:
 

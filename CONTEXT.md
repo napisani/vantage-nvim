@@ -116,6 +116,10 @@ _Avoid_: Required annotation count, line-by-line coverage, annotation density se
 The rule that multi-line Annotation Scopes derive their Annotation Budget from the number of relevant candidate lines, with minimum and maximum guardrails, so larger scopes can receive more coverage without becoming unbounded.
 _Avoid_: Fixed annotation count, annotate every line, unbounded full-buffer annotation
 
+**Relevant Annotation Line**:
+A line inside the requested Annotation Scope that is eligible for Annotation Budget calculation because it contains non-comment, non-empty code according to Vantage's lightweight line heuristic.
+_Avoid_: Treesitter relevance, semantic relevance, every line
+
 **Discretionary Annotation Count**:
 The rule that the Agent Runtime decides how many Annotation Blocks to return within the Annotation Budget, based on the lens and requested code scope.
 _Avoid_: Fill every slot, fixed density, always annotate budget
@@ -124,9 +128,21 @@ _Avoid_: Fill every slot, fixed density, always annotate budget
 The rule that each Annotation Block should be as deep as the lens and code warrant, usually ranging from a short note to a richer multi-line explanation, rather than using a uniform configured length.
 _Avoid_: Fixed annotation height, one-line-only annotation, equal-length annotation
 
+**Annotation Content Guardrail**:
+The prompt-level rule that Annotation Block content should usually be one to four concise sentences, using more depth only when the active lens or anchored code warrants it.
+_Avoid_: Paragraph annotation, bullet annotation, model-controlled display lines
+
 **Virtual Annotation Surface**:
 The rule that Annotation Blocks are explanatory overlays and must not modify buffer text, line contents, git diffs, formatter input, or copied source.
 _Avoid_: Inserted annotation lines, generated comments, buffer mutation
+
+**Annotation Presentation Ownership**:
+The rule that the Agent Runtime owns Annotation Block content, while Vantage owns display concerns such as wrapping, placement, truncation, and visual styling.
+_Avoid_: Model-driven layout, returned display lines, prompt-controlled wrapping
+
+**Untruncated Annotation Blocks**:
+The initial rendering rule that Vantage shows the full Annotation Block content returned by the Agent Runtime, relying on prompt guardrails instead of clipping oversized blocks.
+_Avoid_: Hidden annotation text, collapsed annotation, default annotation clipping
 
 **Annotation Scope**:
 The requested code region Vantage asks the Agent Runtime to annotate: current line, explicit selection/range, visible viewport, or full buffer. Scope constrains where Annotation Blocks may be anchored.

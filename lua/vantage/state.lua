@@ -60,10 +60,27 @@ end
 ---@field max_bytes? integer
 ---@field max_age_ms? integer
 
+---@class VantageInputOptions
+---@field prompt? string
+---@field default? string
+---@field completion? string|function
+---@field highlight? function
+---@field scope? string
+
+---@class VantageInputConfig
+---@field provider? "vim.ui.input"|"ui2" Input provider for prompts. ui2 bypasses vim.ui.input overrides and uses the builtin input path.
+---@field lens? VantageInputOptions
+---@field question? VantageInputOptions
+---@field edit? VantageInputOptions
+
+---@class VantageUiConfig
+---@field input? VantageInputConfig
+
 ---@class VantageConfig
 ---@field backend? VantageBackendConfig Advanced backend transport settings.
 ---@field agent? VantageAgentConfig Agent runtime and model target settings.
 ---@field commands? VantageCommandsConfig Command behavior and command-specific agent options.
+---@field ui? VantageUiConfig UI hints passed to Neovim's standard UI APIs.
 ---@field agent_context? VantageAgentContextConfig
 
 local function default_config()
@@ -106,6 +123,20 @@ local function default_config()
 			},
 			review = {
 				options = {},
+			},
+		},
+		ui = {
+			input = {
+				provider = "vim.ui.input",
+				lens = {
+					prompt = "Vantage lens: ",
+				},
+				question = {
+					prompt = "Vantage question: ",
+				},
+				edit = {
+					prompt = "Vantage edit: ",
+				},
 			},
 		},
 		agent_context = {

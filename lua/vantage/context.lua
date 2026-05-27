@@ -35,6 +35,23 @@ function M.visible()
 	}
 end
 
+function M.buffer()
+	local line_count = vim.api.nvim_buf_line_count(0)
+	local lines = vim.api.nvim_buf_get_lines(0, 0, line_count, false)
+	local snapshot = agent_context.snapshot()
+
+	return {
+		workspaceRoot = snapshot.workspace_root,
+		filePath = vim.api.nvim_buf_get_name(0),
+		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
+		text = table.concat(lines, "\n"),
+		cursor = cursor(),
+		visibleRange = range_for_lines(0, math.max(0, line_count - 1), lines),
+		lens = state.get_lens(),
+		agentContext = snapshot.context,
+	}
+end
+
 function M.line_range(start_line, end_line)
 	local line_count = vim.api.nvim_buf_line_count(0)
 	local first_line = math.max(0, math.min(start_line, end_line))
