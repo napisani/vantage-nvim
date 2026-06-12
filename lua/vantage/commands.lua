@@ -1,6 +1,7 @@
 local annotations = require("vantage.annotations")
 local agent_context = require("vantage.agent_context")
 local backend = require("vantage.backend")
+local CommandNames = require("vantage.command_names")
 local context = require("vantage.context")
 local input_ui = require("vantage.input")
 local model_command = require("vantage.model_command")
@@ -8,7 +9,9 @@ local state = require("vantage.state")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 
-local M = {}
+local M = {
+	CommandNames = CommandNames,
+}
 local LINE_ANNOTATION_LIMIT = 1
 local SCOPE_ANNOTATION_PERCENT = 0.25
 local SCOPE_ANNOTATION_MIN = 1
@@ -214,10 +217,11 @@ end
 local function annotation_candidate_lines(params)
 	local lines = split_lines(params.text or "")
 	local candidates = {}
+	local base_line = params.range and params.range.startLine or params.visibleRange and params.visibleRange.startLine or 1
 
 	for index, line in ipairs(lines) do
 		if line and is_annotation_candidate(line) then
-			table.insert(candidates, { line = index - 1, text = line })
+			table.insert(candidates, { line = base_line + index - 1, text = line })
 		end
 	end
 
@@ -284,7 +288,7 @@ end
 
 local function range_context(opts)
 	if opts and type(opts.range) == "number" and opts.range > 0 then
-		return context.line_range(opts.line1 - 1, opts.line2 - 1)
+		return context.line_range(opts.line1, opts.line2)
 	end
 
 	return nil
@@ -658,8 +662,12 @@ function M.annotate(opts)
 	end
 end
 
-function M.review_current_hunk()
-	model_command.review_current_hunk()
+function M.search(opts)
+	model_command.search(opts)
+end
+
+function M.agent_cancel()
+	model_command.agent_cancel()
 end
 
 function M.reset_agent_session()
@@ -682,7 +690,7 @@ local function delete_commands(names)
 end
 
 function M.register()
-	recreate_command("VantageSetLens", function(opts)
+	recreate_command(CommandNames.set_lens, function(opts)
 		local active_lens = state.get_lens()
 		local mode = opts.fargs[1] or (active_lens and active_lens.mode) or "general"
 		local text = trim(table.concat(vim.list_slice(opts.fargs, 2), " "))
@@ -693,51 +701,56 @@ function M.register()
 		M.set_lens(mode, text)
 	end, { nargs = "*" })
 
-	recreate_command("VantageClearLens", function()
+	recreate_command(CommandNames.clear_lens, function()
 		M.clear_lens()
 	end)
 
 	delete_commands({ "VantageExplainLine", "VantageExplainSelection" })
-	recreate_command("VantageExplain", function(opts)
+	recreate_command(CommandNames.explain, function(opts)
 		M.explain(opts)
 	end, { range = true })
 
-	recreate_command("VantageQuestion", function(opts)
+	recreate_command(CommandNames.question, function(opts)
 		M.question(opts)
 	end, { range = true, nargs = "*" })
 
-	recreate_command("VantageEdit", function(opts)
+	recreate_command(CommandNames.edit, function(opts)
 		M.edit(opts)
 	end, { range = true, nargs = "*" })
 
 	delete_commands({ "VantageToggleAnnotations" })
-	recreate_command("VantageAnnotate", function(opts)
+	recreate_command(CommandNames.annotate, function(opts)
 		M.annotate(opts)
 	end, { range = true, nargs = "*" })
 
-	recreate_command("VantageAnnotationClear", function()
+	recreate_command(CommandNames.annotation_clear, function()
 		M.clear_annotations()
 	end)
 
-	recreate_command("VantageAnnotationStatus", function()
+	recreate_command(CommandNames.annotation_status, function()
 		M.show_annotation_status()
 	end)
 
-	recreate_command("VantageContextStatus", function()
+	recreate_command(CommandNames.context_status, function()
 		M.show_agent_context_status()
 	end)
 
-	recreate_command("VantageAgentReset", function()
+	recreate_command(CommandNames.search, function(opts)
+		M.search(opts)
+	end, { range = true, nargs = "*" })
+
+	recreate_command(CommandNames.agent_cancel, function()
+		M.agent_cancel()
+	end)
+
+	recreate_command(CommandNames.agent_reset, function()
 		M.reset_agent_session()
 	end)
 
-	recreate_command("VantageAgentStatus", function()
+	recreate_command(CommandNames.agent_status, function()
 		M.show_agent_session_status()
 	end)
 
-	recreate_command("VantageReviewHunk", function()
-		M.review_current_hunk()
-	end)
 end
 
 return M

@@ -20,15 +20,17 @@ function M.apply(bufnr, range, replacement_text)
 	local line_count = vim.api.nvim_buf_line_count(bufnr)
 	local start_line = range.startLine
 	local end_line = range.endLine
-	if type(start_line) ~= "number" or type(end_line) ~= "number" or start_line < 0 or end_line < start_line then
+	if type(start_line) ~= "number" or type(end_line) ~= "number" or start_line < 1 or end_line < start_line then
 		return nil, "Invalid edit range."
 	end
-	if start_line >= line_count then
+	if start_line > line_count then
 		return nil, "Edit range starts outside the buffer."
 	end
 
+	local start_index = start_line - 1
+	local end_index = math.min(end_line, line_count)
 	local lines = replacement_lines(replacement_text)
-	vim.api.nvim_buf_set_lines(bufnr, start_line, math.min(end_line + 1, line_count), false, lines)
+	vim.api.nvim_buf_set_lines(bufnr, start_index, end_index, false, lines)
 	return {
 		replaced_start_line = start_line,
 		replaced_end_line = end_line,

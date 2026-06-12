@@ -5,6 +5,7 @@ import {
 	buildEditPrompt,
 	buildExplainPrompt,
 	buildQuestionPrompt,
+	buildSearchPrompt,
 	parseEditResponse,
 } from './model-contract';
 
@@ -13,13 +14,13 @@ test('buildAnnotationPrompt uses the requested annotation budget', () => {
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const one = 1;\nconst two = one + 1;',
-		cursor: { line: 0, character: 0 },
-		visibleRange: { startLine: 0, startCharacter: 0, endLine: 1, endCharacter: 20 },
+		cursor: { line: 1, character: 1 },
+		visibleRange: { startLine: 1, startCharacter: 1, endLine: 2, endCharacter: 20 },
 		scopeText: 'const one = 1;\nconst two = one + 1;',
 		maxAnnotations: 5,
 		candidateLines: [
-			{ line: 0, text: 'const one = 1;' },
-			{ line: 1, text: 'const two = one + 1;' },
+			{ line: 1, text: 'const one = 1;' },
+			{ line: 2, text: 'const two = one + 1;' },
 		],
 	});
 
@@ -32,13 +33,13 @@ test('buildAnnotationPrompt asks for lens-driven annotation blocks with discreti
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const total = values.reduce((sum, value) => sum + value, 0);',
-		cursor: { line: 0, character: 0 },
-		visibleRange: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 62 },
+		cursor: { line: 1, character: 1 },
+		visibleRange: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 62 },
 		scopeText: 'const total = values.reduce((sum, value) => sum + value, 0);',
 		maxAnnotations: 1,
 		lens: { mode: 'learning', text: 'I am learning JavaScript array reductions' },
 		candidateLines: [
-			{ line: 0, text: 'const total = values.reduce((sum, value) => sum + value, 0);' },
+			{ line: 1, text: 'const total = values.reduce((sum, value) => sum + value, 0);' },
 		],
 	});
 
@@ -55,8 +56,8 @@ test('buildAnnotationPrompt asks the model to choose critical lens-relevant line
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const one = 1;\nconst two = one + 1;\nconst three = two + 1;\nreturn three;',
-		cursor: { line: 0, character: 0 },
-		visibleRange: { startLine: 10, startCharacter: 0, endLine: 13, endCharacter: 13 },
+		cursor: { line: 1, character: 1 },
+		visibleRange: { startLine: 10, startCharacter: 1, endLine: 13, endCharacter: 13 },
 		scopeText: 'const one = 1;\nconst two = one + 1;\nconst three = two + 1;\nreturn three;',
 		maxAnnotations: 2,
 		lens: { mode: 'learning', text: 'I am learning TypeScript data flow' },
@@ -66,8 +67,8 @@ test('buildAnnotationPrompt asks the model to choose critical lens-relevant line
 	assert.match(prompt, /Use the active lens to decide what is critical/i);
 	assert.match(prompt, /Do not try to cover every line/i);
 	assert.match(prompt, /Lens: learning: I am learning TypeScript data flow/);
-	assert.match(prompt, /0\| const one = 1;/);
-	assert.match(prompt, /3\| return three;/);
+	assert.match(prompt, /10\| const one = 1;/);
+	assert.match(prompt, /13\| return three;/);
 });
 
 test('buildExplainPrompt renders agent context as lower-priority untrusted task context', () => {
@@ -75,7 +76,7 @@ test('buildExplainPrompt renders agent context as lower-priority untrusted task 
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 		lens: { mode: 'learning', text: 'I am learning TypeScript syntax' },
 		agentContext: {
@@ -101,7 +102,7 @@ test('buildQuestionPrompt asks the user question about the selected scope', () =
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 		question: 'Why is value immutable?',
 		lens: { mode: 'learning', text: 'I am learning TypeScript syntax' },
@@ -118,8 +119,8 @@ test('buildEditPrompt requires replacement text only', () => {
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
-		range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+		cursor: { line: 1, character: 1 },
+		range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 16 },
 		selectedText: 'const value = 1;',
 		instruction: 'Rename value to count.',
 	});
@@ -128,6 +129,24 @@ test('buildEditPrompt requires replacement text only', () => {
 	assert.match(prompt, /Do not wrap the answer in Markdown/i);
 	assert.match(prompt, /Rename value to count\./);
 	assert.match(prompt, /const value = 1;/);
+});
+
+test('buildSearchPrompt requires submit_search_results with 1-based coordinates', () => {
+	const prompt = buildSearchPrompt({
+		workspaceRoot: '/repo',
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = makeValue();',
+		cursor: { line: 1, character: 1 },
+		query: 'find value factories',
+		range: { startLine: 7, startCharacter: 3, endLine: 7, endCharacter: 26 },
+		selectedText: 'const value = makeValue();',
+	});
+
+	assert.match(prompt, /submit_search_results exactly once/i);
+	assert.match(prompt, /workspace-relative file paths and 1-based line and character coordinates/i);
+	assert.match(prompt, /find value factories/);
+	assert.match(prompt, /7\| const value = makeValue\(\);/);
 });
 
 test('parseEditResponse strips a whole fenced replacement and rejects empty edits', () => {
@@ -140,8 +159,8 @@ test('buildAnnotationPrompt constrains agent context to the requested annotation
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
-		visibleRange: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+		cursor: { line: 1, character: 1 },
+		visibleRange: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 16 },
 		scopeText: 'const value = 1;',
 		maxAnnotations: 1,
 		agentContext: {

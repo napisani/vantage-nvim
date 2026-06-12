@@ -14,8 +14,7 @@ const requiredDirectories = [
 const requiredFiles = [
 	'README.md',
 	'package.json',
-	'pnpm-lock.yaml',
-	'pnpm-workspace.yaml',
+	'package-lock.json',
 ];
 
 const optionalFiles = [
@@ -44,7 +43,7 @@ console.log(`Built plugin package at ${path.relative(root, output)}`);
 async function copyDirectory(sourceRelative, destinationRelative, filter) {
 	const source = path.join(root, sourceRelative);
 	const destination = path.join(output, destinationRelative);
-	await assertExists(source, `${sourceRelative} does not exist. Run pnpm compile before packaging.`);
+	await assertExists(source, `${sourceRelative} does not exist. Run npm run compile before packaging.`);
 	await fs.mkdir(path.dirname(destination), { recursive: true });
 	await fs.cp(source, destination, { recursive: true, filter });
 }

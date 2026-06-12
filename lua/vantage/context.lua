@@ -4,23 +4,23 @@ local M = {}
 
 local function cursor()
 	local pos = vim.api.nvim_win_get_cursor(0)
-	return { line = pos[1] - 1, character = pos[2] }
+	return { line = pos[1], character = pos[2] + 1 }
 end
 
 local function range_for_lines(start_line, end_line, lines)
 	local last_line = lines[#lines] or ""
 	return {
 		startLine = start_line,
-		startCharacter = 0,
+		startCharacter = 1,
 		endLine = end_line,
-		endCharacter = #last_line,
+		endCharacter = math.max(1, #last_line),
 	}
 end
 
 function M.visible()
-	local start_line = vim.fn.line("w0") - 1
-	local end_line = vim.fn.line("w$") - 1
-	local lines = vim.api.nvim_buf_get_lines(0, start_line, end_line + 1, false)
+	local start_line = vim.fn.line("w0")
+	local end_line = vim.fn.line("w$")
+	local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
 	local snapshot = agent_context.snapshot()
 
 	return {
@@ -46,7 +46,7 @@ function M.buffer()
 		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
 		text = table.concat(lines, "\n"),
 		cursor = cursor(),
-		visibleRange = range_for_lines(0, math.max(0, line_count - 1), lines),
+		visibleRange = range_for_lines(1, math.max(1, line_count), lines),
 		lens = state.get_lens(),
 		agentContext = snapshot.context,
 	}
@@ -54,9 +54,9 @@ end
 
 function M.line_range(start_line, end_line)
 	local line_count = vim.api.nvim_buf_line_count(0)
-	local first_line = math.max(0, math.min(start_line, end_line))
-	local last_line = math.min(line_count - 1, math.max(start_line, end_line))
-	local lines = vim.api.nvim_buf_get_lines(0, first_line, last_line + 1, false)
+	local first_line = math.max(1, math.min(start_line, end_line))
+	local last_line = math.min(line_count, math.max(start_line, end_line))
+	local lines = vim.api.nvim_buf_get_lines(0, first_line - 1, last_line, false)
 	local text = table.concat(lines, "\n")
 	local range = range_for_lines(first_line, last_line, lines)
 	local snapshot = agent_context.snapshot()

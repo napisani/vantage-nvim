@@ -1,6 +1,6 @@
 # vantage.nvim
 
-vantage.nvim is a Neovim-first assistant that supplements active development by explaining, annotating, and reviewing code through a user-directed lens.
+vantage.nvim is a Neovim-first assistant that supplements active development by explaining, annotating, editing, searching, and answering questions about code through a user-directed lens.
 
 ## Language
 
@@ -41,8 +41,8 @@ The identity boundary for a Vantage Agent Session: workspace root, Model Target,
 _Avoid_: Per-buffer session, global session, lens-text session
 
 **Shared Command Session**:
-The rule that explain, question, edit, annotate, and review commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
-_Avoid_: Per-command-family session, annotation-only memory, review-only memory
+The rule that explain, question, edit, annotate, and search commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
+_Avoid_: Per-command-family session, annotation-only memory, command-specific memory
 
 **Model Target**:
 The configured Pi provider/model pair used to choose a Pi SDK model, such as `openai/gpt-4o-mini`.
@@ -89,7 +89,7 @@ The Vantage-owned diagnostic settings for writing Agent Runtime prompts and resp
 _Avoid_: Provider trace config, Pi option trace fields
 
 **Command Configuration**:
-The top-level Vantage setup surface for command behavior, keyed by command family such as explain, question, edit, annotate, and review.
+The top-level Vantage setup surface for command behavior, keyed by command family such as explain, question, edit, annotate, and search.
 _Avoid_: Agent configuration for command behavior, scattered command globals
 
 **Command Agent Options**:
@@ -101,7 +101,7 @@ The command configuration for inline annotations, including annotation UI timing
 _Avoid_: Top-level annotations config, provider-specific annotation settings
 
 **Model-Backed Command**:
-A Vantage command that asks the Agent Runtime for an answer, edit, explanation, annotation, or review response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
+A Vantage command that asks the Agent Runtime for an answer, edit, explanation, annotation, or search response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
 _Avoid_: Provider-Backed Command, agent-aware command, special context command
 
 **Annotation Block**:

@@ -7,8 +7,8 @@ import {
 	ExplainSelectionParams,
 	ExplanationResult,
 	QuestionSelectionParams,
-	ReviewCurrentHunkParams,
-	ReviewResult,
+	SearchLocationsParams,
+	SearchLocationsResult,
 } from './protocol';
 import type { AgentRuntime } from './agent-runtime';
 
@@ -51,7 +51,7 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 	}
 
 	annotateRange(params: AnnotateRangeParams): AnnotationResult {
-		const baseLine = params.visibleRange?.startLine ?? params.range?.startLine ?? 0;
+		const baseLine = params.visibleRange?.startLine ?? params.range?.startLine ?? 1;
 		const maxAnnotations = params.maxAnnotations ?? 3;
 		const annotations = params.scopeText
 			.split(/\r?\n/)
@@ -61,9 +61,9 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 			.map(({ line, index }) => ({
 				range: {
 					startLine: baseLine + index,
-					startCharacter: 0,
+					startCharacter: 1,
 					endLine: baseLine + index,
-					endCharacter: line.length,
+					endCharacter: Math.max(1, line.length),
 				},
 				text: `Development annotation for ${formatLanguage(params.language)}: ${line.trim()}`,
 				severity: 'info' as const,
@@ -82,26 +82,30 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 		};
 	}
 
-	reviewCurrentHunk(params: ReviewCurrentHunkParams): ReviewResult {
-		const markdown = [
-			'## Review',
-			'',
-			`Development agent runtime response for **${formatLanguage(params.language)}**.`,
-			renderLens(params.lens),
-			renderPreview('Hunk preview', params.hunkText),
-			contextSummary(params),
-		].join('\n');
-
+	searchLocations(params: SearchLocationsParams): SearchLocationsResult {
 		return {
-			kind: 'review',
-			markdown,
-			findings: [
+			kind: 'locations',
+			locations: [
 				{
-					title: 'Development finding',
-					markdown: 'Development finding for the current hunk.',
-					severity: 'info',
+					filePath: params.filePath,
+					startLine: params.range?.startLine ?? params.cursor.line,
+					startCharacter: params.range?.startCharacter ?? params.cursor.character,
+					explanation: `Development search result for: ${params.query}`,
 				},
 			],
+		};
+	}
+
+	agentCancel(params: BaseRequestParams): ExplanationResult {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Vantage Agent',
+				'',
+				'Development agent runtime cancel.',
+				'',
+				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
+			].join('\n'),
 		};
 	}
 

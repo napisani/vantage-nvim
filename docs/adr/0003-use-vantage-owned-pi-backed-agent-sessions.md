@@ -1,7 +1,13 @@
-# Use Vantage-owned Pi-backed agent sessions
+# Use a Vantage-owned singleton Pi coding-agent buddy session
 
-Vantage will move from purely bounded one-shot model calls toward Vantage-owned in-memory agent sessions. Each session is scoped by workspace root, Model Target, and lens mode. Explain, question, edit, annotate, and review commands share the scoped session, and each successful command becomes a retained session turn. Agent Task Context remains a separate adjacent-agent artifact: Vantage observes Agent Context Revisions and injects a Context Update Turn only when the file changes.
+Vantage uses the `@earendil-works/pi-coding-agent` SDK directly for model-backed commands. The backend owns one in-memory buddy session per backend/workspace process. Explain, question, edit, and search share that singleton session so the assistant behaves like an explicit project buddy rather than a collection of disconnected one-shot calls.
+
+Annotation generation is intentionally excluded from this buddy memory: annotation requests use transient sessions and are discarded after completion, because inline annotation sweeps are noisy and should not bias later conversational work.
 
 ## Consequences
 
-Vantage will own `Context.messages` and pass a stable Pi `sessionId` for provider caching or affinity. Pi is not treated as a separate OS daemon, and adjacent coding agents remain separate from the Vantage Pi-backed Agent Runtime. Session state is in-memory only for the first implementation, with sessions enabled by default, a bounded non-summarizing history window, short Pi cache retention, and explicit reset/status commands. Failed, cancelled, or timed-out requests are not retained as session history.
+Vantage no longer scopes persistent sessions by model target or lens. The session is reset explicitly with `:VantageAgentReset` or implicitly by backend restart. Only one agentic request may be active at a time; users can cancel active work with `:VantageAgentCancel` before resetting or starting another search.
+
+Commands enable only command-specific tool allowlists. User-facing commands do not enable direct mutation tools in v1; edits are returned through structured Vantage submit tools and applied by the Neovim client. Search returns curated quickfix locations through `submit_search_results` rather than parsing text or temp files.
+
+Agent state remains in-memory only. Failed, cancelled, timed-out, annotation, or malformed submit-tool requests are not intentionally retained as successful Vantage outcomes.

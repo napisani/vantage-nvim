@@ -21,7 +21,7 @@ local function mark_position(annotation)
 			character = annotation.range.startCharacter
 		end
 	end
-	return line, character
+	return math.max(0, line - 1), math.max(0, character - 1)
 end
 
 local function remove_existing_at(bufnr, line, character)

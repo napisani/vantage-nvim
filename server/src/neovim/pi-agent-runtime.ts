@@ -15,8 +15,6 @@ import type {
 	ExplainSelectionParams,
 	ExplanationResult,
 	QuestionSelectionParams,
-	ReviewCurrentHunkParams,
-	ReviewResult,
 	AgentRuntimeProgress,
 } from './protocol';
 import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
@@ -26,7 +24,6 @@ import {
 	buildEditPrompt,
 	buildExplainPrompt,
 	buildQuestionPrompt,
-	buildReviewPrompt,
 	parseAnnotationResponse,
 	parseEditResponse,
 } from './model-contract';
@@ -55,7 +52,6 @@ export interface CommandAgentOptions {
 	question?: AgentOptionsConfig;
 	edit?: AgentOptionsConfig;
 	annotate?: AgentOptionsConfig;
-	review?: AgentOptionsConfig;
 }
 
 export interface PiAgentRuntimeOptions {
@@ -244,20 +240,14 @@ export class PiAgentRuntime implements AgentRuntime {
 		};
 	}
 
-	async reviewCurrentHunk(
-		params: ReviewCurrentHunkParams,
-		context: AgentRuntimeRequestContext = {}
-	): Promise<ReviewResult> {
-		const { content: markdown } = await this.runPi(params, buildReviewPrompt(sessionPromptParams(params, this.session.enabled)), {
-			command: 'review',
-			defaults: {},
-			signal: context.signal,
-			reportProgress: context.reportProgress,
-		});
+	async searchLocations(): Promise<import('./protocol').SearchLocationsResult> {
+		throw new Error('searchLocations requires the Pi coding-agent runtime.');
+	}
+
+	async agentCancel(): Promise<ExplanationResult> {
 		return {
-			kind: 'review',
-			markdown,
-			findings: [],
+			kind: 'explanation',
+			markdown: '## Vantage Agent\n\nNo active agent request.',
 		};
 	}
 

@@ -6,7 +6,8 @@ export const BACKEND_METHODS = [
 	'questionSelection',
 	'editSelection',
 	'annotateRange',
-	'reviewCurrentHunk',
+	'searchLocations',
+	'agentCancel',
 	'agentSessionReset',
 	'agentSessionStatus',
 ] as const;
@@ -29,8 +30,10 @@ export function runBackendCommand(
 			return runtime.editSelection(request.params, context);
 		case 'annotateRange':
 			return runtime.annotateRange(request.params, context);
-		case 'reviewCurrentHunk':
-			return runtime.reviewCurrentHunk(request.params, context);
+		case 'searchLocations':
+			return runtime.searchLocations(request.params, context);
+		case 'agentCancel':
+			return runtime.agentCancel(request.params, context);
 		case 'agentSessionReset':
 			return runtime.agentSessionReset(request.params, context);
 		case 'agentSessionStatus':

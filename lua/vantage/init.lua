@@ -1,7 +1,9 @@
 local state = require("vantage.state")
 local commands = require("vantage.commands")
 
-local M = {}
+local M = {
+	CommandNames = commands.CommandNames,
+}
 
 function M.setup(config)
 	state.setup(config)
@@ -18,6 +20,38 @@ end
 
 function M.clear_lens()
 	commands.clear_lens()
+end
+
+function M.explain(opts)
+	commands.explain(opts or {})
+end
+
+function M.question(opts)
+	commands.question(opts or {})
+end
+
+function M.edit(opts)
+	commands.edit(opts or {})
+end
+
+function M.annotate(opts)
+	commands.annotate(opts or {})
+end
+
+function M.search(opts)
+	commands.search(opts or {})
+end
+
+function M.agent_cancel()
+	commands.agent_cancel()
+end
+
+function M.agent_reset()
+	commands.reset_agent_session()
+end
+
+function M.agent_status()
+	commands.show_agent_session_status()
 end
 
 return M

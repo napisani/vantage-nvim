@@ -7,8 +7,8 @@ import type {
 	ExplainSelectionParams,
 	ExplanationResult,
 	QuestionSelectionParams,
-	ReviewCurrentHunkParams,
-	ReviewResult,
+	SearchLocationsParams,
+	SearchLocationsResult,
 	AgentRuntimeProgress,
 } from './protocol';
 
@@ -24,7 +24,8 @@ export interface AgentRuntime {
 	questionSelection(params: QuestionSelectionParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	editSelection(params: EditSelectionParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<EditResult>;
 	annotateRange(params: AnnotateRangeParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<AnnotationResult>;
-	reviewCurrentHunk(params: ReviewCurrentHunkParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ReviewResult>;
+	searchLocations(params: SearchLocationsParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<SearchLocationsResult>;
+	agentCancel(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	agentSessionReset(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	agentSessionStatus(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 }

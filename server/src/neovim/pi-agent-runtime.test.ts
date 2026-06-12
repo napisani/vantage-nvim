@@ -106,7 +106,7 @@ test('PiAgentRuntime explainSelection uses openai/gpt-4o-mini defaults', async (
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 	});
 
@@ -135,7 +135,7 @@ test('PiAgentRuntime passes explicit apiKey but delegates credentials when absen
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 	});
 	assert.equal(explicitRuntime.calls[0].options.apiKey, 'sk-explicit');
@@ -146,7 +146,7 @@ test('PiAgentRuntime passes explicit apiKey but delegates credentials when absen
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 	});
 	assert.equal(delegatedRuntime.calls[0].options.apiKey, undefined);
@@ -160,7 +160,7 @@ test('PiAgentRuntime annotateRange uses the shared 300s default timeout', async 
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		scopeText: 'const value = 1;',
 	});
 
@@ -188,7 +188,7 @@ test('PiAgentRuntime does not send temperature to openai-codex model targets', a
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		scopeText: 'const value = 1;',
 	});
 
@@ -219,7 +219,7 @@ test('PiAgentRuntime resolves OAuth credentials when apiKey is absent', async ()
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 	});
 
@@ -260,7 +260,7 @@ test('PiAgentRuntime reports annotation progress through credential lookup and m
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			scopeText: 'const value = 1;',
 		},
 		{
@@ -288,7 +288,7 @@ test('PiAgentRuntime annotateRange uses command options over shared agent option
 	const runtime = new RecordingRuntime(JSON.stringify({
 		annotations: [
 			{
-				line: 1,
+				line: 41,
 				text: 'second reuses first in the addition',
 				severity: 'info',
 			},
@@ -314,18 +314,18 @@ test('PiAgentRuntime annotateRange uses command options over shared agent option
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const first = 1;\nconst second = first + 1;',
-		cursor: { line: 40, character: 0 },
-		visibleRange: { startLine: 40, startCharacter: 0, endLine: 41, endCharacter: 25 },
+		cursor: { line: 40, character: 1 },
+		visibleRange: { startLine: 40, startCharacter: 1, endLine: 41, endCharacter: 25 },
 		scopeText: 'const first = 1;\nconst second = first + 1;',
 		candidateLines: [
-			{ line: 0, text: 'const first = 1;' },
-			{ line: 1, text: 'const second = first + 1;' },
+			{ line: 40, text: 'const first = 1;' },
+			{ line: 41, text: 'const second = first + 1;' },
 		],
 	});
 
 	assert.deepEqual(result.annotations[0].range, {
 		startLine: 41,
-		startCharacter: 0,
+		startCharacter: 1,
 		endLine: 41,
 		endCharacter: 25,
 	});
@@ -335,7 +335,7 @@ test('PiAgentRuntime annotateRange uses command options over shared agent option
 	assert.equal(runtime.calls[0].options.maxTokens, 128);
 	assert.equal(runtime.calls[0].options.reasoning, 'medium');
 	assert.match(String(runtime.calls[0].context.messages[0].content), /Candidate lines to annotate/i);
-	assert.match(String(runtime.calls[0].context.messages[0].content), /1\| const second = first \+ 1;/);
+	assert.match(String(runtime.calls[0].context.messages[0].content), /41\| const second = first \+ 1;/);
 });
 
 test('PiAgentRuntime annotateRange enforces annotation timeout when the runtime hangs', { timeout: 500 }, async () => {
@@ -353,12 +353,12 @@ test('PiAgentRuntime annotateRange enforces annotation timeout when the runtime 
 				filePath: '/repo/example.ts',
 				language: 'typescript',
 				text: 'const first = 1;\nconst second = first + 1;',
-				cursor: { line: 40, character: 0 },
-				visibleRange: { startLine: 40, startCharacter: 0, endLine: 41, endCharacter: 25 },
+				cursor: { line: 40, character: 1 },
+				visibleRange: { startLine: 40, startCharacter: 1, endLine: 41, endCharacter: 25 },
 				scopeText: 'const first = 1;\nconst second = first + 1;',
 				candidateLines: [
-					{ line: 0, text: 'const first = 1;' },
-					{ line: 1, text: 'const second = first + 1;' },
+					{ line: 40, text: 'const first = 1;' },
+					{ line: 41, text: 'const second = first + 1;' },
 				],
 			}),
 		/Pi request timed out after 25ms/
@@ -380,7 +380,7 @@ test('PiAgentRuntime retries transient model request failures when configured', 
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 	});
 
@@ -402,7 +402,7 @@ test('PiAgentRuntime cancels in-flight model requests through AbortSignal', { ti
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		scopeText: 'const value = 1;',
 	}, {
 		signal: controller.signal,
@@ -427,7 +427,7 @@ test('PiAgentRuntime reports Pi runtime error messages from empty responses', as
 				filePath: '/repo/example.ts',
 				language: 'typescript',
 				text: 'const value = 1;',
-				cursor: { line: 0, character: 0 },
+				cursor: { line: 1, character: 1 },
 				selectedText: 'const value = 1;',
 			}),
 		/Pi agent runtime failed: Connection error/
@@ -441,7 +441,7 @@ test('PiAgentRuntime writes prompt and raw response traces when configured', asy
 	const rawResponse = JSON.stringify({
 		annotations: [
 			{
-				range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+				range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 16 },
 				text: 'Trace annotation',
 				severity: 'info',
 			},
@@ -458,7 +458,7 @@ test('PiAgentRuntime writes prompt and raw response traces when configured', asy
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			scopeText: 'const value = 1;',
 		});
 
@@ -489,17 +489,8 @@ test('PiAgentRuntime shares a scoped session across commands with Pi session aff
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
-		lens: { mode: 'learning', text: 'I am learning TypeScript' },
-	});
-	await agent.reviewCurrentHunk({
-		workspaceRoot: '/repo',
-		filePath: '/repo/example.ts',
-		language: 'typescript',
-		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
-		hunkText: 'const value = 1;',
 		lens: { mode: 'learning', text: 'I am learning TypeScript' },
 	});
 	await agent.questionSelection({
@@ -507,7 +498,7 @@ test('PiAgentRuntime shares a scoped session across commands with Pi session aff
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 		question: 'Why is this immutable?',
 		lens: { mode: 'learning', text: 'I am learning TypeScript' },
@@ -517,22 +508,21 @@ test('PiAgentRuntime shares a scoped session across commands with Pi session aff
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
-		range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+		cursor: { line: 1, character: 1 },
+		range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 16 },
 		selectedText: 'const value = 1;',
 		instruction: 'Rename value to count.',
 		lens: { mode: 'learning', text: 'I am learning TypeScript' },
 	});
 
-	assert.equal(runtime.calls.length, 4);
-	assert.equal(runtime.calls[0].options.sessionId, runtime.calls[3].options.sessionId);
+	assert.equal(runtime.calls.length, 3);
+	assert.equal(runtime.calls[0].options.sessionId, runtime.calls[2].options.sessionId);
 	assert.equal(runtime.calls[0].options.cacheRetention, 'short');
 	assert.equal(runtime.calls[1].context.messages.length, 3);
 	assert.match(String(runtime.calls[1].context.messages[0].content), /Explain the selected code/i);
 	assert.equal(runtime.calls[1].context.messages[1].role, 'assistant');
-	assert.match(String(runtime.calls[1].context.messages[2].content), /Review the current hunk/i);
-	assert.match(String(runtime.calls[2].context.messages.at(-1)?.content), /Answer the user question/i);
-	assert.match(String(runtime.calls[3].context.messages.at(-1)?.content), /Return only the complete replacement text/i);
+	assert.match(String(runtime.calls[1].context.messages[2].content), /Answer the user question/i);
+	assert.match(String(runtime.calls[2].context.messages.at(-1)?.content), /Return only the complete replacement text/i);
 });
 
 test('PiAgentRuntime injects agent context only when the context revision changes', async () => {
@@ -551,7 +541,7 @@ test('PiAgentRuntime injects agent context only when the context revision change
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 		lens: { mode: 'learning' as const, text: 'I am learning TypeScript' },
 	};
@@ -606,7 +596,7 @@ test('PiAgentRuntime keeps bounded session history and drops failed turns', asyn
 				filePath: '/repo/example.ts',
 				language: 'typescript',
 				text: 'const failed = true;',
-				cursor: { line: 0, character: 0 },
+				cursor: { line: 1, character: 1 },
 				selectedText: 'const failed = true;',
 			}),
 		/Connection error/
@@ -623,7 +613,7 @@ test('PiAgentRuntime keeps bounded session history and drops failed turns', asyn
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: `const value = ${value};`,
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: `const value = ${value};`,
 		});
 	}
@@ -646,7 +636,7 @@ test('PiAgentRuntime can reset and report the current scoped session', async () 
 		filePath: '/repo/example.ts',
 		language: 'typescript',
 		text: 'const value = 1;',
-		cursor: { line: 0, character: 0 },
+		cursor: { line: 1, character: 1 },
 		selectedText: 'const value = 1;',
 		lens: { mode: 'learning' as const },
 	};

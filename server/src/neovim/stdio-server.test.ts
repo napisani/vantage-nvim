@@ -96,7 +96,7 @@ test('stdio server responds to explainSelection', async () => {
 				filePath: '/repo/example.ex',
 				language: 'elixir',
 				text: 'defmodule Example do\nend',
-				cursor: { line: 0, character: 0 },
+				cursor: { line: 1, character: 1 },
 				selectedText: 'defmodule Example do\nend',
 				lens: { mode: 'learning', text: 'I am learning Elixir syntax' },
 			},

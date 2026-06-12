@@ -1,10 +1,9 @@
 import { DevelopmentAgentRuntime } from './development-agent-runtime';
-import { AgentSessionStore } from './agent-session';
-import { PiAgentRuntime } from './pi-agent-runtime';
+import { CodingAgentRuntime, CodingAgentSessionStore } from './coding-agent-runtime';
 import type { BackendRequestConfig } from './protocol';
 import type { AgentRuntime } from './agent-runtime';
 
-const sessionStore = new AgentSessionStore();
+const sessionStore = new CodingAgentSessionStore();
 
 export function createAgentRuntimeFromConfig(config: BackendRequestConfig = {}): AgentRuntime {
 	const agent = config.agent ?? {};
@@ -13,21 +12,18 @@ export function createAgentRuntimeFromConfig(config: BackendRequestConfig = {}):
 		return new DevelopmentAgentRuntime();
 	}
 
-	return new PiAgentRuntime({
+	return new CodingAgentRuntime({
 		provider: agent.provider,
 		model: agent.model,
 		auth: agent.auth,
 		options: agent.options,
-		session: agent.session,
 		commandOptions: {
-			explain: config.commands?.explain?.options,
-			question: config.commands?.question?.options,
-			edit: config.commands?.edit?.options,
-			annotate: config.commands?.annotate?.options,
-			review: config.commands?.review?.options,
+			explain: config.commands?.explain,
+			question: config.commands?.question,
+			edit: config.commands?.edit,
+			annotate: config.commands?.annotate,
+			search: config.commands?.search,
 		},
-		tracePromptPath: agent.trace?.prompt_path,
-		traceResponsePath: agent.trace?.response_path,
-		sessionStore,
+		store: sessionStore,
 	});
 }

@@ -23,8 +23,8 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version: 22
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
+          cache: npm
+          cache-dependency-path: package-lock.json
 
       - name: Install mise tools
         uses: jdx/mise-action@v3
@@ -36,16 +36,16 @@ jobs:
           nvim --version
 
       - name: Install dependencies
-        run: pnpm install --frozen-lockfile
+        run: npm ci
 
       - name: Lint backend
-        run: pnpm lint
+        run: npm run lint
 
       - name: Run tests
-        run: pnpm test:mvp
+        run: npm run test:mvp
 
       - name: Build plugin package
-        run: pnpm build:plugin
+        run: npm run build:plugin
 
       - name: Publish dist branch
         env:

@@ -98,16 +98,24 @@ local function development_response(method, params)
 		}
 	end
 
-	if method == "reviewCurrentHunk" then
+	if method == "searchLocations" then
 		return {
-			kind = "review",
-			markdown = "## Review\n\nDevelopment review response.",
-			findings = {
+			kind = "locations",
+			locations = {
 				{
-					message = "Development finding.",
-					severity = "info",
+					filePath = params.filePath or "",
+					startLine = params.range and params.range.startLine or params.cursor and params.cursor.line or 1,
+					startCharacter = params.range and params.range.startCharacter or params.cursor and params.cursor.character or 1,
+					explanation = "Development search result for: " .. tostring(params.query or ""),
 				},
 			},
+		}
+	end
+
+	if method == "agentCancel" then
+		return {
+			kind = "explanation",
+			markdown = "## Vantage Agent\n\nDevelopment agent runtime cancel.",
 		}
 	end
 
@@ -185,6 +193,7 @@ end
 local function command_config(value)
 	value = value or {}
 	return {
+		include_lens = value.include_lens,
 		options = agent_options_config(value.options),
 	}
 end
@@ -238,7 +247,9 @@ local function request_config()
 			question = command_config(commands.question),
 			edit = command_config(commands.edit),
 			annotate = annotate_command_config(commands.annotate),
-			review = command_config(commands.review),
+			search = vim.tbl_deep_extend("force", command_config(commands.search), {
+				default_prompt = commands.search and commands.search.default_prompt or nil,
+			}),
 		},
 	}
 end

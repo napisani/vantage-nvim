@@ -147,7 +147,7 @@ export class PiOAuthCredentialResolver implements PiCredentialResolver {
 			if (isNotFoundError(error)) {
 				if (candidate.explicit) {
 					throw new Error(
-						`Pi OAuth auth file not found at ${candidate.path}. Run pnpm dlx @earendil-works/pi-ai login ${request.provider} or update agent.auth.path.`
+						`Pi OAuth auth file not found at ${candidate.path}. Run npx @earendil-works/pi-ai login ${request.provider} or update agent.auth.path.`
 					);
 				}
 				reportProgress(

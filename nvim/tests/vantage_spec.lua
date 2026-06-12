@@ -162,8 +162,7 @@ process.stdin.on('data', (chunk) => {
             shape: {
               explainOptionsAreArray: Array.isArray(request.config.commands.explain.options),
               questionOptionsAreArray: Array.isArray(request.config.commands.question.options),
-              editOptionsAreArray: Array.isArray(request.config.commands.edit.options),
-              reviewOptionsAreArray: Array.isArray(request.config.commands.review.options)
+              editOptionsAreArray: Array.isArray(request.config.commands.edit.options)
             }
         })
       }
@@ -209,7 +208,6 @@ process.stdin.on('data', (chunk) => {
 		explainOptionsAreArray = false,
 		questionOptionsAreArray = false,
 		editOptionsAreArray = false,
-		reviewOptionsAreArray = false,
 	})
 	eq(payload.config, {
 		agent = {
@@ -233,22 +231,28 @@ process.stdin.on('data', (chunk) => {
 		},
 		commands = {
 			explain = {
+				include_lens = true,
 				options = {},
 			},
 			question = {
+				include_lens = false,
 				options = {},
 			},
 			edit = {
+				include_lens = false,
 				options = {},
 			},
 			annotate = {
+				include_lens = true,
 				waiting_message_ms = 10,
 				options = {
 					maxTokens = 256,
 					timeoutMs = 45000,
 				},
 			},
-			review = {
+			search = {
+				include_lens = true,
+				default_prompt = "Find related code paths and explain why they matter.",
 				options = {},
 			},
 		},
@@ -316,7 +320,7 @@ test("context captures visible buffer text", function()
 	eq(captured.language, "lua")
 	eq(captured.filePath, vim.fn.getcwd() .. "/nvim/tests/vantage-context.lua")
 	eq(captured.text, "local x = 1\nlocal y = x + 1\nreturn y")
-	eq(captured.visibleRange.startLine, 0)
+	eq(captured.visibleRange.startLine, 1)
 end)
 
 test("agent context reads workspace markdown with tail truncation metadata", function()
@@ -499,9 +503,9 @@ test("VantageExplain accepts an explicit line range", function()
 	eq(captured.params.text, "local b = 2\nlocal c = b + 1")
 	eq(captured.params.selectedText, "local b = 2\nlocal c = b + 1")
 	eq(captured.params.range, {
-		startLine = 1,
-		startCharacter = 0,
-		endLine = 2,
+		startLine = 2,
+		startCharacter = 1,
+		endLine = 3,
 		endCharacter = 15,
 	})
 end)
@@ -689,9 +693,9 @@ test("VantageQuestion accepts an explicit line range", function()
 	eq(captured.params.question, "what is the data flow?")
 	eq(captured.params.text, "local a = 1\nlocal b = a + 1")
 	eq(captured.params.range, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 1,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 2,
 		endCharacter = 15,
 	})
 end)
@@ -725,9 +729,9 @@ test("VantageQuestion prompts for missing question text with an explicit line ra
 	eq(captured.params.question, "what is the data flow?")
 	eq(captured.params.text, "local a = 1\nlocal b = a + 1")
 	eq(captured.params.range, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 1,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 2,
 		endCharacter = 15,
 	})
 end)
@@ -881,9 +885,9 @@ test("VantageEdit replaces an explicit line range with the backend edit result",
 	eq(captured.method, "editSelection")
 	eq(captured.params.instruction, "combine the locals")
 	eq(captured.params.range, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 1,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 2,
 		endCharacter = 11,
 	})
 	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
@@ -926,6 +930,62 @@ test("annotate renders and clear_annotations clears extmarks", function()
 	assert(#annotations.current_marks(0) == 0, "expected annotations to clear")
 end)
 
+test("VantageSearch sends a search request and opens quickfix results", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "locations",
+			locations = {
+				{
+					filePath = "lua/example.lua",
+					startLine = 2,
+					startCharacter = 4,
+					explanation = "Factory creates the target value.",
+				},
+			},
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local value = 1",
+			"return value",
+		})
+
+		vim.cmd("VantageSearch find the factory")
+	end)
+
+	eq(captured.method, "searchLocations")
+	eq(captured.params.query, "find the factory")
+	local qf = vim.fn.getqflist()
+	assert(#qf == 1, vim.inspect(qf))
+	eq(qf[1].lnum, 2)
+	eq(qf[1].col, 4)
+	eq(qf[1].text, "Factory creates the target value.")
+	vim.cmd("cclose")
+end)
+
+test("public search API delegates to VantageSearch behavior", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "locations",
+			locations = {},
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({ "local value = 1" })
+
+		vantage.search({ args = "find value" })
+	end)
+
+	eq(captured.method, "searchLocations")
+	eq(captured.params.query, "find value")
+end)
+
 test("annotations render as wrapped above-line virtual blocks", function()
 	local vantage = require("vantage")
 	local annotations = require("vantage.annotations")
@@ -940,7 +1000,7 @@ test("annotations render as wrapped above-line virtual blocks", function()
 		{
 			text = "The `compute_value` call is where the incoming `input` crosses into domain-specific transformation logic, so this line is the best anchor for understanding the data flow under the lens.",
 			severity = "info",
-			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 32 },
+			range = { startLine = 1, startCharacter = 1, endLine = 1, endCharacter = 32 },
 		},
 	})
 
@@ -968,21 +1028,21 @@ test("annotations render additively and overwrite the exact same position", func
 		{
 			text = "First line annotation.",
 			severity = "info",
-			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 0 },
+			range = { startLine = 1, startCharacter = 1, endLine = 1, endCharacter = 0 },
 		},
 	})
 	annotations.render(0, {
 		{
 			text = "Second line annotation.",
 			severity = "info",
-			range = { startLine = 1, startCharacter = 0, endLine = 1, endCharacter = 0 },
+			range = { startLine = 2, startCharacter = 1, endLine = 2, endCharacter = 0 },
 		},
 	})
 	annotations.render(0, {
 		{
 			text = "Updated first line annotation.",
 			severity = "info",
-			range = { startLine = 0, startCharacter = 0, endLine = 0, endCharacter = 0 },
+			range = { startLine = 1, startCharacter = 1, endLine = 1, endCharacter = 0 },
 		},
 	})
 
@@ -1037,9 +1097,9 @@ test("annotation status reports returned annotations that did not render", funct
 					text = "Out of range annotation",
 					severity = "info",
 					range = {
-						startLine = 99,
-						startCharacter = 0,
-						endLine = 99,
+						startLine = 100,
+						startCharacter = 1,
+						endLine = 100,
 						endCharacter = 0,
 					},
 				},
@@ -1173,9 +1233,9 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 						text = "Late annotation",
 						severity = "info",
 						range = {
-							startLine = 0,
-							startCharacter = 0,
-							endLine = 0,
+							startLine = 1,
+							startCharacter = 1,
+							endLine = 1,
 							endCharacter = 0,
 						},
 					},
@@ -1194,9 +1254,9 @@ test("annotate cancels an in-flight annotation request and ignores its late resp
 						text = "Current annotation",
 						severity = "info",
 						range = {
-							startLine = 0,
-							startCharacter = 0,
-							endLine = 0,
+							startLine = 1,
+							startCharacter = 1,
+							endLine = 1,
 							endCharacter = 0,
 						},
 					},
@@ -1282,14 +1342,14 @@ test("annotate defaults to the current line", function()
 	eq(captured.params.text, "local total = 0")
 	eq(captured.params.scopeText, "local total = 0")
 	eq(captured.params.visibleRange, {
-		startLine = 2,
-		startCharacter = 0,
-		endLine = 2,
+		startLine = 3,
+		startCharacter = 1,
+		endLine = 3,
 		endCharacter = 15,
 	})
 	eq(captured.params.maxAnnotations, 1)
 	eq(captured.params.candidateLines, {
-		{ line = 0, text = "local total = 0" },
+		{ line = 3, text = "local total = 0" },
 	})
 end)
 
@@ -1317,14 +1377,14 @@ test("VantageAnnotate line scopes annotation to the current line", function()
 	eq(captured.params.text, "local target = before + 1")
 	eq(captured.params.scopeText, "local target = before + 1")
 	eq(captured.params.visibleRange, {
-		startLine = 1,
-		startCharacter = 0,
-		endLine = 1,
+		startLine = 2,
+		startCharacter = 1,
+		endLine = 2,
 		endCharacter = 25,
 	})
 	eq(captured.params.maxAnnotations, 1)
 	eq(captured.params.candidateLines, {
-		{ line = 0, text = "local target = before + 1" },
+		{ line = 2, text = "local target = before + 1" },
 	})
 end)
 
@@ -1363,9 +1423,9 @@ test("VantageAnnotate visible uses the visible range and lets the model choose o
 		"local seven = six + 1",
 	}, "\n"))
 	eq(captured.params.visibleRange, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 6,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 7,
 		endCharacter = 21,
 	})
 	eq(captured.params.candidateLines, nil)
@@ -1417,9 +1477,9 @@ test("VantageAnnotate buffer uses full-buffer scope with percentage budget", fun
 		"local ten = nine + 1",
 	}, "\n"))
 	eq(captured.params.visibleRange, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 11,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 12,
 		endCharacter = 20,
 	})
 	eq(captured.params.candidateLines, nil)
@@ -1451,7 +1511,7 @@ test("VantageAnnotate numeric argument keeps the current-line default scope", fu
 	eq(captured.params.maxAnnotations, 5)
 	eq(captured.params.scopeText, "local two = one + 1")
 	eq(captured.params.candidateLines, {
-		{ line = 0, text = "local two = one + 1" },
+		{ line = 2, text = "local two = one + 1" },
 	})
 end)
 
@@ -1468,9 +1528,9 @@ test("VantageAnnotate accepts an explicit line range", function()
 					text = "Range annotation",
 					severity = "info",
 					range = {
-						startLine = 1,
-						startCharacter = 0,
-						endLine = 1,
+						startLine = 2,
+						startCharacter = 1,
+						endLine = 2,
 						endCharacter = 9,
 					},
 				},
@@ -1493,15 +1553,15 @@ test("VantageAnnotate accepts an explicit line range", function()
 	eq(captured.method, "annotateRange")
 	eq(captured.params.scopeText, "local b = 2\nlocal c = b + 1\nreturn c")
 	eq(captured.params.visibleRange, {
-		startLine = 1,
-		startCharacter = 0,
-		endLine = 3,
+		startLine = 2,
+		startCharacter = 1,
+		endLine = 4,
 		endCharacter = 8,
 	})
 	eq(captured.params.range, {
-		startLine = 1,
-		startCharacter = 0,
-		endLine = 3,
+		startLine = 2,
+		startCharacter = 1,
+		endLine = 4,
 		endCharacter = 8,
 	})
 	eq(captured.params.maxAnnotations, 1)
@@ -1530,9 +1590,9 @@ test("VantageAnnotate range lets the model choose oversized selections", functio
 	eq(captured.params.maxAnnotations, 1)
 	eq(captured.params.scopeText, "local a = 1\nlocal b = a + 1\nlocal c = b + 1\nlocal d = c + 1")
 	eq(captured.params.visibleRange, {
-		startLine = 0,
-		startCharacter = 0,
-		endLine = 3,
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 4,
 		endCharacter = 15,
 	})
 	eq(captured.params.candidateLines, nil)
@@ -1680,9 +1740,9 @@ test("annotations skip out-of-range lines", function()
 		{
 			text = "Out of range.",
 			range = {
-				startLine = 99,
-				startCharacter = 0,
-				endLine = 99,
+				startLine = 100,
+				startCharacter = 1,
+				endLine = 100,
 				endCharacter = 0,
 			},
 		},

@@ -33,7 +33,7 @@ end
 
 local function range_context(opts)
 	if opts and type(opts.range) == "number" and opts.range > 0 then
-		return context.line_range(opts.line1 - 1, opts.line2 - 1)
+		return context.line_range(opts.line1, opts.line2)
 	end
 
 	return nil
@@ -127,10 +127,78 @@ function M.edit(opts)
 	end)
 end
 
-function M.review_current_hunk()
-	local params = context.visible()
-	params.hunkText = params.text
-	request_markdown("reviewCurrentHunk", params)
+local function quickfix_filename(workspace_root, file_path)
+	if file_path:sub(1, 1) == "/" then
+		return file_path
+	end
+	if workspace_root and workspace_root ~= "" then
+		return workspace_root .. "/" .. file_path
+	end
+	return file_path
+end
+
+local function open_search_results(response, workspace_root)
+	if not response or not response.ok then
+		ui.show_markdown(error_markdown(response))
+		return
+	end
+	if not response.result or response.result.kind ~= "locations" then
+		ui.show_markdown("## Error\n\nBackend returned an invalid search response.")
+		return
+	end
+
+	local items = {}
+	for _, location in ipairs(response.result.locations or {}) do
+		table.insert(items, {
+			filename = quickfix_filename(workspace_root, location.filePath or ""),
+			lnum = location.startLine or 1,
+			col = location.startCharacter or 1,
+			text = location.explanation or "",
+		})
+	end
+
+	vim.fn.setqflist({}, "r", { title = #items == 0 and "Vantage Search: no results" or "Vantage Search", items = items })
+	if #items == 0 then
+		vim.notify("Vantage: no search results found", vim.log.levels.INFO)
+		return
+	end
+	vim.cmd("copen")
+end
+
+local function request_search(params, query)
+	params.query = query
+	params.selectedText = params.selectedText or params.text
+	backend.request("searchLocations", params, function(response)
+		open_search_results(response, params.workspaceRoot)
+	end)
+end
+
+function M.search(opts)
+	local params = scoped_context(opts)
+	local query = optional_command_text(opts)
+	if query then
+		request_search(params, query)
+		return
+	end
+	if opts and type(opts.range) == "number" and opts.range > 0 then
+		local commands = require("vantage.state").config.commands or {}
+		local search = commands.search or {}
+		request_search(params, search.default_prompt or "Find related code paths and explain why they matter.")
+		return
+	end
+
+	input_ui.prompt("search", nil, function(input)
+		input = optional_command_text({ args = input })
+		if not input then
+			vim.notify("Vantage: search requires a prompt", vim.log.levels.WARN)
+			return
+		end
+		request_search(params, input)
+	end)
+end
+
+function M.agent_cancel()
+	request_markdown("agentCancel", context.current_line())
 end
 
 function M.reset_agent_session()

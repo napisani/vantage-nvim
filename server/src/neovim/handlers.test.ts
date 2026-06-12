@@ -14,7 +14,7 @@ test('handleBackendRequest uses development runtime when configured', async () =
 			filePath: '/repo/example.ex',
 			language: 'elixir',
 			text: 'defmodule Example do\nend',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: 'defmodule Example do\nend',
 			lens: { mode: 'learning', text: 'I am learning Elixir syntax' },
 		},
@@ -41,8 +41,8 @@ test('handleBackendRequest returns capped development annotations', async () => 
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const one = 1;\nconst two = 2;\nconst three = 3;\nconst four = 4;',
-			cursor: { line: 0, character: 0 },
-			visibleRange: { startLine: 0, startCharacter: 0, endLine: 3, endCharacter: 15 },
+			cursor: { line: 1, character: 1 },
+			visibleRange: { startLine: 1, startCharacter: 1, endLine: 4, endCharacter: 15 },
 			scopeText: 'const one = 1;\nconst two = 2;\nconst three = 3;\nconst four = 4;',
 			maxAnnotations: 4,
 			lens: { mode: 'review', text: 'Check naming clarity' },
@@ -55,7 +55,7 @@ test('handleBackendRequest returns capped development annotations', async () => 
 	}
 	assert.equal(response.result.kind, 'annotations');
 	assert.equal(response.result.annotations.length, 4);
-	assert.equal(response.result.annotations[0].range.startLine, 0);
+	assert.equal(response.result.annotations[0].range.startLine, 1);
 	assert.match(response.result.annotations[0].text, /Development annotation/);
 	assert.match(response.result.annotations[0].detailMarkdown ?? '', /Annotation detail/);
 });
@@ -66,7 +66,8 @@ test('handleBackendRequest can use an injected agent runtime', async () => {
 		questionSelection: () => ({ kind: 'explanation', markdown: 'Injected answer' }),
 		editSelection: () => ({ kind: 'edit', replacementText: 'const edited = true;' }),
 		annotateRange: () => ({ kind: 'annotations', annotations: [] }),
-		reviewCurrentHunk: () => ({ kind: 'review', markdown: 'Injected review', findings: [] }),
+		searchLocations: () => ({ kind: 'locations', locations: [] }),
+		agentCancel: () => ({ kind: 'explanation', markdown: 'Injected cancel' }),
 		agentSessionReset: () => ({ kind: 'explanation', markdown: 'Injected reset' }),
 		agentSessionStatus: () => ({ kind: 'explanation', markdown: 'Injected status' }),
 	};
@@ -79,7 +80,7 @@ test('handleBackendRequest can use an injected agent runtime', async () => {
 				filePath: '/repo/example.ts',
 				language: 'typescript',
 				text: 'const value = 1;',
-				cursor: { line: 0, character: 0 },
+				cursor: { line: 1, character: 1 },
 				selectedText: 'const value = 1;',
 			},
 		},

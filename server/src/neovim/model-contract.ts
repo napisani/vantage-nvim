@@ -7,7 +7,7 @@ import type {
 	ExplainSelectionParams,
 	QuestionSelectionParams,
 	Range,
-	ReviewCurrentHunkParams,
+	SearchLocationsParams,
 } from './protocol';
 
 export function buildExplainPrompt(params: ExplainSelectionParams): string {
@@ -39,10 +39,11 @@ export function buildEditPrompt(params: EditSelectionParams): string {
 	return [
 		'You are powering a Neovim code-edit command.',
 		'Apply the user instruction to the selected code scope.',
-		'Return only the complete replacement text for the selected scope.',
+		'Call submit_edit exactly once with the complete replacement text for the selected scope.',
+		'If submit_edit is unavailable, return only the complete replacement text for the selected scope.',
 		'Do not wrap the answer in Markdown or code fences.',
-		'Do not explain the change. Do not ask follow-up questions.',
-		'If no edit is needed, return the original selected code exactly.',
+		'Do not directly edit or write files.',
+		'If no edit is needed, submit the original selected code exactly.',
 		'Preserve surrounding indentation and line endings as plain text.',
 		'Use the active lens when it is provided, but the edit instruction has priority.',
 		renderRequestContext(params),
@@ -61,10 +62,10 @@ export function buildAnnotationPrompt(params: AnnotateRangeParams): string {
 	const limit = annotationLimit(params);
 	return [
 		'You produce lens-driven Neovim Annotation Blocks anchored to relevant code lines.',
-		'Return only JSON. Do not wrap it in Markdown.',
-		'Return a JSON object with an annotations array.',
+		'Call submit_annotations exactly once with an annotations array. If submit_annotations is unavailable, return only JSON.',
+		'Do not directly edit or write files.',
 		'Each annotation has range, text, severity, and optional detailMarkdown.',
-		'Use the line numbers shown before the | character for range.startLine and range.endLine.',
+		'Use the actual 1-based file line numbers shown before the | character for range.startLine and range.endLine.',
 		'The number and | prefix are not part of the code. Character offsets start after the prefix.',
 		'Severity must be "info" or "warning".',
 		'Pick useful non-comment code lines.',
@@ -81,7 +82,7 @@ export function buildAnnotationPrompt(params: AnnotateRangeParams): string {
 		`Return at most ${limit} annotations.`,
 		renderRequestContext(params),
 		'Numbered code to annotate:',
-		numberedCodeBlock(params.scopeText),
+		numberedCodeBlock(params.scopeText, params.visibleRange?.startLine ?? params.range?.startLine ?? 1),
 		'JSON requirements: annotations[].range has integer startLine, startCharacter, endLine, endCharacter. annotations[].severity is "info" or "warning".',
 	].join('\n\n');
 }
@@ -90,10 +91,10 @@ function buildCandidateAnnotationPrompt(params: AnnotateRangeParams, candidateLi
 	const limit = annotationLimit(params);
 	return [
 		'You produce lens-driven Neovim Annotation Blocks anchored to relevant code lines.',
-		'Return only JSON. Do not wrap it in Markdown.',
-		'Return a JSON object with an annotations array.',
+		'Call submit_annotations exactly once with an annotations array. If submit_annotations is unavailable, return only JSON.',
+		'Do not directly edit or write files.',
 		'Each annotation has line, text, severity, and optional detailMarkdown.',
-		'Use only the line numbers shown before the | character.',
+		'Use only the actual 1-based file line numbers shown before the | character.',
 		'Prefer fewer, stronger Annotation Blocks over many shallow notes. Do not try to cover every line.',
 		'Text must be explanatory content, not a category label.',
 		'Text should usually be one to four concise sentences. Use more depth only when the active lens or anchored code warrants it.',
@@ -114,15 +115,27 @@ function annotationLimit(params: AnnotateRangeParams): number {
 	return params.maxAnnotations ?? 3;
 }
 
-export function buildReviewPrompt(params: ReviewCurrentHunkParams): string {
+export function buildSearchPrompt(params: SearchLocationsParams): string {
+	const traceSeed = params.selectedText && params.range ? [
+		'Trace seed:',
+		'Use this selected code as the anchor for the project search.',
+		`${params.filePath}:${params.range.startLine}:${params.range.startCharacter}-${params.range.endLine}:${params.range.endCharacter}`,
+		numberedCodeBlock(params.selectedText, params.range.startLine),
+	].join('\n') : '';
+
 	return [
-		'You are powering a Neovim code-review command.',
-		'Review the current hunk in concise Markdown.',
-		'Focus on correctness, clarity, and the active lens when it is provided.',
+		'You are powering a Vantage project search command in Neovim.',
+		'Search the workspace with the available read-only tools and find code locations relevant to the user request.',
+		'Call submit_search_results exactly once with the final curated locations only.',
+		'If submit_search_results is unavailable, return only JSON: {"locations":[{"filePath":"path/from/workspace","startLine":1,"startCharacter":1,"explanation":"single-line reason"}]}',
+		'Do not edit, write, or mutate files.',
+		'Each submitted explanation must be a concise single-line note explaining why the location matters.',
+		'Use workspace-relative file paths and 1-based line and character coordinates.',
 		renderRequestContext(params),
-		'Hunk:',
-		codeBlock(params.language, params.hunkText),
-	].join('\n\n');
+		'User search request:',
+		params.query,
+		traceSeed,
+	].filter((part) => part !== '').join('\n\n');
 }
 
 export function buildAgentContextUpdatePrompt(agentContext: AgentContext): string {
@@ -143,8 +156,8 @@ export function buildAgentContextUpdatePrompt(agentContext: AgentContext): strin
 	].join('\n');
 }
 
-export function annotationLineOffset(params: AnnotateRangeParams): number {
-	return params.visibleRange?.startLine ?? params.range?.startLine ?? 0;
+export function annotationLineOffset(_params: AnnotateRangeParams): number {
+	return 0;
 }
 
 export function parseAnnotationResponse(
@@ -239,8 +252,8 @@ function codeBlock(language: string, content: string): string {
 	return ['```' + language, content, '```'].join('\n');
 }
 
-function numberedCodeBlock(content: string): string {
-	const numberedLines = content.split('\n').map((line, index) => `${index}| ${line}`);
+function numberedCodeBlock(content: string, startLine = 1): string {
+	const numberedLines = content.split('\n').map((line, index) => `${startLine + index}| ${line}`);
 	return ['```text', ...numberedLines, '```'].join('\n');
 }
 
@@ -283,6 +296,20 @@ function parseJsonObject(content: string, label: string): Record<string, unknown
 function stripWholeFence(content: string): string {
 	const match = content.match(/^```[^\n]*\n([\s\S]*?)\n```$/);
 	return match ? match[1].trim() : content;
+}
+
+export function parseAnnotationPayload(values: unknown, params: AnnotateRangeParams): Annotation[] {
+	if (!Array.isArray(values)) {
+		throw new Error('submit_annotations.annotations must be an array.');
+	}
+	return values.map((value, index) => parseAnnotation(value, index, 'submit_annotations', params.candidateLines ?? []));
+}
+
+export function parseEditPayload(value: unknown): string {
+	if (typeof value !== 'string') {
+		throw new Error('submit_edit.replacementText must be a string.');
+	}
+	return parseEditResponse(value);
 }
 
 function parseAnnotation(
@@ -332,9 +359,9 @@ function rangeFromCandidateLine(
 	const candidate = candidateLines.find((item) => item.line === line);
 	return {
 		startLine: line,
-		startCharacter: 0,
+		startCharacter: 1,
 		endLine: line,
-		endCharacter: candidate ? candidate.text.length : 0,
+		endCharacter: candidate ? Math.max(1, candidate.text.length) : 1,
 	};
 }
 
@@ -352,8 +379,8 @@ function parseRange(value: unknown, index: number, label: string): Range {
 }
 
 function parseCoordinate(value: unknown, index: number, field: string, label: string): number {
-	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-		throw new Error(`${label} annotation at index ${index} range.${field} must be a non-negative integer.`);
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+		throw new Error(`${label} annotation at index ${index} range.${field} must be a positive 1-based integer.`);
 	}
 
 	return value;

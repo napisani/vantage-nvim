@@ -74,8 +74,10 @@ export interface AnnotateRangeParams extends BaseRequestParams {
 	candidateLines?: AnnotationCandidateLine[];
 }
 
-export interface ReviewCurrentHunkParams extends BaseRequestParams {
-	hunkText: string;
+export interface SearchLocationsParams extends BaseRequestParams {
+	query: string;
+	selectedText?: string;
+	range?: Range;
 }
 
 export type AgentRuntimeName = 'pi' | 'development';
@@ -120,7 +122,12 @@ export interface AgentRuntimeConfig {
 }
 
 export interface CommandConfig {
+	include_lens?: boolean;
 	options?: AgentOptionsConfig;
+}
+
+export interface SearchCommandConfig extends CommandConfig {
+	default_prompt?: string;
 }
 
 export interface AnnotateCommandConfig extends CommandConfig {
@@ -132,7 +139,7 @@ export interface CommandsConfig {
 	question?: CommandConfig;
 	edit?: CommandConfig;
 	annotate?: AnnotateCommandConfig;
-	review?: CommandConfig;
+	search?: SearchCommandConfig;
 }
 
 export interface BackendRequestConfig {
@@ -145,7 +152,8 @@ export type BackendMethod =
 	| 'questionSelection'
 	| 'editSelection'
 	| 'annotateRange'
-	| 'reviewCurrentHunk'
+	| 'searchLocations'
+	| 'agentCancel'
 	| 'agentSessionReset'
 	| 'agentSessionStatus';
 
@@ -154,7 +162,8 @@ export type BackendRequest =
 	| { id: string; method: 'questionSelection'; config?: BackendRequestConfig; params: QuestionSelectionParams }
 	| { id: string; method: 'editSelection'; config?: BackendRequestConfig; params: EditSelectionParams }
 	| { id: string; method: 'annotateRange'; config?: BackendRequestConfig; params: AnnotateRangeParams }
-	| { id: string; method: 'reviewCurrentHunk'; config?: BackendRequestConfig; params: ReviewCurrentHunkParams }
+	| { id: string; method: 'searchLocations'; config?: BackendRequestConfig; params: SearchLocationsParams }
+	| { id: string; method: 'agentCancel'; config?: BackendRequestConfig; params: BaseRequestParams }
 	| { id: string; method: 'agentSessionReset'; config?: BackendRequestConfig; params: BaseRequestParams }
 	| { id: string; method: 'agentSessionStatus'; config?: BackendRequestConfig; params: BaseRequestParams };
 
@@ -182,6 +191,20 @@ export interface EditResult {
 	telemetry?: AgentRuntimeTelemetry;
 }
 
+export interface SearchLocation {
+	filePath: string;
+	startLine: number;
+	startCharacter: number;
+	lineCount?: number;
+	explanation: string;
+}
+
+export interface SearchLocationsResult {
+	kind: 'locations';
+	locations: SearchLocation[];
+	telemetry?: AgentRuntimeTelemetry;
+}
+
 export interface AgentRuntimeTelemetry {
 	runtime: string;
 	model?: string;
@@ -199,20 +222,7 @@ export interface AgentRuntimeProgress {
 	details?: Record<string, unknown>;
 }
 
-export interface ReviewFinding {
-	range?: Range;
-	title: string;
-	markdown: string;
-	severity: 'info' | 'warning';
-}
-
-export interface ReviewResult {
-	kind: 'review';
-	markdown: string;
-	findings: ReviewFinding[];
-}
-
-export type BackendResult = ExplanationResult | AnnotationResult | ReviewResult | EditResult;
+export type BackendResult = ExplanationResult | AnnotationResult | EditResult | SearchLocationsResult;
 
 export type BackendResponse =
 	| { id: string; ok: true; result: BackendResult }
@@ -275,16 +285,19 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 					candidateLines: parseOptionalCandidateLines(params.candidateLines, 'params.candidateLines'),
 				},
 			};
-		case 'reviewCurrentHunk':
+		case 'searchLocations':
 			return {
 				id,
 				method,
 				config,
 				params: {
 					...parseBaseRequestParams(params),
-					hunkText: requireString(params.hunkText, 'params.hunkText'),
+					query: requireNonEmptyString(params.query, 'params.query'),
+					selectedText: parseOptionalString(params.selectedText, 'params.selectedText'),
+					range: parseOptionalRange(params.range, 'params.range'),
 				},
 			};
+		case 'agentCancel':
 		case 'agentSessionReset':
 		case 'agentSessionStatus':
 			return {
@@ -372,7 +385,7 @@ function parseOptionalCommandsConfig(value: unknown, label: string): CommandsCon
 	assignDefined(parsed, 'question', parseOptionalCommandConfig(record.question, `${label}.question`));
 	assignDefined(parsed, 'edit', parseOptionalCommandConfig(record.edit, `${label}.edit`));
 	assignDefined(parsed, 'annotate', parseOptionalAnnotateCommandConfig(record.annotate, `${label}.annotate`));
-	assignDefined(parsed, 'review', parseOptionalCommandConfig(record.review, `${label}.review`));
+	assignDefined(parsed, 'search', parseOptionalSearchCommandConfig(record.search, `${label}.search`));
 	return parsed;
 }
 
@@ -382,9 +395,25 @@ function parseOptionalCommandConfig(value: unknown, label: string): CommandConfi
 	}
 
 	const record = asRecord(value, label);
-	return {
+	const parsed: CommandConfig = {
 		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
 	};
+	assignDefined(parsed, 'include_lens', parseOptionalBoolean(record.include_lens, `${label}.include_lens`));
+	return parsed;
+}
+
+function parseOptionalSearchCommandConfig(value: unknown, label: string): SearchCommandConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: SearchCommandConfig = {
+		default_prompt: parseOptionalString(record.default_prompt, `${label}.default_prompt`),
+		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
+	};
+	assignDefined(parsed, 'include_lens', parseOptionalBoolean(record.include_lens, `${label}.include_lens`));
+	return parsed;
 }
 
 function parseOptionalAnnotateCommandConfig(value: unknown, label: string): AnnotateCommandConfig | undefined {
@@ -393,10 +422,12 @@ function parseOptionalAnnotateCommandConfig(value: unknown, label: string): Anno
 	}
 
 	const record = asRecord(value, label);
-	return {
+	const parsed: AnnotateCommandConfig = {
 		waiting_message_ms: parseOptionalNonNegativeInteger(record.waiting_message_ms, `${label}.waiting_message_ms`),
 		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
 	};
+	assignDefined(parsed, 'include_lens', parseOptionalBoolean(record.include_lens, `${label}.include_lens`));
+	return parsed;
 }
 
 function parseOptionalAgentOptionsConfig(value: unknown, label: string): AgentOptionsConfig | undefined {
@@ -683,8 +714,8 @@ function parseOptionalString(value: unknown, label: string): string | undefined 
 }
 
 function requireCoordinate(value: unknown, label: string): number {
-	if (typeof value !== 'number' || !Number.isInteger(value) || value < 0) {
-		throw new Error(`${label} must be a non-negative integer`);
+	if (typeof value !== 'number' || !Number.isInteger(value) || value < 1) {
+		throw new Error(`${label} must be a positive 1-based integer`);
 	}
 
 	return value;

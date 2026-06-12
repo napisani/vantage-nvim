@@ -15,13 +15,14 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 - `:VantageAnnotationClear`
 - `:VantageAnnotationStatus`
 - `:VantageContextStatus`
+- `:VantageSearch find related code paths`
 - `:VantageAgentStatus`
+- `:VantageAgentCancel`
 - `:VantageAgentReset`
-- `:VantageReviewHunk`
 
 ## Installation
 
-vantage.nvim needs Neovim 0.10+, Node.js 22+, and pnpm 10+. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `pnpm install --prod --frozen-lockfile` in the plugin directory so runtime Node dependencies are available.
+vantage.nvim needs Neovim 0.10+, Node.js 22+, and npm. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `npm ci --omit=dev` in the plugin directory so runtime Node dependencies are available.
 
 ### lazy.nvim
 
@@ -30,7 +31,7 @@ vantage.nvim needs Neovim 0.10+, Node.js 22+, and pnpm 10+. Install from the gen
   "napisani/vantage-nvim",
   name = "vantage.nvim",
   branch = "dist",
-  build = "pnpm install --prod --frozen-lockfile",
+  build = "npm ci --omit=dev",
   config = function()
     require("vantage").setup({
       agent = {
@@ -45,7 +46,7 @@ vantage.nvim needs Neovim 0.10+, Node.js 22+, and pnpm 10+. Install from the gen
 ### vim-plug
 
 ```vim
-Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'pnpm install --prod --frozen-lockfile' }
+Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
 ```
 
 Then configure vantage.nvim from your Lua config:
@@ -65,7 +66,7 @@ require("vantage").setup({
 git clone --branch dist https://github.com/napisani/vantage-nvim \
   "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
 cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
-pnpm install --prod --frozen-lockfile
+npm ci --omit=dev
 ```
 
 ## Agent Runtime
@@ -100,7 +101,7 @@ If `agent.options.apiKey` is set, Vantage passes it to Pi. If it is omitted, Van
 For subscription-backed providers such as `openai-codex`, log in with Pi once. If Pi writes `auth.json` to the current directory, move it to the default Pi config path:
 
 ```bash
-pnpm dlx @earendil-works/pi-ai login openai-codex
+npx @earendil-works/pi-ai login openai-codex
 mkdir -p ~/.config/pi
 mv auth.json ~/.config/pi/auth.json
 ```
@@ -121,7 +122,7 @@ require("vantage").setup({
 
 Do not commit Pi OAuth auth files. This repository ignores `auth.json` by default because it can contain refresh tokens.
 
-Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, question, edit, annotate, and review commands share the same scoped session. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
+Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, question, edit, annotate, and search commands share the same scoped session. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
 
 ## Configuration Reference
 
@@ -169,9 +170,6 @@ require("vantage").setup({
         maxTokens = 256,
         timeoutMs = 300000,
       },
-    },
-    review = {
-      options = {},
     },
   },
   ui = {
@@ -273,7 +271,7 @@ Update it after meaningful changes: plan changes, important files or constraints
 Do not update it after every command, file read, or tool call.
 ```
 
-Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, `:VantageAnnotate visible`, and `:VantageReviewHunk`; Vantage includes the snapshot automatically when it is available.
+Use `:VantageContextStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, and `:VantageAnnotate visible`; Vantage includes the snapshot automatically when it is available.
 
 When Agent Sessions are enabled, Vantage tracks the context file revision and injects an Agent Context update turn only when the file changes for the current scoped session. The active lens still has higher precedence than the adjacent-agent context.
 
@@ -285,11 +283,11 @@ See `docs/agent-context.md` for the full artifact convention and design notes. T
 
 ## Development
 
-Install mise-managed pnpm and project dependencies:
+Install mise-managed Node.js and project dependencies:
 
 ```bash
 mise install
-mise exec -- pnpm install
+mise exec -- npm install
 ```
 
 Run the full local test suite:
@@ -301,13 +299,13 @@ make test
 Run backend tests only:
 
 ```bash
-pnpm test:backend
+npm run test:backend
 ```
 
 Run headless Neovim tests only:
 
 ```bash
-pnpm test:nvim
+npm run test:nvim
 ```
 
 Run the annotation e2e test through the bundled stdio backend with the deterministic development agent runtime:
@@ -318,12 +316,25 @@ make e2e-annotations
 
 This writes `.nvim-dev/e2e/annotations.json` with the extmarks Neovim rendered.
 
+Run the local-only real-model e2e command tour against `examples/e2e-codebase`:
+
+```bash
+make e2e-model
+```
+
+`make e2e-model` exercises every public Vantage command in one headless Neovim session using the Pi runtime. It defaults to `openai/gpt-4o-mini` and writes `.nvim-dev/e2e/model-all-commands.json`. Override the model target when needed:
+
+```bash
+make e2e-model PI_PROVIDER=openai PI_MODEL=gpt-4o-mini
+make e2e-model PI_PROVIDER=ollama PI_MODEL=<future-local-model>
+```
+
 ## Manual Neovim Smoke Test
 
 Compile the backend:
 
 ```bash
-pnpm compile
+npm run compile
 ```
 
 Open Neovim with only the repo-local development config:
@@ -363,7 +374,9 @@ Then run:
 :VantageEdit simplify this line
 :VantageAnnotate
 :VantageAnnotationClear
+:VantageSearch find related code paths
 :VantageAgentStatus
+:VantageAgentCancel
 :VantageAgentReset
 ```
 
@@ -405,7 +418,9 @@ Then run:
 
 `:VantageContextStatus` opens a status float for the current workspace's Agent Context File. It reports the resolved path, whether the file was included, size and included bytes, freshness, truncation, and read errors when relevant.
 
-`:VantageAgentStatus` opens a status float for the current Vantage Agent Session. `:VantageAgentReset` clears that session. The session scope is workspace root plus model target plus lens mode, so explain, question, edit, annotate, and review share context without mixing separate workspaces or lens modes.
+`:VantageSearch [query]` runs an explicit agentic project search and opens the final curated locations in quickfix. It also accepts Vim line ranges; ranged search uses the selection as the trace seed.
+
+`:VantageAgentStatus` opens a status float for the current Vantage buddy session. `:VantageAgentCancel` cancels the active agentic request. `:VantageAgentReset` clears the singleton in-memory buddy session. Explain, question, edit, and search share that session; annotations use transient sessions and do not enter buddy memory. For review-style feedback, use `:VantageQuestion review this for correctness and clarity`.
 
 `VantageAnnotate` accepts simple scope and budget arguments:
 

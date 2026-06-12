@@ -10,7 +10,7 @@ test('parseBackendRequest accepts an explainSelection request', () => {
 			filePath: '/repo/example.ex',
 			language: 'elixir',
 			text: 'defmodule Example do\nend',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: 'defmodule Example do\nend',
 			lens: { mode: 'learning', text: 'I am learning Elixir syntax' },
 		},
@@ -30,7 +30,7 @@ test('parseBackendRequest accepts a questionSelection request', () => {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: 'const value = 1;',
 			question: 'Why is this constant useful?',
 		},
@@ -49,8 +49,8 @@ test('parseBackendRequest accepts an editSelection request', () => {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
-			range: { startLine: 0, startCharacter: 0, endLine: 0, endCharacter: 16 },
+			cursor: { line: 1, character: 1 },
+			range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 16 },
 			selectedText: 'const value = 1;',
 			instruction: 'Rename value to count.',
 		},
@@ -58,7 +58,25 @@ test('parseBackendRequest accepts an editSelection request', () => {
 
 	assert.equal(parsed.method, 'editSelection');
 	assert.equal(parsed.params.instruction, 'Rename value to count.');
-	assert.equal(parsed.params.range.startLine, 0);
+	assert.equal(parsed.params.range.startLine, 1);
+});
+
+test('parseBackendRequest accepts a searchLocations request', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-search',
+		method: 'searchLocations',
+		params: {
+			workspaceRoot: '/repo',
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 1, character: 1 },
+			query: 'find related factory calls',
+		},
+	});
+
+	assert.equal(parsed.method, 'searchLocations');
+	assert.equal(parsed.params.query, 'find related factory calls');
 });
 
 test('parseBackendRequest accepts annotation candidate lines', () => {
@@ -69,13 +87,13 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const one = 1;\n// comment\nconst two = one + 1;',
-			cursor: { line: 2, character: 0 },
-			visibleRange: { startLine: 10, startCharacter: 0, endLine: 12, endCharacter: 20 },
+			cursor: { line: 12, character: 1 },
+			visibleRange: { startLine: 10, startCharacter: 1, endLine: 12, endCharacter: 20 },
 			scopeText: 'const one = 1;\n// comment\nconst two = one + 1;',
 			maxAnnotations: 5,
 			candidateLines: [
-				{ line: 0, text: 'const one = 1;' },
-				{ line: 2, text: 'const two = one + 1;' },
+				{ line: 10, text: 'const one = 1;' },
+				{ line: 12, text: 'const two = one + 1;' },
 			],
 		},
 	});
@@ -83,8 +101,8 @@ test('parseBackendRequest accepts annotation candidate lines', () => {
 	assert.equal(parsed.method, 'annotateRange');
 	assert.equal(parsed.params.maxAnnotations, 5);
 	assert.deepEqual(parsed.params.candidateLines, [
-		{ line: 0, text: 'const one = 1;' },
-		{ line: 2, text: 'const two = one + 1;' },
+		{ line: 10, text: 'const one = 1;' },
+		{ line: 12, text: 'const two = one + 1;' },
 	]);
 });
 
@@ -97,7 +115,7 @@ test('parseBackendRequest accepts agent task context', () => {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: 'const value = 1;',
 			agentContext: {
 				path: '/repo/.vantage/agent-context.md',
@@ -173,7 +191,7 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 			filePath: '/repo/example.ts',
 			language: 'typescript',
 			text: 'const value = 1;',
-			cursor: { line: 0, character: 0 },
+			cursor: { line: 1, character: 1 },
 			selectedText: 'const value = 1;',
 		},
 	});
@@ -230,7 +248,7 @@ test('parseBackendRequest rejects invalid annotation budgets', () => {
 					filePath: '/repo/example.ts',
 					language: 'typescript',
 					text: 'const value = 1;',
-					cursor: { line: 0, character: 0 },
+					cursor: { line: 1, character: 1 },
 					scopeText: 'const value = 1;',
 					maxAnnotations: 0,
 				},
@@ -263,11 +281,11 @@ test('parseBackendRequest rejects negative cursor coordinates', () => {
 					filePath: '/repo/example.ex',
 					language: 'elixir',
 					text: 'defmodule Example do\nend',
-					cursor: { line: -1, character: 0 },
+					cursor: { line: 0, character: 1 },
 					selectedText: 'defmodule Example do\nend',
 				},
 			}),
-		/params.cursor.line must be a non-negative integer/
+		/params.cursor.line must be a positive 1-based integer/
 	);
 });
 
@@ -281,11 +299,11 @@ test('parseBackendRequest rejects floating range coordinates', () => {
 					filePath: '/repo/example.ts',
 					language: 'typescript',
 					text: 'const value = 1;',
-					cursor: { line: 0, character: 0 },
-					visibleRange: { startLine: 1.5, startCharacter: 0, endLine: 1, endCharacter: 16 },
+					cursor: { line: 1, character: 1 },
+					visibleRange: { startLine: 1.5, startCharacter: 1, endLine: 1, endCharacter: 16 },
 					scopeText: 'const value = 1;',
 				},
 			}),
-		/params.visibleRange.startLine must be a non-negative integer/
+		/params.visibleRange.startLine must be a positive 1-based integer/
 	);
 });

@@ -2,7 +2,7 @@
 
 ## Context
 
-Vantage is a Neovim-native assistant that explains, annotates, and reviews code through a user-directed lens. It is often used beside a separate coding agent such as Codex, Claude Code, opencode, or Pi. Those adjacent agents build task-specific understanding that Vantage cannot see today, so Vantage responses are grounded only in editor context, selected code, and the active lens.
+Vantage is a Neovim-native assistant that explains, annotates, edits, searches, and answers questions about code through a user-directed lens. It is often used beside a separate coding agent such as Codex, Claude Code, opencode, or Pi. Those adjacent agents build task-specific understanding that Vantage cannot see today, so Vantage responses are grounded only in editor context, selected code, and the active lens.
 
 The goal is to let Vantage use the adjacent agent's distilled task understanding without coupling Vantage to any specific agent runtime.
 
@@ -129,7 +129,7 @@ For an agent-runtime command, the Lua plugin resolves the current buffer's works
 
 ## Request Flow
 
-1. User invokes `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, `:VantageAnnotate`, or `:VantageReviewHunk`.
+1. User invokes `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, `:VantageAnnotate`, or `:VantageSearch`.
 2. Lua captures the existing editor context and lens.
 3. Lua resolves and reads the Agent Context File when enabled.
 4. Lua attaches workspace root plus agent context metadata, revision, and content to request params.
@@ -208,7 +208,7 @@ It should show:
 - whether tail truncation occurred
 - read error details when relevant
 
-Normal agent-runtime commands should not display context status automatically. Missing or unreadable context is not an error for explain, question, edit, annotate, or review commands.
+Normal agent-runtime commands should not display context status automatically. Missing or unreadable context is not an error for explain, question, edit, annotate, or search commands.
 
 ## Git Hygiene
 

@@ -42,7 +42,11 @@ end
 ---@field trace? VantageAgentTraceConfig
 
 ---@class VantageCommandConfig
+---@field include_lens? boolean
 ---@field options? VantageAgentOptions
+
+---@class VantageSearchCommandConfig: VantageCommandConfig
+---@field default_prompt? string
 
 ---@class VantageAnnotateCommandConfig: VantageCommandConfig
 ---@field waiting_message_ms? integer
@@ -52,7 +56,7 @@ end
 ---@field question? VantageCommandConfig
 ---@field edit? VantageCommandConfig
 ---@field annotate? VantageAnnotateCommandConfig
----@field review? VantageCommandConfig
+---@field search? VantageSearchCommandConfig
 
 ---@class VantageAgentContextConfig
 ---@field enabled? boolean
@@ -72,6 +76,7 @@ end
 ---@field lens? VantageInputOptions
 ---@field question? VantageInputOptions
 ---@field edit? VantageInputOptions
+---@field search? VantageInputOptions
 
 ---@class VantageUiConfig
 ---@field input? VantageInputConfig
@@ -106,22 +111,28 @@ local function default_config()
 		},
 		commands = {
 			explain = {
+				include_lens = true,
 				options = {},
 			},
 			question = {
+				include_lens = false,
 				options = {},
 			},
 			edit = {
+				include_lens = false,
 				options = {},
 			},
 			annotate = {
+				include_lens = true,
 				waiting_message_ms = 30000,
 				options = {
 					maxTokens = 256,
 					timeoutMs = 300000,
 				},
 			},
-			review = {
+			search = {
+				include_lens = true,
+				default_prompt = "Find related code paths and explain why they matter.",
 				options = {},
 			},
 		},
@@ -136,6 +147,9 @@ local function default_config()
 				},
 				edit = {
 					prompt = "Vantage edit: ",
+				},
+				search = {
+					prompt = "Vantage search: ",
 				},
 			},
 		},
