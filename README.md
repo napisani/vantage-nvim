@@ -21,7 +21,7 @@ The current architecture is a Lua Neovim plugin plus a local TypeScript backend.
 
 ## Installation
 
-vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `npm ci --omit=dev` in the plugin directory so runtime Node dependencies are available.
+vantage.nvim needs Neovim 0.10+, Node.js 22+, and pnpm 10+. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `pnpm install --prod --frozen-lockfile` in the plugin directory so runtime Node dependencies are available.
 
 ### lazy.nvim
 
@@ -30,7 +30,7 @@ vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dis
   "napisani/vantage-nvim",
   name = "vantage.nvim",
   branch = "dist",
-  build = "npm ci --omit=dev",
+  build = "pnpm install --prod --frozen-lockfile",
   config = function()
     require("vantage").setup({
       agent = {
@@ -45,7 +45,7 @@ vantage.nvim needs Neovim 0.10+ and Node.js 22+. Install from the generated `dis
 ### vim-plug
 
 ```vim
-Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
+Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'pnpm install --prod --frozen-lockfile' }
 ```
 
 Then configure vantage.nvim from your Lua config:
@@ -65,7 +65,7 @@ require("vantage").setup({
 git clone --branch dist https://github.com/napisani/vantage-nvim \
   "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
 cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
-npm ci --omit=dev
+pnpm install --prod --frozen-lockfile
 ```
 
 ## Agent Runtime
@@ -100,7 +100,7 @@ If `agent.options.apiKey` is set, Vantage passes it to Pi. If it is omitted, Van
 For subscription-backed providers such as `openai-codex`, log in with Pi once. If Pi writes `auth.json` to the current directory, move it to the default Pi config path:
 
 ```bash
-npx @earendil-works/pi-ai login openai-codex
+pnpm dlx @earendil-works/pi-ai login openai-codex
 mkdir -p ~/.config/pi
 mv auth.json ~/.config/pi/auth.json
 ```
@@ -285,10 +285,11 @@ See `docs/agent-context.md` for the full artifact convention and design notes. T
 
 ## Development
 
-Install dependencies:
+Install mise-managed pnpm and project dependencies:
 
 ```bash
-npm install
+mise install
+mise exec -- pnpm install
 ```
 
 Run the full local test suite:
@@ -300,13 +301,13 @@ make test
 Run backend tests only:
 
 ```bash
-npm run test:backend
+pnpm test:backend
 ```
 
 Run headless Neovim tests only:
 
 ```bash
-npm run test:nvim
+pnpm test:nvim
 ```
 
 Run the annotation e2e test through the bundled stdio backend with the deterministic development agent runtime:
@@ -322,7 +323,7 @@ This writes `.nvim-dev/e2e/annotations.json` with the extmarks Neovim rendered.
 Compile the backend:
 
 ```bash
-npm run compile
+pnpm compile
 ```
 
 Open Neovim with only the repo-local development config:

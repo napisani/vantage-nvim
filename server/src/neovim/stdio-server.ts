@@ -1,7 +1,9 @@
 import * as readline from 'node:readline';
-import { handleBackendRequest } from './handlers';
+import { Effect } from 'effect';
+import { handleBackendRequestEffect } from './handlers';
 import { parseBackendRequest } from './protocol';
-import type { AgentRuntimeProgress, BackendResponse } from './protocol';
+import { BadRequestError, errorMessage, JsonParseError } from './effect-errors';
+import type { AgentRuntimeProgress, BackendRequest, BackendResponse } from './protocol';
 
 const writeResponse = (response: BackendResponse): void => {
 	process.stdout.write(`${JSON.stringify(response)}\n`);
@@ -18,22 +20,22 @@ const interfaceReader = readline.createInterface({
 
 const inFlight = new Map<string, AbortController>();
 
+type UnknownRecord = Record<string, unknown>;
+
 function tryHandleCancel(raw: unknown): boolean {
-	if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) {
+	if (!isUnknownRecord(raw)) {
 		return false;
 	}
 
-	const record = raw as { method?: unknown; params?: unknown };
-	if (record.method !== 'cancelRequest') {
+	if (raw.method !== 'cancelRequest') {
 		return false;
 	}
 
-	const params = record.params;
-	if (typeof params !== 'object' || params === null || Array.isArray(params)) {
+	if (!isUnknownRecord(raw.params)) {
 		return true;
 	}
 
-	const requestId = (params as { id?: unknown }).id;
+	const requestId = raw.params.id;
 	if (typeof requestId !== 'string') {
 		return true;
 	}
@@ -42,43 +44,86 @@ function tryHandleCancel(raw: unknown): boolean {
 	return true;
 }
 
+function isUnknownRecord(value: unknown): value is UnknownRecord {
+	return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 interfaceReader.on('line', (line) => {
-	void (async () => {
+	void Effect.runPromise(handleLineEffect(line));
+});
+
+function handleLineEffect(line: string): Effect.Effect<void> {
+	let requestId = 'unknown';
+
+	return Effect.gen(function* () {
 		if (line.trim().length === 0) {
 			return;
 		}
 
-		let requestId = 'unknown';
-		try {
-			const raw = JSON.parse(line) as unknown;
-			if (tryHandleCancel(raw)) {
-				return;
-			}
-			const request = parseBackendRequest(raw);
-			requestId = request.id;
-			const controller = new AbortController();
-			inFlight.set(request.id, controller);
-			try {
-				writeResponse(
-					await handleBackendRequest(request, undefined, {
-						signal: controller.signal,
-						reportProgress: (progress) => {
-							writeProgress(request.id, progress);
-						},
-					})
-				);
-			} finally {
-				inFlight.delete(request.id);
-			}
-		} catch (error) {
-			writeResponse({
-				id: requestId,
-				ok: false,
-				error: {
-					code: 'bad_request',
-					message: error instanceof Error ? error.message : String(error),
-				},
-			});
+		const raw = yield* parseJsonLineEffect(line);
+		if (tryHandleCancel(raw)) {
+			return;
 		}
-	})();
-});
+
+		const request = yield* parseRequestEffect(raw);
+		requestId = request.id;
+		const controller = new AbortController();
+		yield* Effect.sync(() => {
+			inFlight.set(request.id, controller);
+		});
+		const response = yield* handleBackendRequestEffect(request, undefined, {
+			signal: controller.signal,
+			reportProgress: (progress) => {
+				writeProgress(request.id, progress);
+			},
+		}).pipe(
+			Effect.ensuring(Effect.sync(() => {
+				inFlight.delete(request.id);
+			}))
+		);
+		yield* writeResponseEffect(response);
+	}).pipe(
+		Effect.catchAll((error) => writeResponseEffect(badRequestResponse(requestId, error))),
+		Effect.catchAllDefect((defect) => writeResponseEffect(badRequestResponse(requestId, defect)))
+	);
+}
+
+function parseJsonLineEffect(line: string): Effect.Effect<unknown, JsonParseError> {
+	return Effect.try({
+		try: () => {
+			const parsed: unknown = JSON.parse(line);
+			return parsed;
+		},
+		catch: (cause) => new JsonParseError({
+			message: errorMessage(cause),
+			cause,
+		}),
+	});
+}
+
+function parseRequestEffect(raw: unknown): Effect.Effect<BackendRequest, BadRequestError> {
+	return Effect.try({
+		try: () => parseBackendRequest(raw),
+		catch: (cause) => new BadRequestError({
+			message: errorMessage(cause),
+			cause,
+		}),
+	});
+}
+
+function writeResponseEffect(response: BackendResponse): Effect.Effect<void> {
+	return Effect.sync(() => {
+		writeResponse(response);
+	});
+}
+
+function badRequestResponse(id: string, error: unknown): BackendResponse {
+	return {
+		id,
+		ok: false,
+		error: {
+			code: 'bad_request',
+			message: errorMessage(error),
+		},
+	};
+}

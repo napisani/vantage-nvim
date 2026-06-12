@@ -9,6 +9,7 @@
     "url": "https://github.com/napisani/vantage-nvim"
   },
   "private": true,
+  "packageManager": "pnpm@10.33.2",
   "keywords": [
     "neovim",
     "ai",
@@ -16,16 +17,16 @@
     "learning"
   ],
   "scripts": {
-    "build:plugin": "npm run compile && node scripts/build-plugin-package.mjs",
+    "build:plugin": "pnpm compile && node scripts/build-plugin-package.mjs",
     "compile": "tsc -b server",
     "clean:server": "node -e \"require('node:fs').rmSync('server/out', { recursive: true, force: true })\"",
     "watch": "tsc -b server -w",
     "lint": "eslint \"server/src/neovim/**/*.ts\"",
-    "test": "npm run test:mvp",
-    "dev": "nodemon --watch server/src --exec \"npm run compile\"",
-    "test:backend": "npm run clean:server && npm run compile && node --test server/out/neovim/*.test.js",
+    "test": "pnpm test:mvp",
+    "dev": "nodemon --watch server/src --exec \"pnpm compile\"",
+    "test:backend": "pnpm clean:server && pnpm compile && node --test server/out/neovim/*.test.js",
     "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
-    "test:mvp": "npm run test:backend && npm run test:nvim"
+    "test:mvp": "pnpm test:backend && pnpm test:nvim"
   },
   "devDependencies": {
     "@eslint/js": "^9.13.0",
@@ -37,6 +38,7 @@
     "typescript-eslint": "^8.39.0"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.74.0"
+    "@earendil-works/pi-ai": "^0.74.0",
+    "effect": "^3.21.2"
   }
 }

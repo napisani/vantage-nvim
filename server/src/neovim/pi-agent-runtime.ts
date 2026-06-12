@@ -1,5 +1,6 @@
 import * as fs from 'node:fs/promises';
 import * as path from 'node:path';
+import { Clock, Effect, Schedule } from 'effect';
 import type { Api, Context, KnownProvider, Model, SimpleStreamOptions, StopReason } from '@earendil-works/pi-ai';
 import type {
 	AgentCacheRetention,
@@ -38,6 +39,16 @@ import {
 	type SessionState,
 } from './agent-session';
 import { PiOAuthCredentialResolver, type PiCredentialResolver } from './pi-oauth-auth';
+import {
+	CredentialResolutionError,
+	EmptyModelResponseError,
+	errorMessage,
+	ModelCompletionError,
+	ModelRequestCancelledError,
+	ModelRequestTimedOutError,
+	TraceWriteError,
+	UnexpectedModelResponseError,
+} from './effect-errors';
 
 export interface CommandAgentOptions {
 	explain?: AgentOptionsConfig;
@@ -265,124 +276,183 @@ export class PiAgentRuntime implements AgentRuntime {
 	}
 
 	private async runPi(params: BaseRequestParams, prompt: string, runOptions: RunPiOptions): Promise<RunPiResult> {
-		await writeOptionalTrace(this.tracePromptPath, prompt);
-		const startedAt = Date.now();
-		const options = normalizeOptionsForProvider(
-			this.provider,
-			mergeOptions(this.options, runOptions.defaults, this.commandOptions[runOptions.command], {
-				signal: runOptions.signal,
-			})
-		);
-		const promptLines = prompt.split('\n').length;
-		reportProgress(runOptions, 'prompt_ready', 'Prepared Pi prompt.', {
-			command: runOptions.command,
-			provider: this.provider,
-			model: this.model,
-			promptChars: prompt.length,
-			promptLines,
-			sessionEnabled: this.session.enabled,
-			timeoutMs: options.timeoutMs,
-			maxTokens: options.maxTokens,
-			reasoning: options.reasoning,
-		});
-		const userMessage = userMessageFor(prompt);
-		const invocation = this.session.enabled
-			? this.sessions.createInvocation(params, this.modelTarget(), userMessage)
-			: undefined;
-		const context = invocation?.context ?? { messages: [userMessage] };
-		const completionOptions = await this.resolveCredentials(params, {
-			...options,
-			...(invocation?.options ?? {}),
-		}, runOptions.reportProgress);
-		reportProgress(runOptions, 'model_request_started', 'Sent request to Pi model runtime.', {
-			command: runOptions.command,
-			provider: this.provider,
-			model: this.model,
-			timeoutMs: completionOptions.timeoutMs,
-			maxTokens: completionOptions.maxTokens,
-			reasoning: completionOptions.reasoning,
-			sessionId: completionOptions.sessionId,
-			cacheRetention: completionOptions.cacheRetention,
-			hasApiKey: typeof completionOptions.apiKey === 'string' && completionOptions.apiKey.length > 0,
-		});
-		const assistantMessage = await this.completeWithTimeout(context, completionOptions);
-		reportProgress(runOptions, 'model_response_received', 'Pi model runtime returned a response.', {
-			command: runOptions.command,
-			provider: this.provider,
-			model: this.model,
-			elapsedMs: Date.now() - startedAt,
-			contentBlocks: assistantMessage.content.length,
-			stopReason: assistantMessage.stopReason,
-		});
-		const content = extractAssistantText(assistantMessage);
-
-		if (content.trim().length === 0) {
-			throw new Error('Pi produced an empty response.');
-		}
-
-		if (invocation) {
-			this.recordSuccessfulTurn(invocation.session, userMessage, assistantMessage);
-		}
-
-		await writeOptionalTrace(this.traceResponsePath, content);
-		const returnedContent = runOptions.trimContent === false ? content : content.trim();
-		return {
-			content: returnedContent,
-			telemetry: {
-				runtime: 'pi',
-				model: `${this.provider}/${this.model}`,
-				promptChars: prompt.length,
-				promptLines,
-				elapsedMs: Date.now() - startedAt,
-			},
-		};
+		return Effect.runPromise(Effect.raceFirst(
+			this.runPiEffect(params, prompt, runOptions),
+			abortSignalEffect(runOptions.signal)
+		));
 	}
 
-	private async resolveCredentials(
+	private runPiEffect(
+		params: BaseRequestParams,
+		prompt: string,
+		runOptions: RunPiOptions
+	): Effect.Effect<
+		RunPiResult,
+		| TraceWriteError
+		| CredentialResolutionError
+		| ModelCompletionError
+		| ModelRequestTimedOutError
+		| ModelRequestCancelledError
+		| EmptyModelResponseError
+		| UnexpectedModelResponseError
+	> {
+		const {
+			provider,
+			model,
+			options: agentOptions,
+			commandOptions,
+			session,
+			sessions,
+			tracePromptPath,
+			traceResponsePath,
+		} = this;
+		const modelTarget = this.modelTarget();
+		const resolveCredentials = (completionParams: BaseRequestParams, completionOptions: PiCompleteOptions) =>
+			this.resolveCredentialsEffect(completionParams, completionOptions, runOptions.reportProgress);
+		const completeWithTimeout = (context: PiContext, completionOptions: PiCompleteOptions) =>
+			this.completeWithTimeoutEffect(context, completionOptions);
+		const recordSuccessfulTurn = (
+			sessionState: SessionState,
+			userMessage: AgentSessionMessage,
+			assistantMessage: PiAssistantMessage
+		) => {
+			this.recordSuccessfulTurn(sessionState, userMessage, assistantMessage);
+		};
+
+		return Effect.gen(function* () {
+			yield* writeOptionalTraceEffect(tracePromptPath, prompt);
+			const startedAt = yield* Clock.currentTimeMillis;
+			const options = normalizeOptionsForProvider(
+				provider,
+				mergeOptions(agentOptions, runOptions.defaults, commandOptions[runOptions.command], {
+					signal: runOptions.signal,
+				})
+			);
+			const promptLines = prompt.split('\n').length;
+			reportProgress(runOptions, 'prompt_ready', 'Prepared Pi prompt.', {
+				command: runOptions.command,
+				provider,
+				model,
+				promptChars: prompt.length,
+				promptLines,
+				sessionEnabled: session.enabled,
+				timeoutMs: options.timeoutMs,
+				maxTokens: options.maxTokens,
+				reasoning: options.reasoning,
+			});
+			const userMessage = userMessageFor(prompt);
+			const invocation = session.enabled
+				? sessions.createInvocation(params, modelTarget, userMessage)
+				: undefined;
+			const context = invocation?.context ?? { messages: [userMessage] };
+			const completionOptions = yield* resolveCredentials(params, {
+				...options,
+				...(invocation?.options ?? {}),
+			});
+			reportProgress(runOptions, 'model_request_started', 'Sent request to Pi model runtime.', {
+				command: runOptions.command,
+				provider,
+				model,
+				timeoutMs: completionOptions.timeoutMs,
+				maxTokens: completionOptions.maxTokens,
+				reasoning: completionOptions.reasoning,
+				sessionId: completionOptions.sessionId,
+				cacheRetention: completionOptions.cacheRetention,
+				hasApiKey: typeof completionOptions.apiKey === 'string' && completionOptions.apiKey.length > 0,
+			});
+			const assistantMessage = yield* completeWithTimeout(context, completionOptions);
+			const responseReceivedAt = yield* Clock.currentTimeMillis;
+			reportProgress(runOptions, 'model_response_received', 'Pi model runtime returned a response.', {
+				command: runOptions.command,
+				provider,
+				model,
+				elapsedMs: responseReceivedAt - startedAt,
+				contentBlocks: assistantMessage.content.length,
+				stopReason: assistantMessage.stopReason,
+			});
+			const content = yield* extractAssistantTextEffect(assistantMessage);
+
+			if (content.trim().length === 0) {
+				return yield* new EmptyModelResponseError({
+					message: 'Pi produced an empty response.',
+				});
+			}
+
+			if (invocation) {
+				recordSuccessfulTurn(invocation.session, userMessage, assistantMessage);
+			}
+
+			yield* writeOptionalTraceEffect(traceResponsePath, content);
+			const completedAt = yield* Clock.currentTimeMillis;
+			const returnedContent = runOptions.trimContent === false ? content : content.trim();
+			const telemetry: RunPiResult['telemetry'] = {
+				runtime: 'pi',
+				model: `${provider}/${model}`,
+				promptChars: prompt.length,
+				promptLines,
+				elapsedMs: completedAt - startedAt,
+			};
+			return {
+				content: returnedContent,
+				telemetry,
+			};
+		});
+	}
+
+	private resolveCredentialsEffect(
 		params: BaseRequestParams,
 		options: PiCompleteOptions,
 		reporter: ((progress: AgentRuntimeProgress) => void) | undefined
-	): Promise<PiCompleteOptions> {
-		reporter?.({
-			stage: 'credentials_check',
-			message: 'Checking configured API key and Pi OAuth credentials.',
-			details: {
-				provider: this.provider,
-				authPath: this.auth?.path,
-				hasConfiguredApiKey: typeof options.apiKey === 'string' && options.apiKey.trim().length > 0,
-			},
-		});
-
-		if (typeof options.apiKey === 'string' && options.apiKey.trim().length > 0) {
+	): Effect.Effect<PiCompleteOptions, CredentialResolutionError> {
+		const { provider, auth, credentialResolver } = this;
+		return Effect.gen(function* () {
 			reporter?.({
-				stage: 'credentials_configured',
-				message: 'Using API key from Vantage configuration.',
-				details: { provider: this.provider, source: 'agent.options.apiKey' },
+				stage: 'credentials_check',
+				message: 'Checking configured API key and Pi OAuth credentials.',
+				details: {
+					provider,
+					authPath: auth?.path,
+					hasConfiguredApiKey: typeof options.apiKey === 'string' && options.apiKey.trim().length > 0,
+				},
 			});
-			return options;
-		}
 
-		const credentialRequest = {
-			provider: this.provider,
-			auth: this.auth,
-			workspaceRoot: params.workspaceRoot,
-		};
-		const apiKey = await this.credentialResolver.resolveApiKey(
-			reporter ? { ...credentialRequest, reportProgress: reporter } : credentialRequest
-		);
+			if (typeof options.apiKey === 'string' && options.apiKey.trim().length > 0) {
+				reporter?.({
+					stage: 'credentials_configured',
+					message: 'Using API key from Vantage configuration.',
+					details: { provider, source: 'agent.options.apiKey' },
+				});
+				return options;
+			}
 
-		reporter?.({
-			stage: apiKey ? 'credentials_resolved' : 'credentials_unresolved',
-			message: apiKey
-				? 'Resolved Pi OAuth credentials for the model provider.'
-				: 'No Pi OAuth credentials were resolved; Pi/provider ambient auth may still be used.',
-			details: {
-				provider: this.provider,
-				source: apiKey ? 'pi_oauth' : 'ambient',
-			},
+			const credentialRequest = {
+				provider,
+				auth,
+				workspaceRoot: params.workspaceRoot,
+			};
+			const apiKey: string | undefined = yield* Effect.tryPromise({
+				try: () => credentialResolver.resolveApiKey(
+					reporter ? { ...credentialRequest, reportProgress: reporter } : credentialRequest
+				),
+				catch: (cause) => new CredentialResolutionError({
+					message: errorMessage(cause),
+					cause,
+				}),
+			});
+
+			reporter?.({
+				stage: apiKey ? 'credentials_resolved' : 'credentials_unresolved',
+				message: apiKey
+					? 'Resolved Pi OAuth credentials for the model provider.'
+					: 'No Pi OAuth credentials were resolved; Pi/provider ambient auth may still be used.',
+				details: {
+					provider,
+					source: apiKey ? 'pi_oauth' : 'ambient',
+				},
+			});
+
+			return apiKey ? { ...options, apiKey } : options;
 		});
-
-		return apiKey ? { ...options, apiKey } : options;
 	}
 
 	private modelTarget(): { provider: string; model: string } {
@@ -404,50 +474,28 @@ export class PiAgentRuntime implements AgentRuntime {
 		);
 	}
 
-	private async completeWithTimeout(context: PiContext, options: PiCompleteOptions): Promise<PiAssistantMessage> {
+	private completeWithTimeoutEffect(
+		context: PiContext,
+		options: PiCompleteOptions
+	): Effect.Effect<PiAssistantMessage, ModelCompletionError | ModelRequestTimedOutError | ModelRequestCancelledError> {
 		const timeoutMs = options.timeoutMs ?? DEFAULT_OPTIONS.timeoutMs;
-		const controller = new AbortController();
-		const runtimeOptions = { ...options, signal: controller.signal };
-		let timeout: ReturnType<typeof setTimeout> | undefined;
-		let removeAbortListener = (): void => {};
-
-		const completion = Promise.resolve().then(() =>
-			this.runtime.complete(this.provider, this.model, context, runtimeOptions)
+		const completion = Effect.tryPromise({
+			try: (signal) => this.runtime.complete(this.provider, this.model, context, { ...options, signal }),
+			catch: (cause) => new ModelCompletionError({
+				message: errorMessage(cause),
+				cause,
+			}),
+		}).pipe(
+			Effect.timeoutFail({
+				duration: `${timeoutMs} millis`,
+				onTimeout: () => new ModelRequestTimedOutError({
+					message: `Pi request timed out after ${timeoutMs}ms.`,
+					timeoutMs,
+				}),
+			})
 		);
-		completion.catch(() => undefined);
 
-		const timeoutPromise = new Promise<never>((_resolve, reject) => {
-			timeout = setTimeout(() => {
-				reject(new Error(`Pi request timed out after ${timeoutMs}ms.`));
-				controller.abort();
-			}, timeoutMs);
-		});
-
-		const abortPromise = new Promise<never>((_resolve, reject) => {
-			const abort = (): void => {
-				reject(new Error('Pi request cancelled.'));
-				controller.abort();
-			};
-
-			if (options.signal?.aborted) {
-				abort();
-				return;
-			}
-
-			options.signal?.addEventListener('abort', abort, { once: true });
-			removeAbortListener = (): void => {
-				options.signal?.removeEventListener('abort', abort);
-			};
-		});
-
-		try {
-			return await Promise.race([completion, timeoutPromise, abortPromise]);
-		} finally {
-			if (timeout) {
-				clearTimeout(timeout);
-			}
-			removeAbortListener();
-		}
+		return Effect.raceFirst(retryModelRequest(completion, options), abortSignalEffect(options.signal));
 	}
 }
 
@@ -524,28 +572,92 @@ function assistantMessageForHistory(
 	};
 }
 
-function extractAssistantText(message: PiAssistantMessage): string {
-	if (message.stopReason === 'error' && message.errorMessage) {
-		throw new Error(`Pi agent runtime failed: ${message.errorMessage}`);
+function retryModelRequest(
+	effect: Effect.Effect<PiAssistantMessage, ModelCompletionError | ModelRequestTimedOutError>,
+	options: PiCompleteOptions
+): Effect.Effect<PiAssistantMessage, ModelCompletionError | ModelRequestTimedOutError> {
+	const times = options.maxRetries ?? 0;
+	if (times <= 0) {
+		return effect;
 	}
 
-	const parts = message.content
-		.filter((block) => block.type === 'text' && typeof block.text === 'string')
-		.map((block) => block.text ?? '')
-		.filter((text) => text.trim().length > 0);
-
-	if (parts.length === 0) {
-		throw new Error('Pi agent runtime returned an unexpected response shape.');
+	const delayMs = options.maxRetryDelayMs ?? 0;
+	if (delayMs <= 0) {
+		return Effect.retry(effect, { times });
 	}
 
-	return parts.join('\n');
+	return Effect.retry(
+		effect,
+		Schedule.intersect(
+			Schedule.recurs(times),
+			Schedule.spaced(`${delayMs} millis`)
+		)
+	);
 }
 
-async function writeOptionalTrace(filePath: string | undefined, content: string): Promise<void> {
-	if (!filePath || filePath.trim() === '') {
-		return;
+function abortSignalEffect(signal: AbortSignal | undefined): Effect.Effect<never, ModelRequestCancelledError> {
+	if (!signal) {
+		return Effect.never;
 	}
 
-	await fs.mkdir(path.dirname(filePath), { recursive: true });
-	await fs.writeFile(filePath, content, 'utf8');
+	return Effect.async<never, ModelRequestCancelledError>((resume, fiberSignal) => {
+		const abort = (): void => {
+			resume(Effect.fail(new ModelRequestCancelledError({
+				message: 'Pi request cancelled.',
+			})));
+		};
+
+		if (signal.aborted) {
+			abort();
+			return;
+		}
+
+		signal.addEventListener('abort', abort, { once: true });
+		fiberSignal.addEventListener('abort', () => {
+			signal.removeEventListener('abort', abort);
+		}, { once: true });
+	});
+}
+
+function extractAssistantTextEffect(
+	message: PiAssistantMessage
+): Effect.Effect<string, ModelCompletionError | UnexpectedModelResponseError> {
+	return Effect.gen(function* () {
+		if (message.stopReason === 'error' && message.errorMessage) {
+			return yield* new ModelCompletionError({
+				message: `Pi agent runtime failed: ${message.errorMessage}`,
+			});
+		}
+
+		const parts = message.content
+			.filter((block) => block.type === 'text' && typeof block.text === 'string')
+			.map((block) => block.text ?? '')
+			.filter((text) => text.trim().length > 0);
+
+		if (parts.length === 0) {
+			return yield* new UnexpectedModelResponseError({
+				message: 'Pi agent runtime returned an unexpected response shape.',
+			});
+		}
+
+		return parts.join('\n');
+	});
+}
+
+function writeOptionalTraceEffect(filePath: string | undefined, content: string): Effect.Effect<void, TraceWriteError> {
+	if (!filePath || filePath.trim() === '') {
+		return Effect.void;
+	}
+
+	return Effect.tryPromise({
+		try: async () => {
+			await fs.mkdir(path.dirname(filePath), { recursive: true });
+			await fs.writeFile(filePath, content, 'utf8');
+		},
+		catch: (cause) => new TraceWriteError({
+			path: filePath,
+			message: `Failed to write Pi trace at ${filePath}: ${errorMessage(cause)}`,
+			cause,
+		}),
+	});
 }

@@ -71,6 +71,33 @@ class ErrorRuntime implements PiRuntime {
 	}
 }
 
+class FlakyRuntime implements PiRuntime {
+	readonly calls: RuntimeCall[] = [];
+	private failuresRemaining: number;
+
+	constructor(failures: number, private readonly content: string) {
+		this.failuresRemaining = failures;
+	}
+
+	async complete(
+		provider: string,
+		model: string,
+		context: PiContext,
+		options: PiCompleteOptions
+	): Promise<PiAssistantMessage> {
+		this.calls.push({ provider, model, context, options });
+		if (this.failuresRemaining > 0) {
+			this.failuresRemaining -= 1;
+			throw new Error('temporary Pi failure');
+		}
+
+		return {
+			role: 'assistant',
+			content: [{ type: 'text', text: this.content }],
+		};
+	}
+}
+
 test('PiAgentRuntime explainSelection uses openai/gpt-4o-mini defaults', async () => {
 	const runtime = new RecordingRuntime('## Pi explanation');
 	const agent = new PiAgentRuntime({ runtime });
@@ -338,6 +365,55 @@ test('PiAgentRuntime annotateRange enforces annotation timeout when the runtime 
 	);
 	assert.equal(runtime.calls[0].options.timeoutMs, 25);
 	assert.ok(runtime.calls[0].options.signal instanceof AbortSignal);
+});
+
+test('PiAgentRuntime retries transient model request failures when configured', async () => {
+	const runtime = new FlakyRuntime(2, '## Recovered response');
+	const agent = new PiAgentRuntime({
+		options: {
+			maxRetries: 2,
+		},
+		runtime,
+	});
+
+	const result = await agent.explainSelection({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		selectedText: 'const value = 1;',
+	});
+
+	assert.equal(result.markdown, '## Recovered response');
+	assert.equal(runtime.calls.length, 3);
+	assert.ok(runtime.calls.every((call) => call.options.signal instanceof AbortSignal));
+});
+
+test('PiAgentRuntime cancels in-flight model requests through AbortSignal', { timeout: 500 }, async () => {
+	const runtime = new HangingRuntime();
+	const agent = new PiAgentRuntime({
+		options: {
+			timeoutMs: 10_000,
+		},
+		runtime,
+	});
+	const controller = new AbortController();
+	const promise = agent.annotateRange({
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = 1;',
+		cursor: { line: 0, character: 0 },
+		scopeText: 'const value = 1;',
+	}, {
+		signal: controller.signal,
+	});
+
+	controller.abort();
+
+	await assert.rejects(
+		() => promise,
+		/Pi request cancelled/
+	);
 });
 
 test('PiAgentRuntime reports Pi runtime error messages from empty responses', async () => {

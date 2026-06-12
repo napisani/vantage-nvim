@@ -1,6 +1,6 @@
 ROOT := $(abspath $(dir $(lastword $(MAKEFILE_LIST))))
 NVIM ?= nvim
-NPM ?= npm
+PNPM ?= mise exec -- pnpm
 FILE ?= README.md
 DEV_HOME := $(ROOT)/.nvim-dev
 DEV_ENV := XDG_CONFIG_HOME="$(DEV_HOME)/config" XDG_DATA_HOME="$(DEV_HOME)/data" XDG_STATE_HOME="$(DEV_HOME)/state" XDG_CACHE_HOME="$(DEV_HOME)/cache"
@@ -26,13 +26,13 @@ trace-dirs: dev-dirs
 	mkdir -p "$(TRACE_DIR)"
 
 compile:
-	$(NPM) run compile
+	$(PNPM) run compile
 
 lint:
-	$(NPM) run lint
+	$(PNPM) run lint
 
 test: dev-dirs test-dev-init e2e-annotations
-	$(DEV_ENV) $(NPM) run test:mvp
+	$(DEV_ENV) $(PNPM) run test:mvp
 
 run: dev-dirs compile
 	$(DEV_ENV) $(NVIM) $(DEV_ROOT) --noplugin -u "$(ROOT)/nvim/dev/init.lua" "$(FILE)"
