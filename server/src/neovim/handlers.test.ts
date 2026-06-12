@@ -70,6 +70,8 @@ test('handleBackendRequest can use an injected agent runtime', async () => {
 		agentCancel: () => ({ kind: 'explanation', markdown: 'Injected cancel' }),
 		agentSessionReset: () => ({ kind: 'explanation', markdown: 'Injected reset' }),
 		agentSessionStatus: () => ({ kind: 'explanation', markdown: 'Injected status' }),
+		agentSessionOutput: () => ({ kind: 'explanation', markdown: 'Injected output' }),
+		listSkills: () => ({ kind: 'skills', skills: [] }),
 	};
 
 	const response = await handleBackendRequest(

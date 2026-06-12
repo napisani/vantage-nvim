@@ -6,6 +6,7 @@ local context = require("vantage.context")
 local input_ui = require("vantage.input")
 local model_command = require("vantage.model_command")
 local state = require("vantage.state")
+local session_output = require("vantage.session_output")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 
@@ -481,20 +482,30 @@ function M.annotation_status()
 	return status
 end
 
-function M.show_annotation_status()
-	local status = M.annotation_status()
-	ui.show_markdown(status_view.annotation(status))
-	vim.notify("Vantage annotation status: " .. tostring(status.status or "unknown"), vim.log.levels.INFO)
-end
-
 function M.agent_context_status()
 	return agent_context.snapshot()
 end
 
-function M.show_agent_context_status()
-	local snapshot = M.agent_context_status()
-	ui.show_markdown(status_view.agent_context(snapshot))
-	vim.notify("Vantage agent context status: " .. tostring(snapshot.status or "unknown"), vim.log.levels.INFO)
+local function agent_status_markdown(response)
+	if response and response.ok and response.result and response.result.markdown then
+		return response.result.markdown
+	end
+	local message = "Unknown backend error."
+	if response and response.error then
+		message = response.error.message or response.error
+	end
+	return "## Vantage Agent Session\n\n### Error\n\n" .. tostring(message)
+end
+
+function M.show_status()
+	backend.request("agentSessionStatus", context.current_line(), function(response)
+		ui.show_markdown(status_view.combined({
+			agent_markdown = agent_status_markdown(response),
+			agent_context = M.agent_context_status(),
+			annotation = M.annotation_status(),
+		}))
+		vim.notify("Vantage status shown", vim.log.levels.INFO)
+	end)
 end
 
 function M.set_lens(mode, text)
@@ -511,6 +522,10 @@ local function prompt_lens(mode)
 		end
 		M.set_lens(mode, text)
 	end)
+end
+
+function M.prompt_lens(mode)
+	prompt_lens(mode or "general")
 end
 
 function M.clear_lens()
@@ -674,8 +689,8 @@ function M.reset_agent_session()
 	model_command.reset_agent_session()
 end
 
-function M.show_agent_session_status()
-	model_command.show_agent_session_status()
+function M.session_output()
+	session_output.open()
 end
 
 local function recreate_command(name, command, opts)
@@ -727,12 +742,12 @@ function M.register()
 		M.clear_annotations()
 	end)
 
-	recreate_command(CommandNames.annotation_status, function()
-		M.show_annotation_status()
+	recreate_command(CommandNames.status, function()
+		M.show_status()
 	end)
 
-	recreate_command(CommandNames.context_status, function()
-		M.show_agent_context_status()
+	recreate_command(CommandNames.session_output, function()
+		M.session_output()
 	end)
 
 	recreate_command(CommandNames.search, function(opts)
@@ -745,10 +760,6 @@ function M.register()
 
 	recreate_command(CommandNames.agent_reset, function()
 		M.reset_agent_session()
-	end)
-
-	recreate_command(CommandNames.agent_status, function()
-		M.show_agent_session_status()
 	end)
 
 end

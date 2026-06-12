@@ -32,6 +32,9 @@ end
 ---@field max_turns? integer
 ---@field cacheRetention? "none"|"short"|"long"
 
+---@class VantageAgentSessionOutputConfig
+---@field history_limit? integer
+
 ---@class VantageAgentConfig
 ---@field runtime? "pi"|"development" Internal; development is for tests/local harnesses.
 ---@field provider? string
@@ -39,6 +42,7 @@ end
 ---@field auth? VantageAgentAuthConfig
 ---@field options? VantageAgentOptions
 ---@field session? VantageAgentSessionConfig
+---@field session_output? VantageAgentSessionOutputConfig
 ---@field trace? VantageAgentTraceConfig
 
 ---@class VantageCommandConfig
@@ -46,7 +50,6 @@ end
 ---@field options? VantageAgentOptions
 
 ---@class VantageSearchCommandConfig: VantageCommandConfig
----@field default_prompt? string
 
 ---@class VantageAnnotateCommandConfig: VantageCommandConfig
 ---@field waiting_message_ms? integer
@@ -78,8 +81,32 @@ end
 ---@field edit? VantageInputOptions
 ---@field search? VantageInputOptions
 
+---@class VantageOutputConfig
+---@field width? number
+---@field height? number
+---@field border? string|string[]
+---@field wrap? boolean
+
+---@class VantagePromptKeymapsConfig
+---@field submit? string|string[]
+---@field cancel? string|string[]
+
+---@class VantagePromptConfig
+---@field keymaps? VantagePromptKeymapsConfig
+
+---@class VantageSessionOutputKeymapsConfig
+---@field close? string|string[]
+---@field toggle_raw? string|string[]
+
+---@class VantageSessionOutputUiConfig
+---@field refresh_ms? integer
+---@field keymaps? VantageSessionOutputKeymapsConfig
+
 ---@class VantageUiConfig
 ---@field input? VantageInputConfig
+---@field output? VantageOutputConfig
+---@field prompt? VantagePromptConfig
+---@field session_output? VantageSessionOutputUiConfig
 
 ---@class VantageConfig
 ---@field backend? VantageBackendConfig Advanced backend transport settings.
@@ -108,6 +135,9 @@ local function default_config()
 				max_turns = 12,
 				cacheRetention = "short",
 			},
+			session_output = {
+				history_limit = 10,
+			},
 		},
 		commands = {
 			explain = {
@@ -132,11 +162,29 @@ local function default_config()
 			},
 			search = {
 				include_lens = true,
-				default_prompt = "Find related code paths and explain why they matter.",
 				options = {},
 			},
 		},
 		ui = {
+			output = {
+				width = 0.82,
+				height = 0.72,
+				border = "rounded",
+				wrap = true,
+			},
+			prompt = {
+				keymaps = {
+					submit = "<C-g>",
+					cancel = "<Esc>",
+				},
+			},
+			session_output = {
+				refresh_ms = 750,
+				keymaps = {
+					close = "q",
+					toggle_raw = "r",
+				},
+			},
 			input = {
 				provider = "vim.ui.input",
 				lens = {

@@ -133,6 +133,27 @@ local function development_response(method, params)
 		}
 	end
 
+	if method == "agentSessionOutput" then
+		return {
+			kind = "explanation",
+			markdown = "## Vantage Session Output\n\n### development · completed\n\nDevelopment backend session output.",
+		}
+	end
+
+	if method == "listSkills" then
+		return {
+			kind = "skills",
+			skills = {
+				{
+					name = "development-skill",
+					description = "Development backend placeholder skill.",
+					filePath = "/development/SKILL.md",
+					source = "development",
+				},
+			},
+		}
+	end
+
 	return {
 		kind = "error",
 		markdown = "## Error\n\nUnknown development backend method: " .. tostring(method),
@@ -222,6 +243,13 @@ local function session_config(value)
 	}
 end
 
+local function session_output_config(value)
+	value = value or {}
+	return {
+		history_limit = value.history_limit,
+	}
+end
+
 local function annotate_command_config(value)
 	local config = command_config(value)
 	if type(value) == "table" then
@@ -235,6 +263,7 @@ local function request_config()
 	agent.options = agent_options_config(agent.options)
 	agent.auth = auth_config(agent.auth)
 	agent.session = session_config(agent.session)
+	agent.session_output = session_output_config(agent.session_output)
 	if type(agent.trace) == "table" and vim.tbl_isempty(agent.trace) then
 		agent.trace = vim.empty_dict()
 	end
@@ -247,9 +276,7 @@ local function request_config()
 			question = command_config(commands.question),
 			edit = command_config(commands.edit),
 			annotate = annotate_command_config(commands.annotate),
-			search = vim.tbl_deep_extend("force", command_config(commands.search), {
-				default_prompt = commands.search and commands.search.default_prompt or nil,
-			}),
+			search = command_config(commands.search),
 		},
 	}
 end

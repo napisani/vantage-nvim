@@ -17,6 +17,7 @@ export function createAgentRuntimeFromConfig(config: BackendRequestConfig = {}):
 		model: agent.model,
 		auth: agent.auth,
 		options: agent.options,
+		sessionOutput: agent.session_output,
 		commandOptions: {
 			explain: config.commands?.explain,
 			question: config.commands?.question,

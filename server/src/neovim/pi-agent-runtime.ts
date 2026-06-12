@@ -16,6 +16,8 @@ import type {
 	ExplanationResult,
 	QuestionSelectionParams,
 	AgentRuntimeProgress,
+	AgentSessionOutputParams,
+	ListSkillsResult,
 } from './protocol';
 import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
 import {
@@ -262,6 +264,27 @@ export class PiAgentRuntime implements AgentRuntime {
 		return {
 			kind: 'explanation',
 			markdown: this.sessions.status(params, this.modelTarget()),
+		};
+	}
+
+	async agentSessionOutput(params: AgentSessionOutputParams): Promise<ExplanationResult> {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Vantage Session Output',
+				'',
+				'The legacy Pi completion runtime does not expose live session output.',
+				'',
+				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
+			].join('\n'),
+		};
+	}
+
+	async listSkills(): Promise<ListSkillsResult> {
+		return {
+			kind: 'skills',
+			skills: [],
+			diagnostics: [{ message: 'Skill listing requires the Pi coding-agent runtime.' }],
 		};
 	}
 

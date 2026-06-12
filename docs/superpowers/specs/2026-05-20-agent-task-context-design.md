@@ -63,41 +63,11 @@ The most current, high-value information should remain near the bottom because V
 
 ## Adjacent-Agent Authoring Guidance
 
-Vantage should ship a copyable instruction snippet for adjacent coding agents:
+Vantage should ship an on-demand `vantage-distill-session` skill for adjacent coding agents instead of recommending a persistent system-prompt instruction. Persistent maintenance instructions add prompt cost to every adjacent-agent turn and can create noisy updates. The skill is invoked only when the user wants to refresh Vantage's context.
 
-```md
-## Workspace Task Snapshot
+The skill should rewrite `.vantage/agent-context.md` as a compact snapshot using the recommended headings, avoid raw transcript/secrets, and preserve only current goal, focus, files, decisions, constraints, open questions, and recent meaningful progress.
 
-If `.vantage/` exists in the current workspace, maintain `.vantage/agent-context.md` as a compact snapshot of the active task.
-
-Create `.vantage/agent-context.md` if it is missing. Rewrite the file when task state materially changes; do not append a running log or transcript.
-
-Keep the snapshot concise, current, and under 12 KB when practical. Do not include secrets, credentials, raw conversation, or unrelated project documentation.
-
-Use this structure:
-
-# Agent Task Context
-
-## Goal
-
-## Current Focus
-
-## Relevant Files
-
-## Decisions
-
-## Constraints
-
-## Open Questions
-
-## Recent Progress
-
-Update it after meaningful changes: plan changes, important files or constraints are discovered, decisions are made, tests pass/fail in a relevant way, or before handing control back to the user.
-
-Do not update it after every command, file read, or tool call.
-```
-
-Useful update moments include goal changes, plan changes, important discoveries, decisions, meaningful test results, implementation focus changes, and handoff points. Adjacent agents should not update the file after every tool call or file read.
+Useful invocation moments include goal changes, plan changes, important discoveries, decisions, meaningful test results, implementation focus changes, and handoff points. Adjacent agents should not update the file after every tool call or file read.
 
 ## Vantage Configuration
 
@@ -194,7 +164,7 @@ Annotation prompts should additionally constrain the model to annotate only the 
 
 ## Status UX
 
-Add an on-demand `:VantageContextStatus` command.
+Add an on-demand `:VantageStatus` command.
 
 It should show:
 
@@ -244,13 +214,13 @@ Reading raw transcripts or terminal logs would be brittle and risky. It would al
 - Protocol tests cover parsing `params.agentContext`.
 - Prompt tests cover Lens Precedence, Context Trust Boundary text, truncation metadata, and annotation scope constraints.
 - Development-runtime tests expose a context signal, such as context presence and metadata, without echoing the full context content.
-- Neovim command tests cover `:VantageContextStatus`.
+- Neovim command tests cover `:VantageStatus`.
 
 ## Rollout
 
 1. Add config defaults and Lua Agent Context Reader.
 2. Add `params.agentContext` to protocol and prompt builders.
-3. Add `:VantageContextStatus`.
+3. Add `:VantageStatus`.
 4. Add `.vantage/agent-context.md` to `.gitignore`.
 5. Add README and agent-context guide documentation.
 6. Revisit optional hook/plugin producers after the artifact-first path has been used in real workflows.

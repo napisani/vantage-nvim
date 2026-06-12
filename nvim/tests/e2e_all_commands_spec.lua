@@ -265,10 +265,6 @@ local cases = {
 		artifact.annotationTexts = annotation_texts(marks())
 	end),
 
-	case("annotation-status:after-render", "VantageAnnotationStatus", "shows status for the rendered annotation request", function(current)
-		run_float_command(current, "VantageAnnotationStatus")
-	end),
-
 	case("annotation-clear:after-render", "VantageAnnotationClear", "clears Vantage annotation extmarks", function(current)
 		run_sync_command(current, "VantageAnnotationClear")
 		if #marks() ~= 0 then
@@ -276,20 +272,36 @@ local cases = {
 		end
 	end),
 
-	case("context-status:fixture-context", "VantageContextStatus", "shows status for the fixture Agent Context File", function(current)
-		run_float_command(current, "VantageContextStatus")
-	end),
-
 	case("search:cross-file-usage", "VantageSearch", "finds where calculator.total_score is used from another file", function(current)
-		run_until(current, "VantageSearch Find where calculator.total_score is called in lua/report.lua", function()
+		run_until(current, "VantageSearch Find the exact call calculator.total_score(items) in workspace file lua/report.lua. Submit exactly one result for lua/report.lua line 6 startCharacter 15.", function()
 			return #vim.fn.getqflist() > 0
 		end, "VantageSearch did not populate quickfix")
 		artifact.quickfix = vim.fn.getqflist()
 		vim.cmd("cclose")
 	end),
 
-	case("agent-status:active-session", "VantageAgentStatus", "shows the singleton buddy session status", function(current)
-		run_float_command(current, "VantageAgentStatus")
+	case("status:combined", "VantageStatus", "shows agent session, agent context, and annotation status together", function(current)
+		local entry = run_float_command(current, "VantageStatus")
+		if not entry.floatText:match("### Agent Session") then
+			fail("VantageStatus did not include the Agent Session section")
+		end
+		if not entry.floatText:match("### Agent Context") then
+			fail("VantageStatus did not include the Agent Context section")
+		end
+		if not entry.floatText:match("### Annotations") then
+			fail("VantageStatus did not include the Annotations section")
+		end
+	end),
+
+	case("session-output:live", "VantageSessionOutput", "shows recent session activity", function(current)
+		local entry = run_float_command(current, "VantageSessionOutput")
+		local saw_output = vim.wait(5000, function()
+			entry.floatText = float_text()
+			return entry.floatText and entry.floatText:match("Vantage Session Output") ~= nil
+		end)
+		if not saw_output then
+			fail("VantageSessionOutput did not include the session output heading")
+		end
 	end),
 
 	case("agent-cancel:idle", "VantageAgentCancel", "handles cancel when no request is active", function(current)

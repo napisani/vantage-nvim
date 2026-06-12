@@ -10,6 +10,8 @@ export const BACKEND_METHODS = [
 	'agentCancel',
 	'agentSessionReset',
 	'agentSessionStatus',
+	'agentSessionOutput',
+	'listSkills',
 ] as const;
 
 export function isBackendMethod(value: unknown): value is BackendMethod {
@@ -38,5 +40,9 @@ export function runBackendCommand(
 			return runtime.agentSessionReset(request.params, context);
 		case 'agentSessionStatus':
 			return runtime.agentSessionStatus(request.params, context);
+		case 'agentSessionOutput':
+			return runtime.agentSessionOutput(request.params, context);
+		case 'listSkills':
+			return runtime.listSkills(request.params, context);
 	}
 }

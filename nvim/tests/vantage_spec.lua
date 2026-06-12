@@ -60,6 +60,17 @@ local function last_float_text()
 	return table.concat(vim.api.nvim_buf_get_lines(float_buf, 0, -1, false), "\n")
 end
 
+local function submit_prompt_buffer(text)
+	local ui = require("vantage.ui")
+	local buf = ui.last_float_buf()
+	local win = ui.last_float_win()
+	assert(buf and vim.api.nvim_buf_is_valid(buf), "expected Vantage prompt buffer")
+	assert(win and vim.api.nvim_win_is_valid(win), "expected Vantage prompt window")
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, vim.split(text, "\n", { plain = true }))
+	vim.api.nvim_set_current_win(win)
+	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-g>", true, false, true), "x", false)
+end
+
 local function capture_notifications(run)
 	local notifications = {}
 	local original_notify = vim.notify
@@ -228,6 +239,9 @@ process.stdin.on('data', (chunk) => {
 				max_turns = 12,
 				cacheRetention = "short",
 			},
+			session_output = {
+				history_limit = 10,
+			},
 		},
 		commands = {
 			explain = {
@@ -252,7 +266,6 @@ process.stdin.on('data', (chunk) => {
 			},
 			search = {
 				include_lens = true,
-				default_prompt = "Find related code paths and explain why they matter.",
 				options = {},
 			},
 		},
@@ -398,7 +411,7 @@ test("VantageExplain attaches agent context when available", function()
 	eq(captured.params.workspaceRoot, normalized_path(root))
 end)
 
-test("agent session reset and status call backend with workspace scope", function()
+test("agent session reset and consolidated status call backend with workspace scope", function()
 	local vantage = require("vantage")
 	local root = temp_workspace()
 
@@ -423,16 +436,15 @@ test("agent session reset and status call backend with workspace scope", functio
 		ok = true,
 		result = { kind = "explanation", markdown = "session status" },
 	}, function()
-		vim.cmd("VantageAgentStatus")
+		vim.cmd("VantageStatus")
 	end)
 
 	eq(captured.method, "agentSessionStatus")
 	eq(captured.params.workspaceRoot, normalized_path(root))
 end)
 
-test("VantageContextStatus shows context availability on demand", function()
+test("VantageStatus shows agent, context, and annotation sections", function()
 	local vantage = require("vantage")
-	local commands = require("vantage.commands")
 	local root = temp_workspace()
 
 	vantage.setup({ backend = { mode = "development" } })
@@ -440,11 +452,19 @@ test("VantageContextStatus shows context availability on demand", function()
 	set_buffer_path(root .. "/lua/example.lua")
 	writefile(root .. "/.vantage/agent-context.md", "# Agent Task Context\n\n## Goal\nShow status")
 
-	commands.show_agent_context_status()
+	capture_backend_request({
+		ok = true,
+		result = { kind = "explanation", markdown = "## Vantage Agent Session\n\nSession: `active`" },
+	}, function()
+		vim.cmd("VantageStatus")
+	end)
 
 	local text = last_float_text()
-	assert(text ~= nil, "expected context status float")
-	assert(text:match("Vantage Agent Context Status"), text)
+	assert(text ~= nil, "expected consolidated status float")
+	assert(text:match("## Vantage Status"), text)
+	assert(text:match("### Agent Session"), text)
+	assert(text:match("### Agent Context"), text)
+	assert(text:match("### Annotations"), text)
 	assert(text:match("Status: included"), text)
 	assert(text:match("%.vantage/agent%-context%.md"), text)
 end)
@@ -536,7 +556,7 @@ test("VantageQuestion asks about the current line", function()
 	eq(captured.params.selectedText, "local b = a + 1")
 end)
 
-test("VantageQuestion prompts for missing question text", function()
+test("VantageQuestion opens prompt buffer for missing question text", function()
 	local vantage = require("vantage")
 
 	local captured = capture_backend_request({
@@ -553,12 +573,8 @@ test("VantageQuestion prompts for missing question text", function()
 		})
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-		with_ui_input(function(opts, callback)
-			eq(opts.prompt, "Vantage question: ")
-			callback("why does this reuse a?")
-		end, function()
-			vim.cmd("VantageQuestion")
-		end)
+		vim.cmd("VantageQuestion")
+		submit_prompt_buffer("why does this reuse a?")
 	end)
 
 	eq(captured.method, "questionSelection")
@@ -567,7 +583,7 @@ test("VantageQuestion prompts for missing question text", function()
 	eq(captured.params.selectedText, "local b = a + 1")
 end)
 
-test("VantageQuestion prompt uses configured vim.ui.input options", function()
+test("VantageQuestion prompt buffer ignores vim.ui.input options", function()
 	local vantage = require("vantage")
 
 	local captured = capture_backend_request({
@@ -595,13 +611,11 @@ test("VantageQuestion prompt uses configured vim.ui.input options", function()
 		})
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
-		with_ui_input(function(opts, callback)
-			eq(opts.prompt, "Ask Vantage: ")
-			eq(opts.default, "what changed here?")
-			eq(opts.scope, "buffer")
-			callback("why does this reuse a?")
+		with_ui_input(function()
+			error("expected prompt buffer instead of vim.ui.input")
 		end, function()
 			vim.cmd("VantageQuestion")
+			submit_prompt_buffer("why does this reuse a?")
 		end)
 	end)
 
@@ -646,21 +660,19 @@ test("Vantage prompts can force the ui2 input provider", function()
 		end, function()
 			with_fn_input(function(opts)
 				table.insert(fn_input_prompts, opts.prompt)
-				if opts.prompt == "UI2 question: " then
-					return "why does this reuse a?"
-				end
 				if opts.prompt == "UI2 lens: " then
 					return "Prefer concrete examples"
 				end
 				error("unexpected prompt: " .. tostring(opts.prompt))
 			end, function()
 				vim.cmd("VantageQuestion")
+				submit_prompt_buffer("why does this reuse a?")
 				vim.cmd("VantageSetLens learning")
 			end)
 		end)
 	end)
 
-	eq(fn_input_prompts, { "UI2 question: ", "UI2 lens: " })
+	eq(fn_input_prompts, { "UI2 lens: " })
 	eq(captured.method, "questionSelection")
 	eq(captured.params.question, "why does this reuse a?")
 	eq(vantage.get_lens(), {
@@ -700,7 +712,7 @@ test("VantageQuestion accepts an explicit line range", function()
 	})
 end)
 
-test("VantageQuestion prompts for missing question text with an explicit line range", function()
+test("VantageQuestion opens prompt buffer for missing question text with an explicit line range", function()
 	local vantage = require("vantage")
 
 	local captured = capture_backend_request({
@@ -717,12 +729,8 @@ test("VantageQuestion prompts for missing question text with an explicit line ra
 			"return b",
 		})
 
-		with_ui_input(function(opts, callback)
-			eq(opts.prompt, "Vantage question: ")
-			callback("what is the data flow?")
-		end, function()
-			vim.cmd("1,2VantageQuestion")
-		end)
+		vim.cmd("1,2VantageQuestion")
+		submit_prompt_buffer("what is the data flow?")
 	end)
 
 	eq(captured.method, "questionSelection")
@@ -813,9 +821,8 @@ test("VantageEdit replaces the current line with the backend edit result", funct
 	})
 end)
 
-test("VantageEdit prompts for missing instruction with the ui2 input provider", function()
+test("VantageEdit opens prompt buffer for missing instruction", function()
 	local vantage = require("vantage")
-	local fn_input_prompts = {}
 
 	local captured = capture_backend_request({
 		ok = true,
@@ -842,18 +849,13 @@ test("VantageEdit prompts for missing instruction with the ui2 input provider", 
 		vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
 		with_ui_input(function()
-			error("expected VantageEdit to bypass vim.ui.input when ui2 provider is configured")
+			error("expected VantageEdit to use prompt buffer instead of vim.ui.input")
 		end, function()
-			with_fn_input(function(opts)
-				table.insert(fn_input_prompts, opts.prompt)
-				return "rename value to count"
-			end, function()
-				vim.cmd("VantageEdit")
-			end)
+			vim.cmd("VantageEdit")
+			submit_prompt_buffer("rename value to count")
 		end)
 	end)
 
-	eq(fn_input_prompts, { "UI2 edit: " })
 	eq(captured.method, "editSelection")
 	eq(captured.params.instruction, "rename value to count")
 	eq(vim.api.nvim_buf_get_lines(0, 0, -1, false), {
@@ -904,6 +906,7 @@ test("registers unified explain command without selection or line variants", fun
 	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
 	assert(vim.fn.exists(":VantageQuestion") == 2, "expected VantageQuestion command")
 	assert(vim.fn.exists(":VantageEdit") == 2, "expected VantageEdit command")
+	assert(vim.fn.exists(":VantageSessionOutput") == 2, "expected VantageSessionOutput command")
 	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
 	assert(vim.fn.exists(":VantageExplainLine") == 0, "expected old line command to be removed")
 end)
@@ -984,6 +987,36 @@ test("public search API delegates to VantageSearch behavior", function()
 
 	eq(captured.method, "searchLocations")
 	eq(captured.params.query, "find value")
+end)
+
+test("ranged VantageSearch requires an explicit prompt", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "locations",
+			locations = {},
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local value = 1",
+			"return value",
+		})
+
+		vim.cmd("1,2VantageSearch")
+		submit_prompt_buffer("find references to value")
+	end)
+
+	eq(captured.method, "searchLocations")
+	eq(captured.params.query, "find references to value")
+	eq(captured.params.range, {
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 2,
+		endCharacter = 12,
+	})
 end)
 
 test("annotations render as wrapped above-line virtual blocks", function()

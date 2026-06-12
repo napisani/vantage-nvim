@@ -14,7 +14,7 @@ Vantage will introduce a singleton in-memory Pi coding-agent buddy session for m
 
 The first new user-facing feature is `VantageSearch`: an agentic project search command that uses read-only Pi tools to explore the workspace, then submits final curated locations through a Vantage-owned structured result tool. Vantage converts those final results into a Neovim quickfix list. Each quickfix item includes a jumpable location and a concise one-line explanation.
 
-Search supports normal, range, and visual invocation. Normal mode requires an explicit user prompt. Visual/range mode may use a configurable default prompt, initially “Find related code paths and explain why they matter.” Visual/range search includes a trace seed: the selected code, its file, and actual 1-based file line numbers, so the agent can search the project from a concrete anchor.
+Search supports normal, range, and visual invocation. All modes require an explicit user prompt. If the prompt is omitted, Vantage opens the floating prompt buffer instead of using a default prompt. Visual/range search includes a trace seed: the selected code, its file, and actual 1-based file line numbers, so the agent can search the project from a concrete anchor.
 
 Vantage will also normalize its coordinate convention: all Vantage protocol, prompt, model, and UI coordinates are 1-based lines and 1-based characters. Conversion to Neovim’s 0-based APIs happens only at the Neovim API boundary.
 
@@ -27,7 +27,7 @@ Vantage will also normalize its coordinate convention: all Vantage protocol, pro
 5. As a Neovim developer, I want visual selection search to use the selected code as a trace seed, so that I can ask “where does this flow continue?” from code I am already reading.
 6. As a Neovim developer, I want range-based search to include actual file line numbers, so that the agent and quickfix agree about locations.
 7. As a Neovim developer, I want normal-mode search to require a prompt, so that project-wide searches remain explicit.
-8. As a Neovim developer, I want visual/range search to have a configurable default prompt, so that common trace workflows are fast.
+8. As a Neovim developer, I want visual/range search to require an explicit prompt when no query is provided, so that project search never starts from selection alone.
 9. As a Neovim developer, I want Vantage search to use read-only tools, so that search cannot mutate my files.
 10. As a Neovim developer, I want Vantage search to remember the search turn in the buddy session, so that follow-up commands can refer to the discovered context.
 11. As a Neovim developer, I want search to share a singleton buddy session with explain, question, and edit, so that Vantage feels like one assistant rather than disconnected commands.
@@ -80,7 +80,7 @@ Vantage will also normalize its coordinate convention: all Vantage protocol, pro
 - Validation failures return detailed tool errors so the agent can correct and resubmit results in the same agent turn.
 - Quickfix entries include all valid final results; no maximum result cap is enforced in v1.
 - Empty search results clear or replace quickfix with an empty Vantage search list and show a notification.
-- Normal-mode search requires an explicit prompt. Visual/range search can use a configurable default prompt.
+- Normal, visual, and range search require an explicit prompt; missing prompts open the prompt buffer.
 - The default visual/range search prompt is “Find related code paths and explain why they matter.”
 - Visual/range search includes a trace seed containing the user request, selected code, file path, and actual 1-based file line numbers.
 - Vantage-wide protocol/model/UI coordinates are 1-based. Neovim API adapters convert to 0-based only when calling low-level Neovim APIs.
@@ -102,7 +102,7 @@ Vantage will also normalize its coordinate convention: all Vantage protocol, pro
 - Prompt/model contract tests should verify 1-based actual file line numbering, lens inclusion defaults, annotation lens behavior, and command-specific prompt context.
 - Runtime wrapper tests should cover singleton session reuse, transient annotation sessions, command-specific active tools, configured model resolution, credential resolution, reset behavior, and cancellation behavior.
 - Submit-tool tests should cover valid search result acceptance, workspace-relative path validation, out-of-workspace rejection, missing file rejection, line bound rejection, invalid character rejection, duplicate rejection, empty explanation rejection, multiline explanation rejection, and precise error messages for agent retry.
-- Lua command tests should cover `VantageSearch`, public Lua search invocation, normal-mode prompt requirement, visual/range default prompt behavior, quickfix population, empty result behavior, active-request rejection, cancel command behavior, and reset-while-active rejection.
+- Lua command tests should cover `VantageSearch`, public Lua search invocation, prompt-buffer behavior for missing normal/visual/range prompts, quickfix population, empty result behavior, active-request rejection, cancel command behavior, and reset-while-active rejection.
 - Neovim integration tests should verify 1-based to 0-based conversion at edit application, annotation extmark rendering, selected/range context capture, and quickfix entry creation.
 - Existing tests for explain, question, edit, annotate, and search should remain behaviorally valid after migrating the runtime path.
 - Prior art includes the existing backend command tests, protocol tests, Pi runtime tests, stdio cancellation tests, model-contract tests, and Neovim headless command tests.

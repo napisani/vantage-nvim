@@ -139,6 +139,21 @@ function M.annotation(status)
 	return table.concat(lines, "\n")
 end
 
+local function section(markdown, title)
+	local lines = vim.split(markdown or "", "\n", { plain = true })
+	if #lines > 0 and lines[1]:match("^##%s+") then
+		lines[1] = "### " .. title
+	else
+		table.insert(lines, 1, "### " .. title)
+	end
+	for index, line in ipairs(lines) do
+		if index > 1 then
+			lines[index] = line:gsub("^###%s+", "#### ")
+		end
+	end
+	return table.concat(lines, "\n")
+end
+
 function M.agent_context(snapshot)
 	local lines = {
 		"## Vantage Agent Context Status",
@@ -174,6 +189,19 @@ function M.agent_context(snapshot)
 		table.insert(lines, tostring(snapshot.error))
 	end
 
+	return table.concat(lines, "\n")
+end
+
+function M.combined(status)
+	local lines = {
+		"## Vantage Status",
+		"",
+		section(status.agent_markdown or "## Vantage Agent Session\n\n- Status: unavailable", "Agent Session"),
+		"",
+		section(M.agent_context(status.agent_context or {}), "Agent Context"),
+		"",
+		section(M.annotation(status.annotation or {}), "Annotations"),
+	}
 	return table.concat(lines, "\n")
 end
 

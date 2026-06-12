@@ -1,7 +1,7 @@
 local backend = require("vantage.backend")
 local buffer_edit = require("vantage.buffer_edit")
 local context = require("vantage.context")
-local input_ui = require("vantage.input")
+local prompt_buffer = require("vantage.prompt_buffer")
 local ui = require("vantage.ui")
 
 local M = {}
@@ -98,13 +98,17 @@ function M.question(opts)
 		return
 	end
 
-	input_ui.prompt("question", nil, function(input)
-		input = optional_command_text({ args = input })
-		if not input then
-			return
-		end
-		request_question(params, input)
-	end)
+	prompt_buffer.open({
+		kind = "question",
+		params = params,
+		on_submit = function(input)
+			input = optional_command_text({ args = input })
+			if not input then
+				return
+			end
+			request_question(params, input)
+		end,
+	})
 end
 
 function M.edit(opts)
@@ -117,14 +121,18 @@ function M.edit(opts)
 		return
 	end
 
-	input_ui.prompt("edit", nil, function(input)
-		input = optional_command_text({ args = input })
-		if not input then
-			return
-		end
+	prompt_buffer.open({
+		kind = "edit",
+		params = params,
+		on_submit = function(input)
+			input = optional_command_text({ args = input })
+			if not input then
+				return
+			end
 
-		request_edit(bufnr, params, input)
-	end)
+			request_edit(bufnr, params, input)
+		end,
+	})
 end
 
 local function quickfix_filename(workspace_root, file_path)
@@ -180,21 +188,18 @@ function M.search(opts)
 		request_search(params, query)
 		return
 	end
-	if opts and type(opts.range) == "number" and opts.range > 0 then
-		local commands = require("vantage.state").config.commands or {}
-		local search = commands.search or {}
-		request_search(params, search.default_prompt or "Find related code paths and explain why they matter.")
-		return
-	end
-
-	input_ui.prompt("search", nil, function(input)
-		input = optional_command_text({ args = input })
-		if not input then
-			vim.notify("Vantage: search requires a prompt", vim.log.levels.WARN)
-			return
-		end
-		request_search(params, input)
-	end)
+	prompt_buffer.open({
+		kind = "search",
+		params = params,
+		on_submit = function(input)
+			input = optional_command_text({ args = input })
+			if not input then
+				vim.notify("Vantage: search requires a prompt", vim.log.levels.WARN)
+				return
+			end
+			request_search(params, input)
+		end,
+	})
 end
 
 function M.agent_cancel()
@@ -203,10 +208,6 @@ end
 
 function M.reset_agent_session()
 	request_markdown("agentSessionReset", context.current_line())
-end
-
-function M.show_agent_session_status()
-	request_markdown("agentSessionStatus", context.current_line())
 end
 
 return M

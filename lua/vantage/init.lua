@@ -22,6 +22,10 @@ function M.clear_lens()
 	commands.clear_lens()
 end
 
+function M.prompt_lens(mode)
+	commands.prompt_lens(mode)
+end
+
 function M.explain(opts)
 	commands.explain(opts or {})
 end
@@ -38,6 +42,10 @@ function M.annotate(opts)
 	commands.annotate(opts or {})
 end
 
+function M.clear_annotations()
+	commands.clear_annotations()
+end
+
 function M.search(opts)
 	commands.search(opts or {})
 end
@@ -50,8 +58,12 @@ function M.agent_reset()
 	commands.reset_agent_session()
 end
 
-function M.agent_status()
-	commands.show_agent_session_status()
+function M.status()
+	commands.show_status()
+end
+
+function M.session_output()
+	commands.session_output()
 end
 
 return M

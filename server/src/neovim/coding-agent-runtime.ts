@@ -1,7 +1,7 @@
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Model } from '@earendil-works/pi-ai';
-import type { AgentSession, AuthStorage, ModelRegistry, SessionManager, ToolDefinition } from '@earendil-works/pi-coding-agent';
+import type { AgentSession, AuthStorage, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager, Skill, ToolDefinition } from '@earendil-works/pi-coding-agent';
 import type { AgentRuntime, AgentRuntimeRequestContext } from './agent-runtime';
 import type {
 	AgentAuthConfig,
@@ -17,6 +17,9 @@ import type {
 	SearchLocation,
 	SearchLocationsParams,
 	SearchLocationsResult,
+	AgentSessionOutputConfig,
+	AgentSessionOutputParams,
+	ListSkillsResult,
 } from './protocol';
 import {
 	buildAnnotationPrompt,
@@ -33,7 +36,6 @@ import { errorMessage } from './effect-errors';
 interface CommandConfig {
 	include_lens?: boolean;
 	options?: AgentOptionsConfig;
-	default_prompt?: string;
 }
 
 export interface CodingAgentRuntimeOptions {
@@ -48,6 +50,7 @@ export interface CodingAgentRuntimeOptions {
 		annotate?: CommandConfig;
 		search?: CommandConfig;
 	};
+	sessionOutput?: AgentSessionOutputConfig;
 	store?: CodingAgentSessionStore;
 	credentialResolver?: PiCredentialResolver;
 }
@@ -56,6 +59,9 @@ interface CodingAgentModule {
 	AuthStorage: typeof AuthStorage;
 	ModelRegistry: typeof ModelRegistry;
 	SessionManager: typeof SessionManager;
+	SettingsManager: typeof SettingsManager;
+	DefaultResourceLoader: typeof DefaultResourceLoader;
+	getAgentDir(): string;
 	createAgentSession(options?: {
 		cwd?: string;
 		authStorage?: AuthStorage;
@@ -83,11 +89,38 @@ interface SessionRecord {
 interface ActiveRequest {
 	kind: string;
 	abort: () => Promise<void> | void;
+	outputEntryId?: string;
+}
+
+type SessionOutputStatus = 'running' | 'completed' | 'failed' | 'cancelled';
+
+interface SessionOutputEvent {
+	time: number;
+	type: string;
+	summary: string;
+	details?: unknown;
+}
+
+interface SessionOutputEntry {
+	id: string;
+	kind: string;
+	transient: boolean;
+	status: SessionOutputStatus;
+	startedAt: number;
+	endedAt?: number;
+	provider: string;
+	model: string;
+	userSummary: string;
+	prompt: string;
+	assistantText?: string;
+	events: SessionOutputEvent[];
+	error?: string;
 }
 
 interface SubmissionContext {
 	params: BaseRequestParams;
 	handlers: SubmissionHandlers;
+	outputEntryId?: string;
 }
 
 interface SubmissionHandlers {
@@ -99,6 +132,16 @@ interface SubmissionHandlers {
 export class CodingAgentSessionStore {
 	private record?: SessionRecord;
 	private active?: ActiveRequest;
+	private outputHistory: SessionOutputEntry[] = [];
+	private outputSequence = 0;
+	private historyLimit = 10;
+
+	setHistoryLimit(limit: number | undefined): void {
+		if (Number.isInteger(limit) && Number(limit) > 0) {
+			this.historyLimit = Number(limit);
+		}
+		this.trimHistory();
+	}
 
 	isActive(): boolean {
 		return this.active !== undefined;
@@ -108,11 +151,11 @@ export class CodingAgentSessionStore {
 		return this.active?.kind;
 	}
 
-	begin(kind: string, abort: () => Promise<void> | void): void {
+	begin(kind: string, abort: () => Promise<void> | void, outputEntryId?: string): void {
 		if (this.active) {
 			throw new Error(`Vantage agent is already running ${this.active.kind}. Use :VantageAgentCancel first.`);
 		}
-		this.active = { kind, abort };
+		this.active = { kind, abort, outputEntryId };
 	}
 
 	end(): void {
@@ -124,6 +167,7 @@ export class CodingAgentSessionStore {
 		if (!active) {
 			return false;
 		}
+		this.finishOutputEntry(active.outputEntryId, 'cancelled');
 		await active.abort();
 		this.active = undefined;
 		return true;
@@ -133,19 +177,87 @@ export class CodingAgentSessionStore {
 		if (this.active) {
 			throw new Error('Vantage agent is busy. Use :VantageAgentCancel before reset.');
 		}
-		if (!this.record) {
-			return false;
+		const hadState = this.record !== undefined || this.outputHistory.length > 0;
+		if (this.record) {
+			this.record.session.dispose();
+			this.record = undefined;
 		}
-		this.record.session.dispose();
-		this.record = undefined;
-		return true;
+		this.outputHistory = [];
+		return hadState;
 	}
 
-	status(): { active?: string; session?: SessionRecord } {
+	status(): { active?: string; session?: SessionRecord; outputHistoryCount: number } {
 		return {
 			active: this.active?.kind,
 			session: this.record,
+			outputHistoryCount: this.outputHistory.length,
 		};
+	}
+
+	startOutputEntry(input: {
+		kind: string;
+		transient: boolean;
+		provider: string;
+		model: string;
+		userSummary: string;
+		prompt: string;
+	}): string {
+		const id = `session-output-${++this.outputSequence}`;
+		this.outputHistory.push({
+			id,
+			kind: input.kind,
+			transient: input.transient,
+			status: 'running',
+			startedAt: Date.now(),
+			provider: input.provider,
+			model: input.model,
+			userSummary: input.userSummary,
+			prompt: input.prompt,
+			events: [],
+		});
+		this.trimHistory();
+		return id;
+	}
+
+	appendOutputEvent(entryId: string | undefined, event: Omit<SessionOutputEvent, 'time'>): void {
+		const entry = this.findOutputEntry(entryId);
+		if (!entry) {
+			return;
+		}
+		entry.events.push({ time: Date.now(), ...event });
+	}
+
+	setAssistantText(entryId: string | undefined, assistantText: string): void {
+		const entry = this.findOutputEntry(entryId);
+		if (entry) {
+			entry.assistantText = assistantText;
+		}
+	}
+
+	finishOutputEntry(entryId: string | undefined, status: SessionOutputStatus, error?: string): void {
+		const entry = this.findOutputEntry(entryId);
+		if (!entry || entry.status === 'cancelled') {
+			return;
+		}
+		entry.status = status;
+		entry.endedAt = Date.now();
+		if (error) {
+			entry.error = error;
+		}
+	}
+
+	renderOutput(raw: boolean | undefined): string {
+		return renderSessionOutput(this.outputHistory, raw === true);
+	}
+
+	private findOutputEntry(entryId: string | undefined): SessionOutputEntry | undefined {
+		return entryId ? this.outputHistory.find((entry) => entry.id === entryId) : undefined;
+	}
+
+	private trimHistory(): void {
+		while (this.outputHistory.length > this.historyLimit) {
+			this.outputHistory.shift();
+		}
 	}
 
 	async getOrCreate(options: {
@@ -231,6 +343,7 @@ export class CodingAgentRuntime implements AgentRuntime {
 		this.options = { ...DEFAULT_OPTIONS, ...(options.options ?? {}) };
 		this.commandOptions = options.commandOptions ?? {};
 		this.store = options.store ?? new CodingAgentSessionStore();
+		this.store.setHistoryLimit?.(options.sessionOutput?.history_limit);
 		this.credentialResolver = options.credentialResolver ?? new PiOAuthCredentialResolver();
 	}
 
@@ -346,7 +459,40 @@ export class CodingAgentRuntime implements AgentRuntime {
 				`Session: ${status.session ? '`active`' : '`none`'}`,
 				status.session ? `Workspace: \`${status.session.workspaceRoot}\`` : undefined,
 				status.session ? `Model target: \`${status.session.provider}/${status.session.model}\`` : undefined,
+				`Session output entries: ${status.outputHistoryCount}`,
 			].filter((line): line is string => line !== undefined).join('\n'),
+		};
+	}
+
+	async agentSessionOutput(params: AgentSessionOutputParams): Promise<ExplanationResult> {
+		return {
+			kind: 'explanation',
+			markdown: this.store.renderOutput(params.raw),
+		};
+	}
+
+	async listSkills(params: BaseRequestParams): Promise<ListSkillsResult> {
+		const piAgent = await importCodingAgent();
+		const cwd = workspaceRoot(params);
+		const settingsManager = piAgent.SettingsManager.create(cwd, piAgent.getAgentDir());
+		const resourceLoader = new piAgent.DefaultResourceLoader({
+			cwd,
+			agentDir: piAgent.getAgentDir(),
+			settingsManager,
+			noExtensions: true,
+			noPromptTemplates: true,
+			noThemes: true,
+			noContextFiles: true,
+		});
+		await resourceLoader.reload();
+		const result = resourceLoader.getSkills();
+		return {
+			kind: 'skills',
+			skills: result.skills.map(skillSummary),
+			diagnostics: result.diagnostics.map((diagnostic) => ({
+				message: diagnosticMessage(diagnostic),
+				severity: diagnosticSeverity(diagnostic),
+			})),
 		};
 	}
 
@@ -390,7 +536,16 @@ export class CodingAgentRuntime implements AgentRuntime {
 		submission?: SubmissionContext,
 		onAssistantText?: (text: string) => void
 	): Promise<void> {
+		const outputEntryId = this.store.startOutputEntry?.({
+			kind,
+			transient,
+			provider: this.provider,
+			model: this.model,
+			userSummary: userSummary(kind, params),
+			prompt,
+		});
 		context.reportProgress?.({ stage: 'agent_session_start', message: `Starting Vantage ${kind} agent request.` });
+		this.store.appendOutputEvent?.(outputEntryId, { type: 'request_start', summary: `Started ${kind} request.` });
 		const customTools = await this.submissionTools();
 		const session = transient
 			? await this.createTransientSession(params, customTools)
@@ -410,7 +565,7 @@ export class CodingAgentRuntime implements AgentRuntime {
 			await session.abort();
 		};
 		if (!transient) {
-			this.store.begin(kind, abort);
+			this.store.begin(kind, abort, outputEntryId);
 		}
 		const abortListener = () => {
 			void abort();
@@ -421,8 +576,14 @@ export class CodingAgentRuntime implements AgentRuntime {
 			void abort();
 		}, options.timeoutMs ?? DEFAULT_OPTIONS.timeoutMs);
 		const previousSubmission = this.currentSubmission;
-		this.currentSubmission = submission;
+		this.currentSubmission = submission ? { ...submission, outputEntryId } : undefined;
 		const unsubscribe = session.subscribe((event) => {
+			const eventRecord = event as Record<string, unknown>;
+			this.store.appendOutputEvent?.(outputEntryId, {
+				type: String(eventRecord.type ?? 'event'),
+				summary: eventSummary(eventRecord),
+				details: eventRecord,
+			});
 			if (event.type === 'message_update') {
 				context.reportProgress?.({ stage: 'agent_message_update', message: `Vantage ${kind} agent is responding.` });
 			}
@@ -434,12 +595,19 @@ export class CodingAgentRuntime implements AgentRuntime {
 				});
 			}
 			if (event.type === 'message_end' && event.message.role === 'assistant') {
-				onAssistantText?.(assistantText(event.message));
+				const text = assistantText(event.message);
+				this.store.setAssistantText?.(outputEntryId, text);
+				onAssistantText?.(text);
 			}
 		});
 		try {
 			await session.prompt(prompt, { source: 'rpc' });
+			this.store.finishOutputEntry?.(outputEntryId, 'completed');
 			context.reportProgress?.({ stage: 'agent_request_completed', message: `Vantage ${kind} agent request completed.` });
+		} catch (error) {
+			const status = context.signal?.aborted ? 'cancelled' : 'failed';
+			this.store.finishOutputEntry?.(outputEntryId, status, status === 'failed' ? errorMessage(error) : undefined);
+			throw error;
 		} finally {
 			this.currentSubmission = previousSubmission;
 			clearTimeout(timeout);
@@ -514,6 +682,11 @@ export class CodingAgentRuntime implements AgentRuntime {
 					throw new Error(validation.message);
 				}
 				submission.handlers.onSearch?.(validation.locations);
+				this.store.appendOutputEvent?.(submission.outputEntryId, {
+					type: 'submit_search_results',
+					summary: `Accepted ${validation.locations.length} Vantage search result(s).`,
+					details: { locations: validation.locations },
+				});
 				return {
 					content: [{ type: 'text' as const, text: `Accepted ${validation.locations.length} Vantage search result(s).` }],
 					details: { locations: validation.locations },
@@ -532,6 +705,11 @@ export class CodingAgentRuntime implements AgentRuntime {
 				const record = requireRecord(payload, 'submit_edit');
 				const replacementText = parseEditPayload(record.replacementText);
 				submission.handlers.onEdit?.(replacementText);
+				this.store.appendOutputEvent?.(submission.outputEntryId, {
+					type: 'submit_edit',
+					summary: 'Accepted Vantage edit replacement text.',
+					details: { replacementChars: replacementText.length },
+				});
 				return {
 					content: [{ type: 'text' as const, text: 'Accepted Vantage edit replacement text.' }],
 					details: { replacementText },
@@ -553,6 +731,11 @@ export class CodingAgentRuntime implements AgentRuntime {
 				}
 				const annotations = parseAnnotationPayload(record.annotations, submission.params);
 				submission.handlers.onAnnotations?.(annotations);
+				this.store.appendOutputEvent?.(submission.outputEntryId, {
+					type: 'submit_annotations',
+					summary: `Accepted ${annotations.length} Vantage annotation(s).`,
+					details: { annotations },
+				});
 				return {
 					content: [{ type: 'text' as const, text: `Accepted ${annotations.length} Vantage annotation(s).` }],
 					details: { annotations },
@@ -569,6 +752,139 @@ export class CodingAgentRuntime implements AgentRuntime {
 		}
 		return this.currentSubmission;
 	}
+}
+
+function renderSessionOutput(entries: SessionOutputEntry[], raw: boolean): string {
+	const lines = ['## Vantage Session Output', ''];
+	if (entries.length === 0) {
+		lines.push('No Vantage session activity recorded yet.');
+		return lines.join('\n');
+	}
+
+	for (const entry of entries) {
+		const transient = entry.transient ? ' · transient' : '';
+		lines.push(`### ${entry.kind}${transient} · ${entry.status} · ${entry.provider}/${entry.model} · ${formatTime(entry.startedAt)}`);
+		lines.push('');
+		lines.push(`- Started: ${new Date(entry.startedAt).toISOString()}`);
+		if (entry.endedAt) {
+			lines.push(`- Ended: ${new Date(entry.endedAt).toISOString()}`);
+		}
+		lines.push(`- Request: ${entry.userSummary}`);
+		if (entry.error) {
+			lines.push(`- Error: ${entry.error}`);
+		}
+		const events = raw ? entry.events : curatedEvents(entry.events);
+		if (events.length > 0) {
+			lines.push('', '#### Tool and agent activity');
+			for (const event of events) {
+				lines.push(`- ${formatTime(event.time)} ${event.summary}`);
+			}
+		}
+		if (entry.assistantText?.trim()) {
+			lines.push('', '#### Assistant', '', entry.assistantText.trim());
+		}
+		if (raw) {
+			lines.push('', '#### Raw prompt', '', '```text', entry.prompt, '```');
+			lines.push('', '#### Raw events', '', '```json');
+			lines.push(JSON.stringify(entry.events, null, 2));
+			lines.push('```');
+		}
+		lines.push('');
+	}
+	return lines.join('\n').trimEnd();
+}
+
+function curatedEvents(events: SessionOutputEvent[]): SessionOutputEvent[] {
+	let messageUpdates = 0;
+	let lastMessageUpdateTime = Date.now();
+	const curated: SessionOutputEvent[] = [];
+	for (const event of events) {
+		if (event.type === 'message_update') {
+			messageUpdates += 1;
+			lastMessageUpdateTime = event.time;
+			continue;
+		}
+		if (event.summary === 'message completed' || event.type === 'message_start') {
+			continue;
+		}
+		curated.push(event);
+	}
+	if (messageUpdates > 0) {
+		curated.push({
+			time: lastMessageUpdateTime,
+			type: 'message_updates',
+			summary: `assistant streamed ${messageUpdates} update(s)`,
+		});
+	}
+	return curated.sort((left, right) => left.time - right.time);
+}
+
+function formatTime(value: number): string {
+	return new Date(value).toISOString().slice(11, 19);
+}
+
+function userSummary(kind: string, params: BaseRequestParams): string {
+	if (kind === 'question') {
+		return truncate((params as QuestionSelectionParams).question ?? '', 160);
+	}
+	if (kind === 'edit') {
+		return truncate((params as EditSelectionParams).instruction ?? '', 160);
+	}
+	if (kind === 'search') {
+		return truncate((params as SearchLocationsParams).query ?? '', 160);
+	}
+	if (kind === 'annotate') {
+		return `${params.filePath} annotation request`;
+	}
+	return `${params.filePath}:${params.cursor.line}`;
+}
+
+function truncate(value: string, max: number): string {
+	const text = value.trim().replace(/\s+/g, ' ');
+	return text.length > max ? `${text.slice(0, max - 1)}…` : text;
+}
+
+function eventSummary(event: Record<string, unknown>): string {
+	const type = String(event.type ?? 'event');
+	const toolName = typeof event.toolName === 'string' ? event.toolName : undefined;
+	if (toolName && type.includes('tool')) {
+		return `${type}: ${toolName}`;
+	}
+	if (type === 'message_update') {
+		return 'assistant response updated';
+	}
+	if (type === 'message_end') {
+		return 'message completed';
+	}
+	return type;
+}
+
+function skillSummary(skill: Skill): { name: string; description: string; filePath: string; source?: string } {
+	const source = isRecord(skill.sourceInfo) && typeof skill.sourceInfo.label === 'string'
+		? skill.sourceInfo.label
+		: undefined;
+	return {
+		name: skill.name,
+		description: skill.description,
+		filePath: skill.filePath,
+		source,
+	};
+}
+
+function diagnosticMessage(diagnostic: unknown): string {
+	if (isRecord(diagnostic)) {
+		if (typeof diagnostic.message === 'string') {
+			return diagnostic.message;
+		}
+		if (typeof diagnostic.detail === 'string') {
+			return diagnostic.detail;
+		}
+	}
+	return String(diagnostic);
+}
+
+function diagnosticSeverity(diagnostic: unknown): string | undefined {
+	return isRecord(diagnostic) && typeof diagnostic.severity === 'string' ? diagnostic.severity : undefined;
 }
 
 function workspaceRoot(params: BaseRequestParams): string {

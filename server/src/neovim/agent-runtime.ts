@@ -10,6 +10,8 @@ import type {
 	SearchLocationsParams,
 	SearchLocationsResult,
 	AgentRuntimeProgress,
+	AgentSessionOutputParams,
+	ListSkillsResult,
 } from './protocol';
 
 export type AgentRuntimeResult<T> = T | Promise<T>;
@@ -28,4 +30,6 @@ export interface AgentRuntime {
 	agentCancel(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	agentSessionReset(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	agentSessionStatus(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
+	agentSessionOutput(params: AgentSessionOutputParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
+	listSkills(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ListSkillsResult>;
 }

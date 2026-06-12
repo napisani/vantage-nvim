@@ -9,6 +9,8 @@ import {
 	QuestionSelectionParams,
 	SearchLocationsParams,
 	SearchLocationsResult,
+	AgentSessionOutputParams,
+	ListSkillsResult,
 } from './protocol';
 import type { AgentRuntime } from './agent-runtime';
 
@@ -133,6 +135,36 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
 				'- Turn count: 0',
 			].join('\n'),
+		};
+	}
+
+	agentSessionOutput(params: AgentSessionOutputParams): ExplanationResult {
+		return {
+			kind: 'explanation',
+			markdown: [
+				'## Vantage Session Output',
+				'',
+				'### development · completed',
+				'',
+				`Workspace: \`${params.workspaceRoot ?? params.filePath}\``,
+				params.raw ? '' : undefined,
+				params.raw ? '#### Raw' : undefined,
+				params.raw ? 'Development runtime has no raw agent events.' : undefined,
+			].filter((line): line is string => line !== undefined).join('\n'),
+		};
+	}
+
+	listSkills(): ListSkillsResult {
+		return {
+			kind: 'skills',
+			skills: [
+				{
+					name: 'development-skill',
+					description: 'Development runtime placeholder skill.',
+					filePath: '/development/SKILL.md',
+					source: 'development',
+				},
+			],
 		};
 	}
 }

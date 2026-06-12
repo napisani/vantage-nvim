@@ -33,12 +33,11 @@ The suite covers every public command registered by `lua/vantage/commands.lua`:
 - `:VantageEdit`
 - `:VantageAnnotate`
 - `:VantageAnnotationClear`
-- `:VantageAnnotationStatus`
-- `:VantageContextStatus`
+- `:VantageStatus`
+- `:VantageSessionOutput`
 - `:VantageSearch`
 - `:VantageAgentCancel`
 - `:VantageAgentReset`
-- `:VantageAgentStatus`
 
 Public Lua APIs may continue to be covered by deterministic tests. This e2e suite focuses on user-visible commands.
 
@@ -48,7 +47,7 @@ Create `examples/e2e-codebase/` with a few small files that give the model stabl
 
 - `lua/calculator.lua`: simple functions used by explain, question, edit, annotate, and search.
 - `lua/report.lua`: imports/uses calculator functions so search has cross-file results.
-- `.vantage/agent-context.md`: small Agent Context File for `:VantageContextStatus` and model context injection.
+- `.vantage/agent-context.md`: small Agent Context File for the Agent Context section of `:VantageStatus` and model context injection.
 
 The fixture should be intentionally tiny so model calls are cheap and prompts remain focused.
 
@@ -79,14 +78,13 @@ A single session should run commands in this order:
 3. `VantageQuestion Where does the total get computed?`
 4. `VantageEdit rename total to sum on this line`
 5. `VantageAnnotate`
-6. `VantageAnnotationStatus`
-7. `VantageAnnotationClear`
-8. `VantageContextStatus`
-9. `VantageSearch find where calculator totals are used`
-10. `VantageAgentStatus`
-11. `VantageAgentCancel`
-12. `VantageAgentReset`
-13. `VantageClearLens`
+6. `VantageAnnotationClear`
+7. `VantageSearch Find the exact call calculator.total_score(items) in workspace file lua/report.lua. Submit exactly one result for lua/report.lua line 6 startCharacter 15.`
+8. `VantageStatus`
+9. `VantageSessionOutput`
+10. `VantageAgentCancel`
+11. `VantageAgentReset`
+12. `VantageClearLens`
 
 This order catches the class of bugs where a persistent buddy session is created by a non-submit command and later reused by edit/search/annotate submit-tool commands.
 
@@ -95,7 +93,7 @@ This order catches the class of bugs where a persistent buddy session is created
 Assertions are structural:
 
 - Lens commands update and clear `require("vantage").get_lens()`.
-- Explain/question/status/context commands produce a non-empty markdown float.
+- Explain/question/status/session-output commands produce a non-empty markdown float.
 - Edit changes the target buffer text and does not leave the buffer empty.
 - Annotate produces at least one annotation extmark or a non-empty diagnostic artifact showing why none were accepted.
 - Annotation clear removes Vantage annotation extmarks.

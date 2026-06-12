@@ -111,6 +111,10 @@ export interface AgentSessionConfig {
 	cacheRetention?: AgentCacheRetention;
 }
 
+export interface AgentSessionOutputConfig {
+	history_limit?: number;
+}
+
 export interface AgentRuntimeConfig {
 	runtime?: AgentRuntimeName;
 	provider?: string;
@@ -118,6 +122,7 @@ export interface AgentRuntimeConfig {
 	auth?: AgentAuthConfig;
 	options?: AgentOptionsConfig;
 	session?: AgentSessionConfig;
+	session_output?: AgentSessionOutputConfig;
 	trace?: AgentTraceConfig;
 }
 
@@ -126,9 +131,7 @@ export interface CommandConfig {
 	options?: AgentOptionsConfig;
 }
 
-export interface SearchCommandConfig extends CommandConfig {
-	default_prompt?: string;
-}
+export type SearchCommandConfig = CommandConfig;
 
 export interface AnnotateCommandConfig extends CommandConfig {
 	waiting_message_ms?: number;
@@ -155,7 +158,13 @@ export type BackendMethod =
 	| 'searchLocations'
 	| 'agentCancel'
 	| 'agentSessionReset'
-	| 'agentSessionStatus';
+	| 'agentSessionStatus'
+	| 'agentSessionOutput'
+	| 'listSkills';
+
+export interface AgentSessionOutputParams extends BaseRequestParams {
+	raw?: boolean;
+}
 
 export type BackendRequest =
 	| { id: string; method: 'explainSelection'; config?: BackendRequestConfig; params: ExplainSelectionParams }
@@ -165,7 +174,9 @@ export type BackendRequest =
 	| { id: string; method: 'searchLocations'; config?: BackendRequestConfig; params: SearchLocationsParams }
 	| { id: string; method: 'agentCancel'; config?: BackendRequestConfig; params: BaseRequestParams }
 	| { id: string; method: 'agentSessionReset'; config?: BackendRequestConfig; params: BaseRequestParams }
-	| { id: string; method: 'agentSessionStatus'; config?: BackendRequestConfig; params: BaseRequestParams };
+	| { id: string; method: 'agentSessionStatus'; config?: BackendRequestConfig; params: BaseRequestParams }
+	| { id: string; method: 'agentSessionOutput'; config?: BackendRequestConfig; params: AgentSessionOutputParams }
+	| { id: string; method: 'listSkills'; config?: BackendRequestConfig; params: BaseRequestParams };
 
 export interface ExplanationResult {
 	kind: 'explanation';
@@ -205,6 +216,24 @@ export interface SearchLocationsResult {
 	telemetry?: AgentRuntimeTelemetry;
 }
 
+export interface SkillSummary {
+	name: string;
+	description: string;
+	filePath: string;
+	source?: string;
+}
+
+export interface SkillDiagnosticSummary {
+	message: string;
+	severity?: string;
+}
+
+export interface ListSkillsResult {
+	kind: 'skills';
+	skills: SkillSummary[];
+	diagnostics?: SkillDiagnosticSummary[];
+}
+
 export interface AgentRuntimeTelemetry {
 	runtime: string;
 	model?: string;
@@ -222,7 +251,7 @@ export interface AgentRuntimeProgress {
 	details?: Record<string, unknown>;
 }
 
-export type BackendResult = ExplanationResult | AnnotationResult | EditResult | SearchLocationsResult;
+export type BackendResult = ExplanationResult | AnnotationResult | EditResult | SearchLocationsResult | ListSkillsResult;
 
 export type BackendResponse =
 	| { id: string; ok: true; result: BackendResult }
@@ -300,11 +329,22 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 		case 'agentCancel':
 		case 'agentSessionReset':
 		case 'agentSessionStatus':
+		case 'listSkills':
 			return {
 				id,
 				method,
 				config,
 				params: parseBaseRequestParams(params),
+			};
+		case 'agentSessionOutput':
+			return {
+				id,
+				method,
+				config,
+				params: {
+					...parseBaseRequestParams(params),
+					raw: parseOptionalBoolean(params.raw, 'params.raw'),
+				},
 			};
 	}
 }
@@ -334,6 +374,7 @@ function parseOptionalAgentRuntimeConfig(value: unknown, label: string): AgentRu
 	assignDefined(parsed, 'auth', parseOptionalAgentAuthConfig(record.auth, `${label}.auth`));
 	assignDefined(parsed, 'options', parseOptionalAgentOptionsConfig(record.options, `${label}.options`));
 	assignDefined(parsed, 'session', parseOptionalAgentSessionConfig(record.session, `${label}.session`));
+	assignDefined(parsed, 'session_output', parseOptionalAgentSessionOutputConfig(record.session_output, `${label}.session_output`));
 	assignDefined(parsed, 'trace', parseOptionalAgentTraceConfig(record.trace, `${label}.trace`));
 	return parsed;
 }
@@ -359,6 +400,17 @@ function parseOptionalAgentSessionConfig(value: unknown, label: string): AgentSe
 	assignDefined(parsed, 'enabled', parseOptionalBoolean(record.enabled, `${label}.enabled`));
 	assignDefined(parsed, 'max_turns', parseOptionalPositiveInteger(record.max_turns, `${label}.max_turns`));
 	assignDefined(parsed, 'cacheRetention', parseOptionalAgentCacheRetention(record.cacheRetention, `${label}.cacheRetention`));
+	return parsed;
+}
+
+function parseOptionalAgentSessionOutputConfig(value: unknown, label: string): AgentSessionOutputConfig | undefined {
+	if (value === undefined) {
+		return undefined;
+	}
+
+	const record = asRecord(value, label);
+	const parsed: AgentSessionOutputConfig = {};
+	assignDefined(parsed, 'history_limit', parseOptionalPositiveInteger(record.history_limit, `${label}.history_limit`));
 	return parsed;
 }
 
@@ -409,7 +461,6 @@ function parseOptionalSearchCommandConfig(value: unknown, label: string): Search
 
 	const record = asRecord(value, label);
 	const parsed: SearchCommandConfig = {
-		default_prompt: parseOptionalString(record.default_prompt, `${label}.default_prompt`),
 		options: parseOptionalAgentOptionsConfig(record.options, `${label}.options`),
 	};
 	assignDefined(parsed, 'include_lens', parseOptionalBoolean(record.include_lens, `${label}.include_lens`));

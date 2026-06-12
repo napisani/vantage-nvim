@@ -6,12 +6,11 @@ local CommandNames = {
 	edit = "VantageEdit",
 	annotate = "VantageAnnotate",
 	annotation_clear = "VantageAnnotationClear",
-	annotation_status = "VantageAnnotationStatus",
-	context_status = "VantageContextStatus",
+	status = "VantageStatus",
+	session_output = "VantageSessionOutput",
 	search = "VantageSearch",
 	agent_cancel = "VantageAgentCancel",
 	agent_reset = "VantageAgentReset",
-	agent_status = "VantageAgentStatus",
 }
 
 CommandNames.all = {
@@ -22,12 +21,11 @@ CommandNames.all = {
 	CommandNames.edit,
 	CommandNames.annotate,
 	CommandNames.annotation_clear,
-	CommandNames.annotation_status,
-	CommandNames.context_status,
+	CommandNames.status,
+	CommandNames.session_output,
 	CommandNames.search,
 	CommandNames.agent_cancel,
 	CommandNames.agent_reset,
-	CommandNames.agent_status,
 }
 
 return CommandNames
