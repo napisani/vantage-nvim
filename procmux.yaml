@@ -1,0 +1,50 @@
+layout:
+  sort_process_list_running_first: true
+  sort_process_list_alpha: true
+
+procs:
+  "watch:compile":
+    cmd: ["npm", "run", "watch"]
+    cwd: "."
+    autostart: true
+    autofocus: true
+    description: "Continuously compile the TypeScript backend."
+    categories: ["dev", "typescript"]
+    stop: 15
+    stop_timeout_ms: 3000
+
+  lint:
+    cmd: ["npm", "run", "lint"]
+    cwd: "."
+    description: "Run ESLint over the TypeScript backend."
+    categories: ["check"]
+
+  "test:backend":
+    cmd: ["npm", "run", "test:backend"]
+    cwd: "."
+    description: "Compile and run backend node:test specs."
+    categories: ["test", "backend"]
+
+  "test:nvim":
+    cmd: ["npm", "run", "test:nvim"]
+    cwd: "."
+    description: "Run the headless Neovim plugin test suite."
+    categories: ["test", "nvim"]
+
+  "test:mvp":
+    cmd: ["npm", "run", "test:mvp"]
+    cwd: "."
+    description: "Run backend and Neovim tests."
+    categories: ["test"]
+
+  "build:plugin":
+    cmd: ["npm", "run", "build:plugin"]
+    cwd: "."
+    description: "Compile the backend and build the plugin package."
+    categories: ["build"]
+
+  "e2e:model":
+    cmd: ["make", "e2e-model"]
+    cwd: "."
+    description: "Run the local real-model all-commands e2e suite; requires model credentials."
+    categories: ["test", "e2e", "model"]
