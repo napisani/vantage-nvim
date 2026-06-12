@@ -281,7 +281,7 @@ Vantage reads `.vantage/agent-context.md`, but it does not create or continuousl
 Install or copy the skill from this repository:
 
 ```text
-.agents/skills/vantage-distill-session/SKILL.md
+skills/vantage-distill-session/SKILL.md
 ```
 
 Then invoke it from the adjacent agent of your choice when useful:
