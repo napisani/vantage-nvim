@@ -21,28 +21,28 @@ The age of the Agent Context File, used as prompt metadata and optionally as a c
 _Avoid_: Required freshness, context validity
 
 **Agent Runtime**:
-The single AI execution boundary Vantage uses for model-backed and future agentic work. It is backed by Pi, uses Bounded Model Calls for the initial implementation, and may later use Pi agent/session APIs for commands that need multi-step behavior.
+The single AI execution boundary Vantage uses for model-backed and agentic work. It is backed by the Pi coding-agent SDK and exposes command-specific tool allowlists through Vantage-owned request contracts.
 _Avoid_: Provider adapter, direct model adapter, model runtime
 
 **Runtime Simplification**:
 The decision to remove non-Pi model adapters and their user-facing configuration, development targets, tests, and docs so Vantage has one real Agent Runtime.
 _Avoid_: Hidden legacy providers, deprecation-only cleanup
 
-**Bounded Model Call**:
-A single request/response interaction where Vantage owns the editor context, prompt construction, response contract, and command UX while Pi performs the model completion.
-_Avoid_: Agent session, autonomous tool loop, provider call
+**Legacy Bounded Model Call**:
+The removed single request/response runtime where Vantage owned prompt construction and Pi performed a simple model completion without the coding-agent SDK session/tool loop.
+_Avoid_: Current Agent Runtime, Vantage Agent Session, agentic search
 
 **Vantage Agent Session**:
 A persistent conversation state owned by Vantage inside its backend process and scoped to a workspace, so each Model-Backed Command can become a user prompt in the same Pi-backed session.
 _Avoid_: OS-level daemon, global Pi process, raw transcript
 
 **Vantage Agent Session Scope**:
-The identity boundary for a Vantage Agent Session: workspace root, Model Target, and lens mode. Individual buffers and exact lens text do not create separate sessions.
-_Avoid_: Per-buffer session, global session, lens-text session
+The identity boundary for a Vantage Agent Session: one singleton in-memory buddy session per backend/workspace process. Model Target, lens mode, buffers, and exact prompts do not create separate sessions.
+_Avoid_: Per-buffer session, global session, lens-text session, model-scoped session
 
 **Shared Command Session**:
-The rule that explain, question, edit, annotate, and search commands share the same Vantage Agent Session when they have the same Vantage Agent Session Scope, while each command still restates its response contract.
-_Avoid_: Per-command-family session, annotation-only memory, command-specific memory
+The rule that explain, question, edit, and search commands share the same singleton Vantage Agent Session, while annotations use transient sessions and do not enter buddy memory.
+_Avoid_: Per-command-family session, annotation memory, command-specific memory
 
 **Model Target**:
 The configured Pi provider/model pair used to choose a Pi SDK model, such as `openai/gpt-4o-mini`.
@@ -72,9 +72,13 @@ _Avoid_: General provider config, secret storage, login flow config
 The public Vantage setup surface for the Agent Runtime: a compact `agent` table containing the Model Target and Agent Options.
 _Avoid_: Provider configuration, runtime configuration, Pi configuration
 
-**Agent Session Configuration**:
-The public Vantage setup surface for Vantage Agent Sessions, including enablement, bounded history size, and Pi cache retention preference.
-_Avoid_: Daemon config, adjacent-agent config, persistent memory config
+**Agent Configuration Module**:
+The Lua module that normalizes Vantage setup state into the backend request config sent over the Neovim Backend Transport, including Agent Options, Agent Auth Configuration, Session Output History retention, Command Configuration, and Annotation Command Configuration.
+_Avoid_: Scattered config serialization, protocol parser, runtime option merger
+
+**Session Output Configuration**:
+The public Vantage setup surface for retaining Session Output History entries, currently `agent.session_output.history_limit`.
+_Avoid_: Agent memory configuration, persisted transcript configuration, provider cache setting
 
 **Default Agent Runtime**:
 The public default Agent Runtime configuration: Pi with the `openai/gpt-4o-mini` Model Target. Fake runtime behavior is reserved for development and tests.
@@ -83,10 +87,6 @@ _Avoid_: Fake default, provider-less default
 **Development Agent Runtime**:
 An internal deterministic Agent Runtime used only by tests and local development harnesses. It is not part of public Vantage configuration.
 _Avoid_: Public fake provider, user fake runtime, documented fake setup
-
-**Agent Trace Configuration**:
-The Vantage-owned diagnostic settings for writing Agent Runtime prompts and responses to local files. Trace paths are not Pi completion options.
-_Avoid_: Provider trace config, Pi option trace fields
 
 **Command Configuration**:
 The top-level Vantage setup surface for command behavior, keyed by command family such as explain, question, edit, annotate, and search.
@@ -99,6 +99,10 @@ _Avoid_: Separate provider config, command provider
 **Annotation Command Configuration**:
 The command configuration for inline annotations, including annotation UI timing and command-specific Agent Options.
 _Avoid_: Top-level annotations config, provider-specific annotation settings
+
+**Annotation Command Module**:
+The Lua module that owns the annotate and clear-annotations command behaviour: Annotation Scope selection, Annotation Budget calculation, candidate-line filtering, request lifecycle, cancellation, timeout handling, backend progress, rendering outcomes, and Annotation Status snapshots.
+_Avoid_: Command registration module, annotation display adapter, status renderer
 
 **Model-Backed Command**:
 A Vantage command that asks the Agent Runtime for an answer, edit, explanation, annotation, or search response. Model-Backed Commands use Agent Task Context when the Agent Context File is available.
@@ -156,6 +160,18 @@ _Avoid_: Command wrapper, command controller, one-off command glue
 The TypeScript responsibility that defines supported backend command names, request parsing, and runtime dispatch for Model-Backed Commands and Agent Session commands.
 _Avoid_: Ad hoc method switch, duplicated protocol list, backend API surface
 
+**Backend Transport Module**:
+The Lua module that sends backend requests over stdio, tracks pending callbacks, dispatches progress events, and delegates local development responses to the Development Backend Adapter.
+_Avoid_: Agent Runtime, protocol parser, development response fixture
+
+**Development Backend Adapter**:
+The Lua adapter that returns deterministic local responses for development backend mode without starting the TypeScript backend.
+_Avoid_: Backend transport, fake public runtime, production agent adapter
+
+**Submit Tool Contracts Module**:
+The TypeScript module that defines Vantage-owned submit tools, validates submit-tool payloads, records accepted submit-tool events in Session Output History, and parses assistant fallback payloads for weaker tool-use models.
+_Avoid_: Agent Runtime orchestration, prompt text, direct file mutation tool
+
 **Buffer Edit Application**:
 The Lua responsibility that validates and applies a single Agent Runtime replacement to the requested buffer range for `VantageEdit`.
 _Avoid_: Raw model patch, multi-file agent edit, command-local mutation
@@ -163,6 +179,10 @@ _Avoid_: Raw model patch, multi-file agent edit, command-local mutation
 **Status View**:
 The Lua responsibility for rendering Vantage status markdown, including annotation status and Agent Context Status, without mixing display formatting into command orchestration.
 _Avoid_: Inline status text, status command logic, diagnostics backend
+
+**Prompt Authoring Module**:
+The Lua module that turns inline command text or the floating prompt buffer into final prompt text for Question, Edit, and Search, including empty prompt handling and Prompt Reference expansion through the prompt buffer.
+_Avoid_: Model prompt contract, lens prompt, completion engine
 
 **Lens Precedence**:
 The rule that a Vantage lens layers on top of Agent Task Context and has higher priority when they pull the model in different directions.
@@ -181,23 +201,23 @@ The currently observed version of the Agent Context File, identified by file met
 _Avoid_: Always-fresh context, per-command context payload
 
 **Context Update Turn**:
-A low-priority session turn that Vantage sends only when the Agent Context Revision changes, making new Agent Task Context available to the Vantage Agent Session before the next command prompt.
-_Avoid_: Repeated context preamble, hidden session mutation, command replacement
+A low-priority prompt section that makes Agent Task Context available to a Vantage command when the Agent Context File is present.
+_Avoid_: Repeated hidden mutation, command replacement, trusted instruction
 
-**Bounded Session History**:
-The non-summarizing safety limit for a Vantage Agent Session: keep pinned setup, the latest Context Update Turn, and a small recent window of Vantage command turns while dropping older command turns.
-_Avoid_: Automatic compaction, Vantage summarization, unbounded transcript
+**Session Output History**:
+The bounded in-memory activity log rendered by `:VantageSessionOutput`, including buddy session requests and transient annotation activity.
+_Avoid_: Durable transcript, provider memory, prompt cache
 
 **Pi Session Affinity**:
-The use of a stable Pi `sessionId` derived from the Vantage Agent Session Scope so Pi or the underlying provider can apply caching or affinity while Vantage still owns `Context.messages`.
-_Avoid_: Pi daemon, shared adjacent-agent session, implicit memory
+The coding-agent SDK session state owned by Vantage's backend process for the singleton buddy session.
+_Avoid_: Pi daemon, shared adjacent-agent session, persisted memory
 
 **Successful Session Turn**:
-A Vantage command turn whose Pi request completed successfully and produced usable assistant content. Only Successful Session Turns are retained in Vantage Agent Session history.
+A Vantage command turn whose Pi coding-agent request completed successfully and produced usable assistant content or accepted submit-tool output. Failed, cancelled, timed-out, annotation, or malformed submit-tool requests are not intentional buddy memory.
 _Avoid_: Failed turn memory, cancelled turn memory, timeout transcript
 
 **Agent Session Reset**:
-The act of clearing the current Vantage Agent Session, either automatically when the session scope changes or by explicit user command.
+The act of clearing the current singleton Vantage Agent Session by explicit user command when no agentic request is active.
 _Avoid_: Context reset, backend restart, model reset
 
 **In-Memory Agent Session**:
@@ -205,11 +225,11 @@ The lifetime rule for the initial Vantage Agent Session: session state lives onl
 _Avoid_: Disk-backed session, durable chat history, restored Pi conversation
 
 **Default Agent Session**:
-The public default session behavior: Vantage Agent Sessions are enabled with a conservative bounded history window and short Pi cache retention.
+The default session behavior: Vantage creates a singleton in-memory buddy session on first non-annotation Model-Backed Command and keeps it until explicit reset or backend restart.
 _Avoid_: Opt-in memory, unbounded default session, persisted default session
 
 **Agent Session Status**:
-A Vantage-visible summary of the current Vantage Agent Session, such as scope, turn count, latest Agent Context Revision, and age.
+A Vantage-visible summary of the current Vantage Agent Session, such as active request, workspace, Model Target, and Session Output History count.
 _Avoid_: Session transcript, session editor, Pi internals
 
 **Context Trust Boundary**:
@@ -348,7 +368,7 @@ Domain expert: "Provider means the Pi Provider inside the Model Target, not a sw
 
 Dev: "Should Vantage use Pi's higher-level agent/session APIs now?"
 
-Domain expert: "No. For the initial swing, use Bounded Model Calls: Vantage orchestrates the command and Pi performs the completion."
+Domain expert: "Yes. Use the Pi coding-agent SDK directly so Vantage can own a singleton buddy session, command-specific active tools, and Vantage submit-tool contracts."
 
 Dev: "Should old Codex, Ollama, and ChatGPT adapters remain hidden for compatibility?"
 
@@ -381,10 +401,6 @@ Domain expert: "Use the Default Agent Runtime: Pi targeting `openai/gpt-4o-mini`
 Dev: "Can users configure a fake runtime?"
 
 Domain expert: "No. Use the Development Agent Runtime only in tests and local harnesses; public configuration should describe real Pi-backed usage."
-
-Dev: "Are trace paths Agent Options?"
-
-Domain expert: "No. Use Agent Trace Configuration under `agent.trace` because prompt and response files are Vantage diagnostics, not Pi SDK options."
 
 Dev: "Can the Agent Context File change which Model Target Vantage uses?"
 

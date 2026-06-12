@@ -144,16 +144,11 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 		id: 'req-agent-config',
 		method: 'explainSelection',
 		config: {
-				agent: {
-					provider: 'anthropic',
-					model: 'claude-sonnet-4',
-					auth: {
-						path: '~/.config/pi-ai/auth.json',
-					},
-					session: {
-						enabled: true,
-						max_turns: 8,
-					cacheRetention: 'long',
+			agent: {
+				provider: 'anthropic',
+				model: 'claude-sonnet-4',
+				auth: {
+					path: '~/.config/pi-ai/auth.json',
 				},
 				options: {
 					apiKey: 'sk-config',
@@ -161,10 +156,6 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 					temperature: 0.2,
 					maxTokens: 2048,
 					timeoutMs: 900000,
-				},
-				trace: {
-					prompt_path: '/tmp/pi-prompt.txt',
-					response_path: '/tmp/pi-response.txt',
 				},
 			},
 			commands: {
@@ -196,16 +187,11 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 		},
 	});
 
-		assert.deepEqual(parsed.config?.agent, {
-			provider: 'anthropic',
-			model: 'claude-sonnet-4',
-			auth: {
-				path: '~/.config/pi-ai/auth.json',
-			},
-			session: {
-				enabled: true,
-				max_turns: 8,
-			cacheRetention: 'long',
+	assert.deepEqual(parsed.config?.agent, {
+		provider: 'anthropic',
+		model: 'claude-sonnet-4',
+		auth: {
+			path: '~/.config/pi-ai/auth.json',
 		},
 		options: {
 			apiKey: 'sk-config',
@@ -213,10 +199,6 @@ test('parseBackendRequest accepts explicit agent and command config', () => {
 			temperature: 0.2,
 			maxTokens: 2048,
 			timeoutMs: 900000,
-		},
-		trace: {
-			prompt_path: '/tmp/pi-prompt.txt',
-			response_path: '/tmp/pi-response.txt',
 		},
 	});
 	assert.deepEqual(parsed.config?.commands?.annotate, {

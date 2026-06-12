@@ -23,11 +23,6 @@ test('createAgentRuntimeFromConfig passes model target, agent options, and comma
 			auth: {
 				path: '/tmp/pi-auth.json',
 			},
-			session: {
-				enabled: true,
-				max_turns: 8,
-				cacheRetention: 'long',
-			},
 			options: {
 				apiKey: 'sk-config',
 				reasoning: 'medium',
@@ -38,10 +33,6 @@ test('createAgentRuntimeFromConfig passes model target, agent options, and comma
 				maxRetryDelayMs: 5000,
 				metadata: { source: 'vantage-test' },
 				headers: { 'x-test': 'yes' },
-			},
-			trace: {
-				prompt_path: '/tmp/pi-prompt.txt',
-				response_path: '/tmp/pi-response.txt',
 			},
 		},
 		commands: {
@@ -189,7 +180,7 @@ test('CodingAgentRuntime falls back to assistant JSON when submit_search_results
 
 test('CodingAgentRuntime keeps submit_edit live when an explain command creates the singleton session first', async () => {
 	let listener: ((event: { type: string; message?: unknown }) => void) | undefined;
-	let initialSubmitEdit: { execute: (toolCallId: string, payload: unknown) => Promise<unknown> } | undefined;
+	const initialSubmitEdit: { current?: { execute: (toolCallId: string, payload: unknown) => Promise<unknown> } } = {};
 	const fakeSession = {
 		setActiveToolsByName() {},
 		subscribe(value: typeof listener) {
@@ -200,7 +191,7 @@ test('CodingAgentRuntime keeps submit_edit live when an explain command creates 
 		},
 		async prompt(prompt: string) {
 			if (prompt.includes('User edit instruction:')) {
-				await initialSubmitEdit?.execute('tool-call-1', { replacementText: 'const count = 1;' });
+				await initialSubmitEdit.current?.execute('tool-call-1', { replacementText: 'const count = 1;' });
 				return;
 			}
 			listener?.({
@@ -215,14 +206,16 @@ test('CodingAgentRuntime keeps submit_edit live when an explain command creates 
 		dispose() {},
 	};
 	const fakeStore = {
-		async getOrCreate(options: { customTools: { name: string; execute: (toolCallId: string, payload: unknown) => Promise<unknown> }[] }) {
-			initialSubmitEdit ??= options.customTools.find((tool) => tool.name === 'submit_edit');
+		async getOrCreate() {
 			return fakeSession;
 		},
 		begin() {},
 		end() {},
 	} as unknown as CodingAgentSessionStore;
 	const runtime = new CodingAgentRuntime({ store: fakeStore });
+	initialSubmitEdit.current = (await (runtime as unknown as {
+		submissionTools(): Promise<{ name: string; execute: (toolCallId: string, payload: unknown) => Promise<unknown> }[]>;
+	}).submissionTools()).find((tool) => tool.name === 'submit_edit');
 	const baseParams = {
 		filePath: '/repo/example.ts',
 		language: 'typescript',
@@ -242,6 +235,86 @@ test('CodingAgentRuntime keeps submit_edit live when an explain command creates 
 	});
 
 	assert.equal(edit.replacementText, 'const count = 1;');
+});
+
+test('CodingAgentRuntime passes singleton session inputs and command-specific active tools', async () => {
+	let listener: ((event: { type: string; message?: unknown }) => void) | undefined;
+	const activeToolSets: string[][] = [];
+	let getOrCreateOptions: {
+		workspaceRoot: string;
+		provider: string;
+		model: string;
+		createSession: () => Promise<unknown>;
+	} | undefined;
+	const fakeSession = {
+		setActiveToolsByName(tools: string[]) {
+			activeToolSets.push(tools);
+		},
+		subscribe(value: typeof listener) {
+			listener = value;
+			return () => {
+				listener = undefined;
+			};
+		},
+		async prompt(prompt: string) {
+			const text = prompt.includes('User edit instruction:')
+				? 'const count = 1;'
+				: prompt.includes('User search request:')
+					? JSON.stringify({ locations: [{ filePath: 'package.json', startLine: 1, startCharacter: 1, explanation: 'Defines the package metadata.' }] })
+					: 'markdown response';
+			listener?.({
+				type: 'message_end',
+				message: {
+					role: 'assistant',
+					content: [{ type: 'text', text }],
+				},
+			});
+		},
+		async abort() {},
+		dispose() {},
+	};
+	const fakeStore = {
+		async getOrCreate(options: typeof getOrCreateOptions) {
+			getOrCreateOptions = options;
+			return fakeSession;
+		},
+		begin() {},
+		end() {},
+	} as unknown as CodingAgentSessionStore;
+	const credentialResolver = { resolveApiKey: async () => 'resolved-key' };
+	const runtime = new CodingAgentRuntime({
+		provider: 'anthropic',
+		model: 'claude-test',
+		auth: { path: '/tmp/auth.json' },
+		options: { apiKey: 'explicit-key', reasoning: 'medium' },
+		store: fakeStore,
+		credentialResolver,
+	});
+	const baseParams = {
+		workspaceRoot: process.cwd(),
+		filePath: `${process.cwd()}/package.json`,
+		language: 'json',
+		text: '{"name":"vantage.nvim"}',
+		cursor: { line: 1, character: 1 },
+	};
+
+	await runtime.explainSelection({ ...baseParams, selectedText: baseParams.text });
+	await runtime.editSelection({
+		...baseParams,
+		range: { startLine: 1, startCharacter: 1, endLine: 1, endCharacter: 24 },
+		selectedText: baseParams.text,
+		instruction: 'rename value to count',
+	});
+	await runtime.searchLocations({ ...baseParams, query: 'find package metadata' });
+
+	assert.equal(getOrCreateOptions?.workspaceRoot, process.cwd());
+	assert.equal(getOrCreateOptions?.provider, 'anthropic');
+	assert.equal(getOrCreateOptions?.model, 'claude-test');
+	assert.deepEqual(activeToolSets, [
+		['read', 'grep', 'find', 'ls'],
+		['read', 'grep', 'find', 'ls', 'submit_edit'],
+		['read', 'grep', 'find', 'ls', 'submit_search_results'],
+	]);
 });
 
 test('createAgentRuntimeFromConfig keeps development runtime internal', () => {

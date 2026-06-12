@@ -234,11 +234,6 @@ process.stdin.on('data', (chunk) => {
 				temperature = 0.1,
 				reasoning = "medium",
 			},
-			session = {
-				enabled = true,
-				max_turns = 12,
-				cacheRetention = "short",
-			},
 			session_output = {
 				history_limit = 10,
 			},
@@ -1657,55 +1652,6 @@ test("annotate waiting status includes agent and elapsed time", function()
 			local saw_waiting_status = vim.wait(200, function()
 				for _, notification in ipairs(notifications) do
 					if notification:match("still waiting for annotations from development") and notification:match("after 0%.") then
-						return true
-					end
-				end
-				return false
-			end)
-			assert(saw_waiting_status, vim.inspect(notifications))
-			commands.clear_annotations()
-		end)
-	end)
-
-	backend.request = original_request
-	vantage.setup({ commands = { annotate = { waiting_message_ms = 30000 } } })
-	assert(ok, err)
-end)
-
-test("pi annotation waiting status includes model target and trace path", function()
-	local vantage = require("vantage")
-	local commands = require("vantage.commands")
-	local backend = require("vantage.backend")
-	local original_request = backend.request
-
-	local ok, err = pcall(function()
-		backend.request = function()
-			-- Keep the request in-flight so the waiting status can fire.
-		end
-
-		vantage.setup({
-			backend = { mode = "stdio" },
-			agent = {
-				trace = {
-					response_path = ".nvim-dev/trace/pi-response.txt",
-				},
-			},
-			commands = {
-				annotate = {
-					waiting_message_ms = 10,
-				},
-			},
-		})
-		lua_buffer({ "local value = 42" })
-
-		capture_notifications(function(notifications)
-			commands.annotate()
-			local saw_waiting_status = vim.wait(200, function()
-				for _, notification in ipairs(notifications) do
-					if
-						notification:match("still waiting for annotations from openai/gpt%-4o%-mini")
-						and notification:match("response trace: %.nvim%-dev/trace/pi%-response%.txt")
-					then
 						return true
 					end
 				end

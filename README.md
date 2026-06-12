@@ -104,7 +104,7 @@ npm ci --omit=dev
 
 ## Agent Runtime
 
-Vantage uses Pi through `@earendil-works/pi-ai` as its agent runtime. The public `agent.provider` and `agent.model` fields are the Pi model target, for example `openai/gpt-4o-mini` or `anthropic/claude-sonnet-4`.
+Vantage uses Pi through `@earendil-works/pi-coding-agent` as its agent runtime. The public `agent.provider` and `agent.model` fields are the Pi model target, for example `openai/gpt-4o-mini` or `anthropic/claude-sonnet-4`.
 
 ```lua
 require("vantage").setup({
@@ -114,11 +114,6 @@ require("vantage").setup({
     -- auth = {
     --   path = vim.fn.expand("~/.config/pi/auth.json"),
     -- },
-    session = {
-      enabled = true,
-      max_turns = 12,
-      cacheRetention = "short",
-    },
     options = {
       temperature = 0.1,
       maxTokens = 1024,
@@ -151,11 +146,9 @@ require("vantage").setup({
 })
 ```
 
-`openai-codex` rejects `temperature`; Vantage strips that option for Codex model targets even if it is present in shared `agent.options`.
-
 Do not commit Pi OAuth auth files. This repository ignores `auth.json` by default because it can contain refresh tokens.
 
-Vantage Agent Sessions are enabled by default. The backend keeps in-memory conversation state scoped by workspace root, model target, and lens mode, then passes a stable Pi `sessionId` for session affinity and provider-side cache reuse. Explain, question, edit, and search share the same scoped buddy session. Annotations use transient sessions and do not enter buddy-session memory. The history window is bounded by `agent.session.max_turns` and is not persisted across Neovim/backend restarts.
+Vantage Agent Sessions are enabled by default. The backend keeps one in-memory singleton buddy session for the current backend/workspace process. Explain, question, edit, and search share that buddy session. Annotations use transient sessions and do not enter buddy-session memory. Session state is not persisted across Neovim/backend restarts.
 
 ## Configuration Reference
 
@@ -170,21 +163,12 @@ require("vantage").setup({
     auth = {
       path = vim.fn.expand("~/.config/pi/auth.json"),
     },
-    session = {
-      enabled = true,
-      max_turns = 12,
-      cacheRetention = "short",
-    },
     options = {
       temperature = 0.1,
       maxTokens = 1024,
       timeoutMs = 300000,
       reasoning = "medium",
       -- apiKey = "sk-...",
-    },
-    trace = {
-      prompt_path = ".nvim-dev/trace/pi-prompt.txt",
-      response_path = ".nvim-dev/trace/pi-response.txt",
     },
     session_output = {
       history_limit = 10,
@@ -255,10 +239,8 @@ Config groups:
 - `agent.provider`: Pi provider name, default `openai`.
 - `agent.model`: Pi model name, default `gpt-4o-mini`.
 - `agent.auth.path`: optional Pi OAuth `auth.json` path. If omitted, Vantage checks `<workspace>/auth.json`, `./auth.json`, `~/.config/pi/auth.json`, then `~/.config/pi-ai/auth.json`.
-- `agent.session`: Vantage-owned in-memory Agent Session settings. `enabled` turns scoped sessions on or off, `max_turns` bounds retained successful command turns, and `cacheRetention` is passed to Pi as `none`, `short`, or `long`.
 - `agent.session_output.history_limit`: backend-owned retention for `:VantageSessionOutput` activity entries.
 - `agent.options`: Pi call options using Pi SDK-style camelCase keys, including `apiKey`, `temperature`, `maxTokens`, `timeoutMs`, `maxRetries`, `maxRetryDelayMs`, `reasoning`, `metadata`, and `headers`.
-- `agent.trace`: optional prompt and response trace paths.
 - `commands.annotate.waiting_message_ms`: when to show a still-waiting annotation notification.
 - `commands.*.options`: command-specific Pi options layered over `agent.options`.
 - `ui.output`: readable markdown float defaults for Vantage output.
@@ -320,7 +302,7 @@ For a team setup, commit that ignore rule to `.gitignore`.
 
 Use `:VantageStatus` to see whether Vantage found, included, skipped, or truncated the context file for the current workspace. Then use normal commands such as `:VantageExplain`, `:VantageQuestion`, `:VantageEdit`, and `:VantageAnnotate visible`; Vantage includes the snapshot automatically when it is available.
 
-When Agent Sessions are enabled, Vantage tracks the context file revision and injects an Agent Context update turn only when the file changes for the current scoped session. The active lens still has higher precedence than the adjacent-agent context.
+Vantage includes the current Agent Context File content in explicit command prompts when available. The active lens still has higher precedence than the adjacent-agent context.
 
 See `docs/agent-context.md` for the full artifact convention and design notes. Tool-specific instruction docs are available from Codex, Claude Code, and opencode:
 

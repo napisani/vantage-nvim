@@ -1,7 +1,7 @@
 local backend = require("vantage.backend")
 local buffer_edit = require("vantage.buffer_edit")
 local context = require("vantage.context")
-local prompt_buffer = require("vantage.prompt_buffer")
+local prompt_authoring = require("vantage.prompt_authoring")
 local ui = require("vantage.ui")
 
 local M = {}
@@ -43,18 +43,6 @@ local function scoped_context(opts)
 	return range_context(opts) or context.current_line()
 end
 
-local function trim(text)
-	return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
-end
-
-local function optional_command_text(opts)
-	local text = trim(opts and opts.args or "")
-	if text:match("%S") == nil then
-		return nil
-	end
-	return text
-end
-
 local function request_question(params, question)
 	params.selectedText = params.selectedText or params.text
 	params.question = question
@@ -92,21 +80,12 @@ end
 
 function M.question(opts)
 	local params = scoped_context(opts)
-	local question = optional_command_text(opts)
-	if question then
-		request_question(params, question)
-		return
-	end
-
-	prompt_buffer.open({
+	prompt_authoring.resolve({
 		kind = "question",
 		params = params,
-		on_submit = function(input)
-			input = optional_command_text({ args = input })
-			if not input then
-				return
-			end
-			request_question(params, input)
+		command_opts = opts,
+		on_submit = function(question)
+			request_question(params, question)
 		end,
 	})
 end
@@ -115,22 +94,12 @@ function M.edit(opts)
 	local bufnr = vim.api.nvim_get_current_buf()
 	local params = scoped_context(opts)
 
-	local instruction = optional_command_text(opts)
-	if instruction then
-		request_edit(bufnr, params, instruction)
-		return
-	end
-
-	prompt_buffer.open({
+	prompt_authoring.resolve({
 		kind = "edit",
 		params = params,
-		on_submit = function(input)
-			input = optional_command_text({ args = input })
-			if not input then
-				return
-			end
-
-			request_edit(bufnr, params, input)
+		command_opts = opts,
+		on_submit = function(instruction)
+			request_edit(bufnr, params, instruction)
 		end,
 	})
 end
@@ -183,21 +152,13 @@ end
 
 function M.search(opts)
 	local params = scoped_context(opts)
-	local query = optional_command_text(opts)
-	if query then
-		request_search(params, query)
-		return
-	end
-	prompt_buffer.open({
+	prompt_authoring.resolve({
 		kind = "search",
 		params = params,
-		on_submit = function(input)
-			input = optional_command_text({ args = input })
-			if not input then
-				vim.notify("Vantage: search requires a prompt", vim.log.levels.WARN)
-				return
-			end
-			request_search(params, input)
+		command_opts = opts,
+		empty_message = "Vantage: search requires a prompt",
+		on_submit = function(query)
+			request_search(params, query)
 		end,
 	})
 end

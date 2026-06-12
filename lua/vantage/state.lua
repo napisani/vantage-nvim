@@ -20,17 +20,8 @@ end
 ---@field metadata? table<string, any>
 ---@field headers? table<string, string>
 
----@class VantageAgentTraceConfig
----@field prompt_path? string
----@field response_path? string
-
 ---@class VantageAgentAuthConfig
 ---@field path? string Path to a Pi OAuth auth.json file. Relative paths resolve from the workspace root in the backend.
-
----@class VantageAgentSessionConfig
----@field enabled? boolean
----@field max_turns? integer
----@field cacheRetention? "none"|"short"|"long"
 
 ---@class VantageAgentSessionOutputConfig
 ---@field history_limit? integer
@@ -41,9 +32,7 @@ end
 ---@field model? string
 ---@field auth? VantageAgentAuthConfig
 ---@field options? VantageAgentOptions
----@field session? VantageAgentSessionConfig
 ---@field session_output? VantageAgentSessionOutputConfig
----@field trace? VantageAgentTraceConfig
 
 ---@class VantageCommandConfig
 ---@field include_lens? boolean
@@ -129,11 +118,6 @@ local function default_config()
 				temperature = 0.1,
 				maxTokens = 1024,
 				timeoutMs = 300000,
-			},
-			session = {
-				enabled = true,
-				max_turns = 12,
-				cacheRetention = "short",
 			},
 			session_output = {
 				history_limit = 10,

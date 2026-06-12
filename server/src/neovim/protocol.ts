@@ -82,7 +82,6 @@ export interface SearchLocationsParams extends BaseRequestParams {
 
 export type AgentRuntimeName = 'pi' | 'development';
 export type AgentReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
-export type AgentCacheRetention = 'none' | 'short' | 'long';
 
 export interface AgentOptionsConfig {
 	apiKey?: string;
@@ -96,19 +95,8 @@ export interface AgentOptionsConfig {
 	headers?: Record<string, string>;
 }
 
-export interface AgentTraceConfig {
-	prompt_path?: string;
-	response_path?: string;
-}
-
 export interface AgentAuthConfig {
 	path?: string;
-}
-
-export interface AgentSessionConfig {
-	enabled?: boolean;
-	max_turns?: number;
-	cacheRetention?: AgentCacheRetention;
 }
 
 export interface AgentSessionOutputConfig {
@@ -121,9 +109,7 @@ export interface AgentRuntimeConfig {
 	model?: string;
 	auth?: AgentAuthConfig;
 	options?: AgentOptionsConfig;
-	session?: AgentSessionConfig;
 	session_output?: AgentSessionOutputConfig;
-	trace?: AgentTraceConfig;
 }
 
 export interface CommandConfig {
@@ -373,9 +359,7 @@ function parseOptionalAgentRuntimeConfig(value: unknown, label: string): AgentRu
 	assignDefined(parsed, 'model', parseOptionalString(record.model, `${label}.model`));
 	assignDefined(parsed, 'auth', parseOptionalAgentAuthConfig(record.auth, `${label}.auth`));
 	assignDefined(parsed, 'options', parseOptionalAgentOptionsConfig(record.options, `${label}.options`));
-	assignDefined(parsed, 'session', parseOptionalAgentSessionConfig(record.session, `${label}.session`));
 	assignDefined(parsed, 'session_output', parseOptionalAgentSessionOutputConfig(record.session_output, `${label}.session_output`));
-	assignDefined(parsed, 'trace', parseOptionalAgentTraceConfig(record.trace, `${label}.trace`));
 	return parsed;
 }
 
@@ -390,19 +374,6 @@ function parseOptionalAgentAuthConfig(value: unknown, label: string): AgentAuthC
 	return parsed;
 }
 
-function parseOptionalAgentSessionConfig(value: unknown, label: string): AgentSessionConfig | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-
-	const record = asRecord(value, label);
-	const parsed: AgentSessionConfig = {};
-	assignDefined(parsed, 'enabled', parseOptionalBoolean(record.enabled, `${label}.enabled`));
-	assignDefined(parsed, 'max_turns', parseOptionalPositiveInteger(record.max_turns, `${label}.max_turns`));
-	assignDefined(parsed, 'cacheRetention', parseOptionalAgentCacheRetention(record.cacheRetention, `${label}.cacheRetention`));
-	return parsed;
-}
-
 function parseOptionalAgentSessionOutputConfig(value: unknown, label: string): AgentSessionOutputConfig | undefined {
 	if (value === undefined) {
 		return undefined;
@@ -412,18 +383,6 @@ function parseOptionalAgentSessionOutputConfig(value: unknown, label: string): A
 	const parsed: AgentSessionOutputConfig = {};
 	assignDefined(parsed, 'history_limit', parseOptionalPositiveInteger(record.history_limit, `${label}.history_limit`));
 	return parsed;
-}
-
-function parseOptionalAgentTraceConfig(value: unknown, label: string): AgentTraceConfig | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-
-	const record = asRecord(value, label);
-	return {
-		prompt_path: parseOptionalString(record.prompt_path, `${label}.prompt_path`),
-		response_path: parseOptionalString(record.response_path, `${label}.response_path`),
-	};
 }
 
 function parseOptionalCommandsConfig(value: unknown, label: string): CommandsConfig | undefined {
@@ -522,18 +481,6 @@ function parseOptionalAgentReasoningLevel(value: unknown, label: string): AgentR
 	}
 
 	throw new Error(`${label} must be minimal, low, medium, high, or xhigh`);
-}
-
-function parseOptionalAgentCacheRetention(value: unknown, label: string): AgentCacheRetention | undefined {
-	if (value === undefined) {
-		return undefined;
-	}
-
-	if (value === 'none' || value === 'short' || value === 'long') {
-		return value;
-	}
-
-	throw new Error(`${label} must be none, short, or long`);
 }
 
 function parseOptionalCandidateLines(value: unknown, label: string): AnnotationCandidateLine[] | undefined {

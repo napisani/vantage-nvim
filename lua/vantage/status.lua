@@ -107,9 +107,6 @@ function M.annotation(status)
 	if status.skipped ~= nil then
 		table.insert(lines, "- Returned annotations skipped: " .. tostring(status.skipped))
 	end
-	if status.trace then
-		table.insert(lines, "- Response trace: `" .. tostring(status.trace) .. "`")
-	end
 	if type(status.progress_history) == "table" and #status.progress_history > 0 then
 		table.insert(lines, "")
 		table.insert(lines, "### Backend Progress")

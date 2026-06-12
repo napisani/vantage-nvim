@@ -1,3 +1,5 @@
+local backend_config = require("vantage.backend_config")
+local development_backend = require("vantage.development_backend")
 local state = require("vantage.state")
 
 local M = {}
@@ -7,158 +9,6 @@ local job_generation = 0
 local next_id = 1
 local pending = {}
 local stdout_buffer = ""
-
-local function title_case(value)
-	local text = value or "text"
-	return text:gsub("^%l", string.upper)
-end
-
-local function development_response(method, params)
-	params = params or {}
-
-	if method == "explainSelection" then
-		local language = title_case(params.language)
-		local lens = params.lens and params.lens.text or "No learning lens set."
-		local selected_code = params.selectedText or params.text or ""
-		local context_summary = params.contextSummary or "Visible editor context."
-		if params.agentContext then
-			local truncated = params.agentContext.truncated and ", truncated" or ""
-			context_summary = "Agent context: "
-				.. tostring(params.agentContext.path or "unknown")
-				.. " ("
-				.. tostring(#(params.agentContext.content or ""))
-				.. " chars"
-				.. truncated
-				.. ")"
-		end
-
-		return {
-			kind = "explanation",
-			markdown = table.concat({
-				"## Explanation",
-				"",
-				"Development agent runtime response for **" .. language .. "**.",
-				"",
-				"Lens: " .. lens,
-				"",
-				"```" .. (params.language or ""),
-				selected_code,
-				"```",
-				"",
-				"Context: " .. context_summary,
-			}, "\n"),
-		}
-	end
-
-	if method == "questionSelection" then
-		return {
-			kind = "explanation",
-			markdown = table.concat({
-				"## Answer",
-				"",
-				"Development agent runtime response for **" .. title_case(params.language) .. "**.",
-				"",
-				"Question: " .. tostring(params.question or ""),
-				"",
-				"```" .. (params.language or ""),
-				params.selectedText or params.text or "",
-				"```",
-			}, "\n"),
-		}
-	end
-
-	if method == "editSelection" then
-		return {
-			kind = "edit",
-			replacementText = params.selectedText or params.text or "",
-		}
-	end
-
-	if method == "annotateRange" then
-		local start_line = 0
-		if params.visibleRange and params.visibleRange.startLine then
-			start_line = params.visibleRange.startLine
-		end
-
-		return {
-			kind = "annotations",
-			annotations = {
-				{
-					text = "Development annotation.",
-					detailMarkdown = "## Annotation\n\nDevelopment annotation detail.",
-					severity = "info",
-					range = {
-						startLine = start_line,
-						startCharacter = 0,
-						endLine = start_line,
-						endCharacter = 0,
-					},
-				},
-			},
-		}
-	end
-
-	if method == "searchLocations" then
-		return {
-			kind = "locations",
-			locations = {
-				{
-					filePath = params.filePath or "",
-					startLine = params.range and params.range.startLine or params.cursor and params.cursor.line or 1,
-					startCharacter = params.range and params.range.startCharacter or params.cursor and params.cursor.character or 1,
-					explanation = "Development search result for: " .. tostring(params.query or ""),
-				},
-			},
-		}
-	end
-
-	if method == "agentCancel" then
-		return {
-			kind = "explanation",
-			markdown = "## Vantage Agent\n\nDevelopment agent runtime cancel.",
-		}
-	end
-
-	if method == "agentSessionReset" then
-		return {
-			kind = "explanation",
-			markdown = "## Vantage Agent Session\n\nDevelopment agent runtime session reset.",
-		}
-	end
-
-	if method == "agentSessionStatus" then
-		return {
-			kind = "explanation",
-			markdown = "## Vantage Agent Session\n\nDevelopment agent runtime session status.\n\nTurn count: 0",
-		}
-	end
-
-	if method == "agentSessionOutput" then
-		return {
-			kind = "explanation",
-			markdown = "## Vantage Session Output\n\n### development · completed\n\nDevelopment backend session output.",
-		}
-	end
-
-	if method == "listSkills" then
-		return {
-			kind = "skills",
-			skills = {
-				{
-					name = "development-skill",
-					description = "Development backend placeholder skill.",
-					filePath = "/development/SKILL.md",
-					source = "development",
-				},
-			},
-		}
-	end
-
-	return {
-		kind = "error",
-		markdown = "## Error\n\nUnknown development backend method: " .. tostring(method),
-	}
-end
 
 local function invoke_callback(callback, response)
 	if callback then
@@ -191,94 +41,6 @@ local function fail_pending(code, message)
 			invoke_callback(request.callback, backend_error(id, code, message))
 		end)
 	end
-end
-
-local function json_object(value)
-	if type(value) ~= "table" or vim.tbl_isempty(value) then
-		return vim.empty_dict()
-	end
-	return vim.deepcopy(value)
-end
-
-local function agent_options_config(value)
-	local options = json_object(value)
-	if type(options.metadata) == "table" and vim.tbl_isempty(options.metadata) then
-		options.metadata = vim.empty_dict()
-	end
-	if type(options.headers) == "table" and vim.tbl_isempty(options.headers) then
-		options.headers = vim.empty_dict()
-	end
-	return options
-end
-
-local function command_config(value)
-	value = value or {}
-	return {
-		include_lens = value.include_lens,
-		options = agent_options_config(value.options),
-	}
-end
-
-local function auth_config(value)
-	if type(value) ~= "table" then
-		return nil
-	end
-
-	local config = {}
-	if value.path ~= nil then
-		config.path = value.path
-	end
-	if vim.tbl_isempty(config) then
-		return vim.empty_dict()
-	end
-	return config
-end
-
-local function session_config(value)
-	value = value or {}
-	return {
-		enabled = value.enabled,
-		max_turns = value.max_turns,
-		cacheRetention = value.cacheRetention,
-	}
-end
-
-local function session_output_config(value)
-	value = value or {}
-	return {
-		history_limit = value.history_limit,
-	}
-end
-
-local function annotate_command_config(value)
-	local config = command_config(value)
-	if type(value) == "table" then
-		config.waiting_message_ms = value.waiting_message_ms
-	end
-	return config
-end
-
-local function request_config()
-	local agent = vim.deepcopy(state.config.agent or {})
-	agent.options = agent_options_config(agent.options)
-	agent.auth = auth_config(agent.auth)
-	agent.session = session_config(agent.session)
-	agent.session_output = session_output_config(agent.session_output)
-	if type(agent.trace) == "table" and vim.tbl_isempty(agent.trace) then
-		agent.trace = vim.empty_dict()
-	end
-
-	local commands = state.config.commands or {}
-	return {
-		agent = agent,
-		commands = {
-			explain = command_config(commands.explain),
-			question = command_config(commands.question),
-			edit = command_config(commands.edit),
-			annotate = annotate_command_config(commands.annotate),
-			search = command_config(commands.search),
-		},
-	}
 end
 
 local function handle_stdout_line(line)
@@ -393,7 +155,7 @@ function M.request(method, params, callback, options)
 		invoke_callback(callback, {
 			id = "development",
 			ok = true,
-			result = development_response(method, params),
+			result = development_backend.response(method, params),
 		})
 		return "development"
 	end
@@ -418,7 +180,7 @@ function M.request(method, params, callback, options)
 	local message = vim.json.encode({
 		id = id,
 		method = method,
-		config = request_config(),
+		config = backend_config.request(),
 		params = params or {},
 	}) .. "\n"
 
