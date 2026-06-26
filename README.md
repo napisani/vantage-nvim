@@ -55,7 +55,7 @@ All public Lua functions are available from `require("vantage")` and share the s
 
 ## Installation
 
-vantage.nvim needs Neovim 0.10+, Node.js 22+, and npm. Install from the generated `dist` branch, which contains the Lua plugin and compiled Node backend. After your plugin manager clones the repo, run `npm ci --omit=dev` in the plugin directory so runtime Node dependencies are available.
+vantage.nvim needs Neovim 0.10+, Node.js 22+, and npm. Install from the generated `dist` branch, which contains the Lua plugin and the Node backend source. After your plugin manager clones the repo, run `npm ci --omit=dev && npm run compile` in the plugin directory to install runtime Node dependencies and build the backend. The TypeScript compiler ships as a runtime dependency so this works without dev dependencies.
 
 ### lazy.nvim
 
@@ -64,7 +64,7 @@ vantage.nvim needs Neovim 0.10+, Node.js 22+, and npm. Install from the generate
   "napisani/vantage-nvim",
   name = "vantage.nvim",
   branch = "dist",
-  build = "npm ci --omit=dev",
+  build = "npm ci --omit=dev && npm run compile",
   config = function()
     require("vantage").setup({
       agent = {
@@ -79,7 +79,7 @@ vantage.nvim needs Neovim 0.10+, Node.js 22+, and npm. Install from the generate
 ### vim-plug
 
 ```vim
-Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'npm ci --omit=dev' }
+Plug 'napisani/vantage-nvim', { 'branch': 'dist', 'do': 'npm ci --omit=dev && npm run compile' }
 ```
 
 Then configure vantage.nvim from your Lua config:
@@ -99,7 +99,7 @@ require("vantage").setup({
 git clone --branch dist https://github.com/napisani/vantage-nvim \
   "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
 cd "${XDG_DATA_HOME:-$HOME/.local/share}/nvim/site/pack/vantage/start/vantage.nvim"
-npm ci --omit=dev
+npm ci --omit=dev && npm run compile
 ```
 
 ## Agent Runtime

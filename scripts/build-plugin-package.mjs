@@ -8,13 +8,15 @@ const output = path.join(root, '.plugin-dist');
 const requiredDirectories = [
 	['plugin', 'plugin'],
 	['lua', 'lua'],
-	['server/out', 'server/out', runtimeBackendFilter],
+	['server/src', 'server/src', backendSourceFilter],
 ];
 
 const requiredFiles = [
 	'README.md',
 	'package.json',
 	'package-lock.json',
+	'tsconfig.json',
+	'server/tsconfig.json',
 ];
 
 const optionalFiles = [
@@ -71,6 +73,6 @@ async function exists(filePath) {
 	}
 }
 
-function runtimeBackendFilter(source) {
-	return !source.endsWith('.map') && !source.endsWith('.test.js');
+function backendSourceFilter(source) {
+	return !source.endsWith('.test.ts');
 }
