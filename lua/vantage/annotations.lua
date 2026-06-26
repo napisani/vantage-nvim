@@ -10,6 +10,16 @@ function M.clear(bufnr)
 	vim.api.nvim_buf_clear_namespace(bufnr or 0, namespace, 0, -1)
 end
 
+-- Clear annotation extmarks from every loaded buffer. Walkthrough annotations
+-- span multiple buffers, so a single-buffer clear is not enough.
+function M.clear_all()
+	for _, bufnr in ipairs(vim.api.nvim_list_bufs()) do
+		if vim.api.nvim_buf_is_loaded(bufnr) then
+			vim.api.nvim_buf_clear_namespace(bufnr, namespace, 0, -1)
+		end
+	end
+end
+
 local function mark_position(annotation)
 	local line = 0
 	local character = 0

@@ -46,6 +46,10 @@ function M.clear_annotations()
 	commands.clear_annotations()
 end
 
+function M.load_walkthrough()
+	commands.load_walkthrough()
+end
+
 function M.search(opts)
 	commands.search(opts or {})
 end

@@ -9,3 +9,4 @@ server/out
 .worktrees/
 auth.json
 .vantage/agent-context.md
+.vantage/walkthrough.json

@@ -3,6 +3,7 @@ local backend = require("vantage.backend")
 local context = require("vantage.context")
 local state = require("vantage.state")
 local ui = require("vantage.ui")
+local walkthrough = require("vantage.walkthrough")
 
 local M = {}
 
@@ -458,9 +459,9 @@ function M.status()
 end
 
 function M.clear()
-	local bufnr = vim.api.nvim_get_current_buf()
 	cancel_annotation_request("Vantage: cancelled annotation request to")
-	annotations.clear(bufnr)
+	walkthrough.disarm()
+	annotations.clear_all()
 	vim.notify("Vantage: cleared annotations", vim.log.levels.INFO)
 end
 

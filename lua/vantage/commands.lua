@@ -9,6 +9,7 @@ local state = require("vantage.state")
 local session_output = require("vantage.session_output")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
+local walkthrough = require("vantage.walkthrough")
 
 local M = {
 	CommandNames = CommandNames,
@@ -92,6 +93,10 @@ function M.annotate(opts)
 	annotation_command.annotate(opts)
 end
 
+function M.load_walkthrough()
+	walkthrough.load()
+end
+
 function M.search(opts)
 	model_command.search(opts)
 end
@@ -155,6 +160,10 @@ function M.register()
 
 	recreate_command(CommandNames.annotation_clear, function()
 		M.clear_annotations()
+	end)
+
+	recreate_command(CommandNames.load_walkthrough, function()
+		M.load_walkthrough()
 	end)
 
 	recreate_command(CommandNames.status, function()

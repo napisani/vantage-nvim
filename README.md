@@ -310,6 +310,40 @@ See `docs/agent-context.md` for the full artifact convention and design notes. T
 - Claude Code: <https://docs.anthropic.com/en/docs/claude-code/memory>
 - opencode: <https://dev.opencode.ai/docs/rules/>
 
+## Agent Walkthroughs
+
+When the adjacent agent has built up context about specific lines worth reviewing, it can hand Vantage a guided walkthrough instead of a prose summary. The agent writes a structured artifact at `.vantage/walkthrough.json` containing code pointers (file + line) and a short annotation for each.
+
+Author it on demand from the adjacent agent with the bundled skill:
+
+```text
+/skill:vantage-author-walkthrough
+```
+
+Then, in Neovim, load it:
+
+```text
+:VantageLoadWalkthrough
+```
+
+This opens a quickfix list with one entry per pointer. Navigating to any pointer renders the agent's annotation inline above the target line (reusing the same display and namespace as `:VantageAnnotate`). Pointers whose recorded line text no longer matches the buffer are prefixed with `[stale]`, since the adjacent agent may have edited the code after writing the walkthrough. Clear everything with `:VantageAnnotationClear`.
+
+The artifact is workspace/session state and is ignored by default (`.vantage/walkthrough.json`). The skill writes JSON with this shape:
+
+```json
+{
+  "version": 1,
+  "pointers": [
+    {
+      "file": "lua/vantage/state.lua",
+      "line": 111,
+      "anchor": "command = { \"node\", plugin_root() .. \"/server/out/neovim/stdio-server.js\" },",
+      "description": "Backend command is resolved relative to the plugin root, not the editor cwd."
+    }
+  ]
+}
+```
+
 ## Development
 
 Install mise-managed Node.js and project dependencies:

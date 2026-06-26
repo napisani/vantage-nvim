@@ -1,6 +1,7 @@
 local backend = require("vantage.backend")
 local buffer_edit = require("vantage.buffer_edit")
 local context = require("vantage.context")
+local paths = require("vantage.paths")
 local prompt_authoring = require("vantage.prompt_authoring")
 local ui = require("vantage.ui")
 
@@ -104,16 +105,6 @@ function M.edit(opts)
 	})
 end
 
-local function quickfix_filename(workspace_root, file_path)
-	if file_path:sub(1, 1) == "/" then
-		return file_path
-	end
-	if workspace_root and workspace_root ~= "" then
-		return workspace_root .. "/" .. file_path
-	end
-	return file_path
-end
-
 local function open_search_results(response, workspace_root)
 	if not response or not response.ok then
 		ui.show_markdown(error_markdown(response))
@@ -127,7 +118,7 @@ local function open_search_results(response, workspace_root)
 	local items = {}
 	for _, location in ipairs(response.result.locations or {}) do
 		table.insert(items, {
-			filename = quickfix_filename(workspace_root, location.filePath or ""),
+			filename = paths.resolve(workspace_root, location.filePath or ""),
 			lnum = location.startLine or 1,
 			col = location.startCharacter or 1,
 			text = location.explanation or "",

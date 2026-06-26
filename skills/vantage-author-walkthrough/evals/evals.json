@@ -1,0 +1,26 @@
+{
+  "skill_name": "vantage-author-walkthrough",
+  "evals": [
+    {
+      "id": 0,
+      "name": "explain-flow",
+      "prompt": "I just want to review how the weekly score gets computed end to end — the path from the report into the calculator. Point Vantage at the lines that show that flow so I can walk through it in nvim.",
+      "expected_output": "A .vantage/walkthrough.json with pointers spanning report.lua (the total_score call) and calculator.lua (total_score + the M.add call), each with a matching anchor and a one-line description.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "bonus-logic",
+      "prompt": "Mark up where the bonus value gets added in the calculator, and where that total ends up flowing into the report, so I can review those exact spots in my editor.",
+      "expected_output": "A .vantage/walkthrough.json pointing at calculator.lua M.add / the value+bonus line and at the report.lua line that consumes the score, anchors matching the live lines.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "specific-file",
+      "prompt": "Create a walkthrough of report.lua — I want to see in my editor how build_report puts its result together.",
+      "expected_output": "A .vantage/walkthrough.json whose pointers all target report.lua (build_report, the score call, the returned table), with matching anchors and short descriptions.",
+      "files": []
+    }
+  ]
+}
