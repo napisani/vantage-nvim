@@ -4,6 +4,7 @@ local context = require("vantage.context")
 local paths = require("vantage.paths")
 local prompt_authoring = require("vantage.prompt_authoring")
 local ui = require("vantage.ui")
+local walkthrough = require("vantage.walkthrough")
 
 local M = {}
 
@@ -150,6 +151,37 @@ function M.search(opts)
 		empty_message = "Vantage: search requires a prompt",
 		on_submit = function(query)
 			request_search(params, query)
+		end,
+	})
+end
+
+local function request_walkthrough(params, prompt_text)
+	params.prompt = prompt_text
+	backend.request("generateWalkthrough", params, function(response)
+		if not response or not response.ok then
+			ui.show_markdown(error_markdown(response))
+			return
+		end
+		if not response.result or response.result.kind ~= "walkthrough" then
+			ui.show_markdown("## Error\n\nBackend returned an invalid walkthrough response.")
+			return
+		end
+
+		local pointer_count = response.result.pointerCount or 0
+		vim.notify("Vantage: generated walkthrough with " .. tostring(pointer_count) .. " pointer(s)", vim.log.levels.INFO)
+		walkthrough.load()
+	end)
+end
+
+function M.generate_walkthrough(opts)
+	local params = scoped_context(opts)
+	prompt_authoring.resolve({
+		kind = "walkthrough",
+		params = params,
+		command_opts = opts,
+		empty_message = "Vantage: walkthrough generation requires a prompt",
+		on_submit = function(prompt_text)
+			request_walkthrough(params, prompt_text)
 		end,
 	})
 end

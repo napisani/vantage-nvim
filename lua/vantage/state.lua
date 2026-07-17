@@ -49,6 +49,7 @@ end
 ---@field edit? VantageCommandConfig
 ---@field annotate? VantageAnnotateCommandConfig
 ---@field search? VantageSearchCommandConfig
+---@field walkthrough? VantageCommandConfig
 
 ---@class VantageAgentContextConfig
 ---@field enabled? boolean
@@ -145,6 +146,10 @@ local function default_config()
 				},
 			},
 			search = {
+				include_lens = true,
+				options = {},
+			},
+			walkthrough = {
 				include_lens = true,
 				options = {},
 			},

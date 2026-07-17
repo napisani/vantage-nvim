@@ -12,6 +12,7 @@ export const BACKEND_METHODS = [
 	'agentSessionStatus',
 	'agentSessionOutput',
 	'listSkills',
+	'generateWalkthrough',
 ] as const;
 
 export function isBackendMethod(value: unknown): value is BackendMethod {
@@ -44,5 +45,7 @@ export function runBackendCommand(
 			return runtime.agentSessionOutput(request.params, context);
 		case 'listSkills':
 			return runtime.listSkills(request.params, context);
+		case 'generateWalkthrough':
+			return runtime.generateWalkthrough(request.params, context);
 	}
 }

@@ -79,6 +79,24 @@ test('parseBackendRequest accepts a searchLocations request', () => {
 	assert.equal(parsed.params.query, 'find related factory calls');
 });
 
+test('parseBackendRequest accepts a generateWalkthrough request', () => {
+	const parsed = parseBackendRequest({
+		id: 'req-walkthrough',
+		method: 'generateWalkthrough',
+		params: {
+			workspaceRoot: '/repo',
+			filePath: '/repo/example.ts',
+			language: 'typescript',
+			text: 'const value = 1;',
+			cursor: { line: 1, character: 1 },
+			prompt: 'Walk me through how value flows into the report.',
+		},
+	});
+
+	assert.equal(parsed.method, 'generateWalkthrough');
+	assert.equal(parsed.params.prompt, 'Walk me through how value flows into the report.');
+});
+
 test('parseBackendRequest accepts annotation candidate lines', () => {
 	const parsed = parseBackendRequest({
 		id: 'req-annotations',

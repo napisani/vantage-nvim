@@ -263,6 +263,10 @@ process.stdin.on('data', (chunk) => {
 				include_lens = true,
 				options = {},
 			},
+			walkthrough = {
+				include_lens = true,
+				options = {},
+			},
 		},
 	})
 end)
@@ -1091,6 +1095,83 @@ test("ranged VantageSearch requires an explicit prompt", function()
 
 	eq(captured.method, "searchLocations")
 	eq(captured.params.query, "find references to value")
+	eq(captured.params.range, {
+		startLine = 1,
+		startCharacter = 1,
+		endLine = 2,
+		endCharacter = 12,
+	})
+end)
+
+test("VantageGenerateWalkthrough sends a generateWalkthrough request and loads the written walkthrough", function()
+	local vantage = require("vantage")
+	local root = temp_workspace()
+	vim.fn.mkdir(root .. "/lua", "p")
+	local file = root .. "/lua/example.lua"
+	writefile(file, "local a = 1\nlocal b = a + 1\n")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "walkthrough",
+			path = root .. "/.vantage/walkthrough.json",
+			pointerCount = 1,
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		require("vantage.walkthrough").disarm()
+		require("vantage.annotations").clear_all()
+		fresh_buffer()
+		set_buffer_path(file)
+		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local a = 1", "local b = a + 1" })
+
+		-- Stand in for the pi agent actually writing the artifact before responding.
+		writefile(root .. "/.vantage/walkthrough.json", vim.json.encode({
+			version = 1,
+			pointers = {
+				{ file = "lua/example.lua", line = 2, anchor = "local b = a + 1", description = "b derives from a." },
+			},
+		}))
+
+		vim.cmd("VantageGenerateWalkthrough explain how b is derived")
+	end)
+
+	eq(captured.method, "generateWalkthrough")
+	eq(captured.params.prompt, "explain how b is derived")
+
+	local qf = vim.fn.getqflist()
+	assert(#qf == 1, vim.inspect(qf))
+	eq(qf[1].lnum, 2)
+	eq(qf[1].text, "b derives from a.")
+
+	vim.cmd("cclose")
+	require("vantage.walkthrough").disarm()
+	require("vantage.annotations").clear_all()
+end)
+
+test("ranged VantageGenerateWalkthrough requires an explicit prompt", function()
+	local vantage = require("vantage")
+
+	local captured = capture_backend_request({
+		ok = true,
+		result = {
+			kind = "walkthrough",
+			path = "/tmp/does-not-exist/.vantage/walkthrough.json",
+			pointerCount = 0,
+		},
+	}, function()
+		vantage.setup({ backend = { mode = "development" } })
+		lua_buffer({
+			"local value = 1",
+			"return value",
+		})
+
+		vim.cmd("1,2VantageGenerateWalkthrough")
+		submit_prompt_buffer("walk through how value is used")
+	end)
+
+	eq(captured.method, "generateWalkthrough")
+	eq(captured.params.prompt, "walk through how value is used")
 	eq(captured.params.range, {
 		startLine = 1,
 		startCharacter = 1,

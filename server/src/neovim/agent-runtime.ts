@@ -6,12 +6,14 @@ import type {
 	EditSelectionParams,
 	ExplainSelectionParams,
 	ExplanationResult,
+	GenerateWalkthroughParams,
 	QuestionSelectionParams,
 	SearchLocationsParams,
 	SearchLocationsResult,
 	AgentRuntimeProgress,
 	AgentSessionOutputParams,
 	ListSkillsResult,
+	WalkthroughResult,
 } from './protocol';
 
 export type AgentRuntimeResult<T> = T | Promise<T>;
@@ -32,4 +34,5 @@ export interface AgentRuntime {
 	agentSessionStatus(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	agentSessionOutput(params: AgentSessionOutputParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	listSkills(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ListSkillsResult>;
+	generateWalkthrough(params: GenerateWalkthroughParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<WalkthroughResult>;
 }

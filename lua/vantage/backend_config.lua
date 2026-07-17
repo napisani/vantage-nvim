@@ -80,6 +80,7 @@ function M.request()
 			edit = command_config(commands.edit),
 			annotate = annotate_command_config(commands.annotate),
 			search = command_config(commands.search),
+			walkthrough = command_config(commands.walkthrough),
 		},
 	}
 end

@@ -101,6 +101,10 @@ function M.search(opts)
 	model_command.search(opts)
 end
 
+function M.generate_walkthrough(opts)
+	model_command.generate_walkthrough(opts)
+end
+
 function M.agent_cancel()
 	model_command.agent_cancel()
 end
@@ -176,6 +180,10 @@ function M.register()
 
 	recreate_command(CommandNames.search, function(opts)
 		M.search(opts)
+	end, { range = true, nargs = "*" })
+
+	recreate_command(CommandNames.generate_walkthrough, function(opts)
+		M.generate_walkthrough(opts)
 	end, { range = true, nargs = "*" })
 
 	recreate_command(CommandNames.agent_cancel, function()

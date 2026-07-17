@@ -54,6 +54,10 @@ function M.search(opts)
 	commands.search(opts or {})
 end
 
+function M.generate_walkthrough(opts)
+	commands.generate_walkthrough(opts or {})
+end
+
 function M.agent_cancel()
 	commands.agent_cancel()
 end

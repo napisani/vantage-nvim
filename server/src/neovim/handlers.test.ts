@@ -72,6 +72,7 @@ test('handleBackendRequest can use an injected agent runtime', async () => {
 		agentSessionStatus: () => ({ kind: 'explanation', markdown: 'Injected status' }),
 		agentSessionOutput: () => ({ kind: 'explanation', markdown: 'Injected output' }),
 		listSkills: () => ({ kind: 'skills', skills: [] }),
+		generateWalkthrough: () => ({ kind: 'walkthrough', path: '/repo/.vantage/walkthrough.json', pointerCount: 0 }),
 	};
 
 	const response = await handleBackendRequest(

@@ -104,6 +104,36 @@ function M.response(method, params)
 		}
 	end
 
+	if method == "generateWalkthrough" then
+		local root = params.workspaceRoot or vim.fn.getcwd()
+		local relative_file = params.filePath or ""
+		if root ~= "" and relative_file:sub(1, #root + 1) == root .. "/" then
+			relative_file = relative_file:sub(#root + 2)
+		end
+		local line = params.cursor and params.cursor.line or 1
+
+		vim.fn.mkdir(root .. "/.vantage", "p")
+		local walkthrough_path = root .. "/.vantage/walkthrough.json"
+		vim.fn.writefile({
+			vim.json.encode({
+				version = 1,
+				pointers = {
+					{
+						file = relative_file,
+						line = line,
+						description = "Development walkthrough result for: " .. tostring(params.prompt or ""),
+					},
+				},
+			}),
+		}, walkthrough_path)
+
+		return {
+			kind = "walkthrough",
+			path = walkthrough_path,
+			pointerCount = 1,
+		}
+	end
+
 	if method == "agentCancel" then
 		return {
 			kind = "explanation",

@@ -6,6 +6,7 @@ import {
 	buildExplainPrompt,
 	buildQuestionPrompt,
 	buildSearchPrompt,
+	buildWalkthroughPrompt,
 	parseEditResponse,
 } from './model-contract';
 
@@ -147,6 +148,23 @@ test('buildSearchPrompt requires submit_search_results with 1-based coordinates'
 	assert.match(prompt, /workspace-relative file paths and 1-based line and character coordinates/i);
 	assert.match(prompt, /find value factories/);
 	assert.match(prompt, /7\| const value = makeValue\(\);/);
+});
+
+test('buildWalkthroughPrompt asks the agent to submit_walkthrough with the developer request', () => {
+	const prompt = buildWalkthroughPrompt({
+		workspaceRoot: '/repo',
+		filePath: '/repo/example.ts',
+		language: 'typescript',
+		text: 'const value = makeValue();',
+		cursor: { line: 1, character: 1 },
+		prompt: 'Walk me through how value flows into the report.',
+	});
+
+	assert.match(prompt, /Call submit_walkthrough exactly once/i);
+	assert.match(prompt, /Do not edit, write, or mutate files/i);
+	assert.match(prompt, /Walk me through how value flows into the report\./);
+	assert.match(prompt, /"description"/);
+	assert.match(prompt, /Do not point at files outside the workspace root/i);
 });
 
 test('parseEditResponse strips a whole fenced replacement and rejects empty edits', () => {

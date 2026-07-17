@@ -80,6 +80,10 @@ export interface SearchLocationsParams extends BaseRequestParams {
 	range?: Range;
 }
 
+export interface GenerateWalkthroughParams extends BaseRequestParams {
+	prompt: string;
+}
+
 export type AgentRuntimeName = 'pi' | 'development';
 export type AgentReasoningLevel = 'minimal' | 'low' | 'medium' | 'high' | 'xhigh';
 
@@ -129,6 +133,7 @@ export interface CommandsConfig {
 	edit?: CommandConfig;
 	annotate?: AnnotateCommandConfig;
 	search?: SearchCommandConfig;
+	walkthrough?: CommandConfig;
 }
 
 export interface BackendRequestConfig {
@@ -146,7 +151,8 @@ export type BackendMethod =
 	| 'agentSessionReset'
 	| 'agentSessionStatus'
 	| 'agentSessionOutput'
-	| 'listSkills';
+	| 'listSkills'
+	| 'generateWalkthrough';
 
 export interface AgentSessionOutputParams extends BaseRequestParams {
 	raw?: boolean;
@@ -162,7 +168,8 @@ export type BackendRequest =
 	| { id: string; method: 'agentSessionReset'; config?: BackendRequestConfig; params: BaseRequestParams }
 	| { id: string; method: 'agentSessionStatus'; config?: BackendRequestConfig; params: BaseRequestParams }
 	| { id: string; method: 'agentSessionOutput'; config?: BackendRequestConfig; params: AgentSessionOutputParams }
-	| { id: string; method: 'listSkills'; config?: BackendRequestConfig; params: BaseRequestParams };
+	| { id: string; method: 'listSkills'; config?: BackendRequestConfig; params: BaseRequestParams }
+	| { id: string; method: 'generateWalkthrough'; config?: BackendRequestConfig; params: GenerateWalkthroughParams };
 
 export interface ExplanationResult {
 	kind: 'explanation';
@@ -220,6 +227,19 @@ export interface ListSkillsResult {
 	diagnostics?: SkillDiagnosticSummary[];
 }
 
+export interface WalkthroughPointer {
+	file: string;
+	line: number;
+	anchor?: string;
+	description: string;
+}
+
+export interface WalkthroughResult {
+	kind: 'walkthrough';
+	path: string;
+	pointerCount: number;
+}
+
 export interface AgentRuntimeTelemetry {
 	runtime: string;
 	model?: string;
@@ -237,7 +257,7 @@ export interface AgentRuntimeProgress {
 	details?: Record<string, unknown>;
 }
 
-export type BackendResult = ExplanationResult | AnnotationResult | EditResult | SearchLocationsResult | ListSkillsResult;
+export type BackendResult = ExplanationResult | AnnotationResult | EditResult | SearchLocationsResult | ListSkillsResult | WalkthroughResult;
 
 export type BackendResponse =
 	| { id: string; ok: true; result: BackendResult }
@@ -310,6 +330,16 @@ export function parseBackendRequest(value: unknown): BackendRequest {
 					query: requireNonEmptyString(params.query, 'params.query'),
 					selectedText: parseOptionalString(params.selectedText, 'params.selectedText'),
 					range: parseOptionalRange(params.range, 'params.range'),
+				},
+			};
+		case 'generateWalkthrough':
+			return {
+				id,
+				method,
+				config,
+				params: {
+					...parseBaseRequestParams(params),
+					prompt: requireNonEmptyString(params.prompt, 'params.prompt'),
 				},
 			};
 		case 'agentCancel':
@@ -397,6 +427,7 @@ function parseOptionalCommandsConfig(value: unknown, label: string): CommandsCon
 	assignDefined(parsed, 'edit', parseOptionalCommandConfig(record.edit, `${label}.edit`));
 	assignDefined(parsed, 'annotate', parseOptionalAnnotateCommandConfig(record.annotate, `${label}.annotate`));
 	assignDefined(parsed, 'search', parseOptionalSearchCommandConfig(record.search, `${label}.search`));
+	assignDefined(parsed, 'walkthrough', parseOptionalCommandConfig(record.walkthrough, `${label}.walkthrough`));
 	return parsed;
 }
 

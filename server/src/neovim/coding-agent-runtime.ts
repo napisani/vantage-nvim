@@ -1,3 +1,4 @@
+import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { Model } from '@earendil-works/pi-ai';
 import type { AgentSession, AuthStorage, DefaultResourceLoader, ModelRegistry, SessionManager, SettingsManager, Skill, ToolDefinition } from '@earendil-works/pi-coding-agent';
@@ -12,6 +13,7 @@ import type {
 	EditSelectionParams,
 	ExplainSelectionParams,
 	ExplanationResult,
+	GenerateWalkthroughParams,
 	QuestionSelectionParams,
 	SearchLocation,
 	SearchLocationsParams,
@@ -19,6 +21,8 @@ import type {
 	AgentSessionOutputConfig,
 	AgentSessionOutputParams,
 	ListSkillsResult,
+	WalkthroughPointer,
+	WalkthroughResult,
 } from './protocol';
 import {
 	buildAnnotationPrompt,
@@ -26,6 +30,7 @@ import {
 	buildExplainPrompt,
 	buildQuestionPrompt,
 	buildSearchPrompt,
+	buildWalkthroughPrompt,
 	parseEditPayload,
 } from './model-contract';
 import { PiOAuthCredentialResolver, type PiCredentialResolver } from './pi-oauth-auth';
@@ -51,6 +56,7 @@ export interface CodingAgentRuntimeOptions {
 		edit?: CommandConfig;
 		annotate?: CommandConfig;
 		search?: CommandConfig;
+		walkthrough?: CommandConfig;
 	};
 	sessionOutput?: AgentSessionOutputConfig;
 	store?: CodingAgentSessionStore;
@@ -196,6 +202,24 @@ export class CodingAgentRuntime implements AgentRuntime {
 			kind: 'locations',
 			locations: submitted,
 		};
+	}
+
+	async generateWalkthrough(params: GenerateWalkthroughParams, context: AgentRuntimeRequestContext = {}): Promise<WalkthroughResult> {
+		let submitted: WalkthroughPointer[] | undefined;
+		const submission: SubmissionContext = {
+			params,
+			handlers: {
+				onWalkthrough: (pointers) => {
+					submitted = pointers;
+				},
+			},
+		};
+		const prompt = buildWalkthroughPrompt(this.paramsForLens(params, this.includeLens('walkthrough', true)));
+		await this.runPrompt('walkthrough', params, prompt, context, [...READ_ONLY_TOOLS, 'submit_walkthrough'], false, submission);
+		if (!submitted) {
+			throw new Error('Vantage walkthrough did not receive submit_walkthrough from the agent.');
+		}
+		return writeWalkthroughFile(workspaceRoot(params), submitted);
 	}
 
 	async agentCancel(): Promise<ExplanationResult> {
@@ -385,7 +409,7 @@ export class CodingAgentRuntime implements AgentRuntime {
 	}
 
 	private async createBuddySession(root: string, customTools: ToolDefinition[]): Promise<AgentSession> {
-		return this.createCodingAgentSession(root, customTools, ['read', 'grep', 'find', 'ls', 'submit_search_results', 'submit_edit', 'submit_annotations']);
+		return this.createCodingAgentSession(root, customTools, ['read', 'grep', 'find', 'ls', 'submit_search_results', 'submit_edit', 'submit_annotations', 'submit_walkthrough']);
 	}
 
 	private async createTransientSession(params: BaseRequestParams, customTools: ToolDefinition[]): Promise<AgentSession> {
@@ -456,6 +480,9 @@ function userSummary(kind: string, params: BaseRequestParams): string {
 	if (kind === 'annotate') {
 		return `${params.filePath} annotation request`;
 	}
+	if (kind === 'walkthrough') {
+		return truncate((params as GenerateWalkthroughParams).prompt ?? '', 160);
+	}
 	return `${params.filePath}:${params.cursor.line}`;
 }
 
@@ -509,6 +536,18 @@ function diagnosticSeverity(diagnostic: unknown): string | undefined {
 
 function workspaceRoot(params: BaseRequestParams): string {
 	return params.workspaceRoot && params.workspaceRoot.trim().length > 0 ? params.workspaceRoot : path.dirname(params.filePath);
+}
+
+function writeWalkthroughFile(root: string, pointers: WalkthroughPointer[]): WalkthroughResult {
+	const walkthroughDir = path.join(root, '.vantage');
+	const walkthroughPath = path.join(walkthroughDir, 'walkthrough.json');
+	fs.mkdirSync(walkthroughDir, { recursive: true });
+	fs.writeFileSync(walkthroughPath, JSON.stringify({ version: 1, pointers }, null, 2));
+	return {
+		kind: 'walkthrough',
+		path: walkthroughPath,
+		pointerCount: pointers.length,
+	};
 }
 
 function assistantText(message: { content?: unknown[] }): string {

@@ -5,6 +5,7 @@ import type {
 	AgentContext,
 	EditSelectionParams,
 	ExplainSelectionParams,
+	GenerateWalkthroughParams,
 	QuestionSelectionParams,
 	Range,
 	SearchLocationsParams,
@@ -136,6 +137,36 @@ export function buildSearchPrompt(params: SearchLocationsParams): string {
 		params.query,
 		traceSeed,
 	].filter((part) => part !== '').join('\n\n');
+}
+
+export function buildWalkthroughPrompt(params: GenerateWalkthroughParams): string {
+	return [
+		'You are powering a Vantage walkthrough-generation command in Neovim.',
+		'Produce a guided code walkthrough for the developer request below: a short, ordered list of code pointers (file + line) with a one-sentence note for each, distilled from reading the workspace.',
+		'The developer is reviewing in Neovim while you work; Vantage opens your pointers as a quickfix list and renders your notes inline above each line.',
+		'Use the available read-only tools to find and read the relevant code before submitting anything.',
+		'Call submit_walkthrough exactly once with the final ordered pointers array. If submit_walkthrough is unavailable, return only JSON.',
+		'Do not edit, write, or mutate files.',
+		'Each pointer is shaped exactly like this example:',
+		codeBlock('json', JSON.stringify({
+			file: 'lua/vantage/state.lua',
+			line: 111,
+			anchor: 'command = { "node", plugin_root() .. "/server/out/neovim/stdio-server.js" },',
+			description: 'Backend command resolves relative to the plugin root, not the editor cwd.',
+		}, null, 2)),
+		'- "file": workspace-relative path, forward slashes, no leading "/".',
+		'- "line": the 1-based line the note is about. Point at a line that exists right now; do not guess.',
+		'- "anchor": the exact current text of that line, copied as-is. Surrounding indentation is ignored.',
+		'- "description": one plain-text sentence with no newlines, specific enough to stand on its own next to the code.',
+		'Order pointers the way a reader should walk them, not alphabetically.',
+		'Choose only the lines that actually matter for this request; a focused tour beats exhaustive coverage.',
+		'Do not include secrets, credentials, tokens, API keys, or raw transcript content.',
+		'Do not point at files outside the workspace root.',
+		'If nothing in the workspace is worth walking through for this request, submit an empty pointers array instead of inventing pointers.',
+		renderRequestContext(params),
+		'Developer walkthrough request:',
+		params.prompt,
+	].join('\n\n');
 }
 
 export function buildAgentContextUpdatePrompt(agentContext: AgentContext): string {

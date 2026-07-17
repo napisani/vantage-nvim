@@ -24,6 +24,7 @@ export function createAgentRuntimeFromConfig(config: BackendRequestConfig = {}):
 			edit: config.commands?.edit,
 			annotate: config.commands?.annotate,
 			search: config.commands?.search,
+			walkthrough: config.commands?.walkthrough,
 		},
 		store: sessionStore,
 	});

@@ -22,6 +22,7 @@ Agentic tool access is intentionally narrow. Vantage does not expose Pi `edit` o
 | `:VantageAnnotate [scope] [max]` | Yes | Yes: `:10,20VantageAnnotate`, `:'<,'>VantageAnnotate` | None. Optional scope is `line`, `visible`, or `buffer`; optional max is a positive integer. | Uses a transient annotation session with `submit_annotations` only. It does not enter buddy-session memory and cannot read or mutate files through tools. | Renders virtual Annotation Blocks above relevant code lines. |
 | `:VantageAnnotationClear` | Yes | No | None. | No model call; no agent tools. | Clears Vantage annotations in the current buffer. |
 | `:VantageSearch [query]` | Yes | Yes: `:10,20VantageSearch ...`, `:'<,'>VantageSearch ...` | A prompt is required. If `query` is omitted, including for range/visual search, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_search_results`. Results are curated through Vantage's structured contract; no file mutation tools. | Populates quickfix with final curated search locations. |
+| `:VantageGenerateWalkthrough [prompt]` | Yes | Yes: `:10,20VantageGenerateWalkthrough ...`, `:'<,'>VantageGenerateWalkthrough ...` | A prompt is required. If `prompt` is omitted, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_walkthrough`. No file mutation tools; Vantage writes the validated pointers to `.vantage/walkthrough.json` itself. | Writes `.vantage/walkthrough.json` and immediately runs `:VantageLoadWalkthrough`. |
 | `:VantageStatus` | Yes | No | None. | No model call; no agent tools. Reads local Vantage status only. | Opens the combined Agent Session, Agent Context, and Annotation status float. |
 | `:VantageSessionOutput` | Yes | No | None. | No model call; no agent tools. Polls Vantage's in-memory session-output history. | Opens a live-updating session activity float; `r` toggles raw details and `q` closes. |
 | `:VantageAgentCancel` | Yes | No | None. | No new model call; aborts the currently active agent request if one exists. | Cancels the active agentic request, if any. |
@@ -46,6 +47,7 @@ All public Lua functions are available from `require("vantage")` and share the s
 | `annotate(opts)` | `:VantageAnnotate`; `opts.fargs` carries scope/max arguments. | Transient annotation session; `submit_annotations` only. Does not enter buddy memory. |
 | `clear_annotations()` | `:VantageAnnotationClear`. | No model call; no agent tools. |
 | `search(opts)` | `:VantageSearch`; `opts.args` is the inline query when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_search_results`. No file mutation tools. |
+| `generate_walkthrough(opts)` | `:VantageGenerateWalkthrough`; `opts.args` is the inline prompt when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_walkthrough`. No file mutation tools; writes `.vantage/walkthrough.json` and loads it. |
 | `status()` | `:VantageStatus`. | No model call; no agent tools. |
 | `session_output()` | `:VantageSessionOutput`. | No model call; no agent tools; polls in-memory session-output history. |
 | `agent_cancel()` | `:VantageAgentCancel`. | No new model call; aborts the active agent request. |
@@ -343,6 +345,16 @@ The artifact is workspace/session state and is ignored by default (`.vantage/wal
   ]
 }
 ```
+
+### Generating a Walkthrough from Vantage Itself
+
+`:VantageGenerateWalkthrough [prompt]` skips the adjacent agent entirely: it sends your prompt to Vantage's own Pi buddy session, which reads the workspace and returns curated pointers through `submit_walkthrough` (the same structured-submission pattern `:VantageSearch` uses — no raw file-write tool access). Vantage writes the validated result to `.vantage/walkthrough.json` and immediately runs `:VantageLoadWalkthrough` so the quickfix list and inline annotations appear without a separate step.
+
+```text
+:VantageGenerateWalkthrough explain how the report total is computed
+```
+
+If `prompt` is omitted, the floating prompt buffer opens for input. Configure model options for this command under `commands.walkthrough`, the same shape as `commands.search`.
 
 ## Development
 

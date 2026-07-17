@@ -1,3 +1,5 @@
+import * as fs from 'node:fs';
+import * as path from 'node:path';
 import {
 	AnnotateRangeParams,
 	AnnotationResult,
@@ -6,11 +8,13 @@ import {
 	EditSelectionParams,
 	ExplainSelectionParams,
 	ExplanationResult,
+	GenerateWalkthroughParams,
 	QuestionSelectionParams,
 	SearchLocationsParams,
 	SearchLocationsResult,
 	AgentSessionOutputParams,
 	ListSkillsResult,
+	WalkthroughResult,
 } from './protocol';
 import type { AgentRuntime } from './agent-runtime';
 
@@ -151,6 +155,29 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 				params.raw ? '#### Raw' : undefined,
 				params.raw ? 'Development runtime has no raw agent events.' : undefined,
 			].filter((line): line is string => line !== undefined).join('\n'),
+		};
+	}
+
+	generateWalkthrough(params: GenerateWalkthroughParams): WalkthroughResult {
+		const root = params.workspaceRoot && params.workspaceRoot.trim().length > 0 ? params.workspaceRoot : path.dirname(params.filePath);
+		const relativeFile = path.relative(root, params.filePath) || params.filePath;
+		const walkthroughDir = path.join(root, '.vantage');
+		const walkthroughPath = path.join(walkthroughDir, 'walkthrough.json');
+		fs.mkdirSync(walkthroughDir, { recursive: true });
+		fs.writeFileSync(walkthroughPath, JSON.stringify({
+			version: 1,
+			pointers: [
+				{
+					file: relativeFile.split(path.sep).join('/'),
+					line: params.cursor.line,
+					description: `Development walkthrough result for: ${params.prompt}`,
+				},
+			],
+		}, null, 2));
+		return {
+			kind: 'walkthrough',
+			path: walkthroughPath,
+			pointerCount: 1,
 		};
 	}
 

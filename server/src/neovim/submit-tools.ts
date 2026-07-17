@@ -2,7 +2,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type * as PiAi from '@earendil-works/pi-ai';
 import type { ToolDefinition } from '@earendil-works/pi-coding-agent';
-import type { Annotation, BaseRequestParams, SearchLocation } from './protocol';
+import type { Annotation, BaseRequestParams, SearchLocation, WalkthroughPointer } from './protocol';
 import { parseAnnotationPayload, parseEditPayload } from './model-contract';
 import { errorMessage } from './effect-errors';
 
@@ -10,6 +10,7 @@ export interface SubmitToolHandlers {
 	onSearch?: (locations: SearchLocation[]) => void;
 	onEdit?: (replacementText: string) => void;
 	onAnnotations?: (annotations: Annotation[]) => void;
+	onWalkthrough?: (pointers: WalkthroughPointer[]) => void;
 }
 
 export interface SubmitToolSubmission {
@@ -118,7 +119,44 @@ export function createSubmitTools(options: CreateSubmitToolsOptions): ToolDefini
 			};
 		},
 	});
-	return [submitSearch, submitEdit, submitAnnotations];
+	const submitWalkthrough = options.defineTool({
+		name: 'submit_walkthrough',
+		label: 'Submit Walkthrough',
+		description: 'Submit the final ordered Vantage walkthrough pointers. Call exactly once after reading the relevant code.',
+		parameters: options.Type.Object({
+			pointers: options.Type.Array(options.Type.Object({
+				file: options.Type.String({ description: 'Workspace-relative file path.' }),
+				line: options.Type.Number({ description: '1-based line the note is about.' }),
+				anchor: options.Type.Optional(options.Type.String({ description: 'Exact current text of the line, for staleness detection.' })),
+				description: options.Type.String({ description: 'Concise single-line note for this pointer.' }),
+			})),
+		}),
+		executionMode: 'sequential' as const,
+		execute: async (_toolCallId, payload) => {
+			const submission = options.requireSubmission('submit_walkthrough');
+			const record = requireRecord(payload, 'submit_walkthrough');
+			const pointers = record.pointers;
+			if (!Array.isArray(pointers)) {
+				throw new Error('submit_walkthrough.pointers must be an array.');
+			}
+			const validation = validateWalkthroughPointers(options.workspaceRoot(submission.params), pointers);
+			if (!validation.ok) {
+				throw new Error(validation.message);
+			}
+			submission.handlers.onWalkthrough?.(validation.pointers);
+			options.output.appendOutputEvent?.(submission.outputEntryId, {
+				type: 'submit_walkthrough',
+				summary: `Accepted ${validation.pointers.length} Vantage walkthrough pointer(s).`,
+				details: { pointers: validation.pointers },
+			});
+			return {
+				content: [{ type: 'text' as const, text: `Accepted ${validation.pointers.length} Vantage walkthrough pointer(s).` }],
+				details: { pointers: validation.pointers },
+				terminate: true,
+			};
+		},
+	});
+	return [submitSearch, submitEdit, submitAnnotations, submitWalkthrough];
 }
 
 export function parseSearchFallback(workspaceRootPath: string, text: string): SearchLocation[] {
@@ -226,6 +264,67 @@ function validateSearchLocations(workspaceRootPath: string, rawLocations: unknow
 		};
 	}
 	return { ok: true, locations };
+}
+
+function validateWalkthroughPointers(workspaceRootPath: string, rawPointers: unknown[]): { ok: true; pointers: WalkthroughPointer[] } | { ok: false; message: string } {
+	const errors: string[] = [];
+	const pointers: WalkthroughPointer[] = [];
+	for (const [index, raw] of rawPointers.entries()) {
+		const label = `pointers[${index}]`;
+		if (!isRecord(raw)) {
+			errors.push(`${label}: must be an object.`);
+			continue;
+		}
+		const file = typeof raw.file === 'string' ? raw.file : '';
+		const line = raw.line;
+		const anchor = raw.anchor;
+		const description = typeof raw.description === 'string' ? raw.description : '';
+		if (file.length === 0 || path.isAbsolute(file) || file.includes('..')) {
+			errors.push(`${label}.file: must be a workspace-relative path without '..'.`);
+			continue;
+		}
+		const absolutePath = path.resolve(workspaceRootPath, file);
+		const relative = path.relative(workspaceRootPath, absolutePath);
+		if (relative.startsWith('..') || path.isAbsolute(relative)) {
+			errors.push(`${label}.file: must be under the workspace root.`);
+			continue;
+		}
+		if (!fs.existsSync(absolutePath) || !fs.statSync(absolutePath).isFile()) {
+			errors.push(`${label}.file: file does not exist under the workspace root.`);
+			continue;
+		}
+		const fileLineCount = fs.readFileSync(absolutePath, 'utf8').split(/\r?\n/).length;
+		if (!Number.isInteger(line) || Number(line) < 1 || Number(line) > fileLineCount) {
+			errors.push(`${label}.line: must be a 1-based line within file length ${fileLineCount}.`);
+		}
+		if (anchor !== undefined && typeof anchor !== 'string') {
+			errors.push(`${label}.anchor: must be a string when provided.`);
+		}
+		if (description.trim().length === 0) {
+			errors.push(`${label}.description: must be non-empty.`);
+		} else if (/\r|\n/.test(description)) {
+			errors.push(`${label}.description: must be a single-line string.`);
+		}
+		if (errors.length === 0 || !errors.some((error) => error.startsWith(label))) {
+			pointers.push({
+				file,
+				line: Number(line),
+				anchor: typeof anchor === 'string' ? anchor : undefined,
+				description: description.trim(),
+			});
+		}
+	}
+	if (errors.length > 0) {
+		return {
+			ok: false,
+			message: [
+				'Invalid walkthrough pointers:',
+				...errors.map((error) => `- ${error}`),
+				'Please call submit_walkthrough again with corrected final pointers only.',
+			].join('\n'),
+		};
+	}
+	return { ok: true, pointers };
 }
 
 function requireRecord(value: unknown, label: string): Record<string, unknown> {
