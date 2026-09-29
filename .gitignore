@@ -11,3 +11,4 @@ server/out
 auth.json
 .vantage/agent-context.md
 .vantage/walkthrough.json
+.vantage/diff-tour.json

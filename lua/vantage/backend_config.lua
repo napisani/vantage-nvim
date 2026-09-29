@@ -92,6 +92,7 @@ function M.request()
 			annotate = annotate_command_config(commands.annotate),
 			search = command_config(commands.search),
 			walkthrough = command_config(commands.walkthrough),
+			diff_tour = command_config(commands.diff_tour),
 		},
 	}
 end

@@ -134,6 +134,37 @@ function M.response(method, params)
 		}
 	end
 
+	if method == "generateDiffTour" then
+		local root = params.workspaceRoot or vim.fn.getcwd()
+		local base = params.base or "HEAD"
+		local target = params.target or "WORKTREE"
+		local function git(args)
+			local command = { "git", "-C", root }
+			vim.list_extend(command, args)
+			local result = vim.fn.systemlist(command)
+			if vim.v.shell_error ~= 0 then error("Vantage development diff tour: Git comparison unavailable") end
+			return result
+		end
+		local base_hash = git({ "rev-parse", "--verify", "--end-of-options", base .. "^{commit}" })[1]
+		local target_hash = target ~= "WORKTREE" and git({ "rev-parse", "--verify", "--end-of-options", target .. "^{commit}" })[1] or nil
+		local rev_arg = target_hash and base_hash .. ".." .. target_hash or base_hash
+		local file = git({ "diff", "--name-only", "--diff-filter=AM", rev_arg, "--" })[1]
+		if not file then error("Vantage development diff tour: no tracked text changes") end
+		local lines = target_hash and git({ "show", target_hash .. ":" .. file }) or vim.fn.readfile(root .. "/" .. file)
+		local artifact = {
+			version = 1,
+			comparison = { vcs = "git", repoRoot = ".", base = { label = base, commit = base_hash },
+				target = target_hash and { kind = "commit", label = target, commit = target_hash }
+					or { kind = "worktree", headAtAuthoring = git({ "rev-parse", "HEAD" })[1] } },
+			points = { { file = file, side = "right", line = 1, anchor = lines[1] or "",
+				description = "Development diff tour: " .. params.prompt } },
+		}
+		vim.fn.mkdir(root .. "/.vantage", "p")
+		local tour_path = root .. "/.vantage/diff-tour.json"
+		vim.fn.writefile({ vim.json.encode(artifact) }, tour_path)
+		return { kind = "diffTour", path = tour_path, pointCount = 1, changedFileCount = 1, inspectedFileCount = 1 }
+	end
+
 	if method == "agentCancel" then
 		return {
 			kind = "explanation",

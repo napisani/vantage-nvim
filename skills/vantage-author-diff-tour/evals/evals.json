@@ -1,0 +1,23 @@
+{
+  "skill_name": "vantage-author-diff-tour",
+  "evals": [
+    {
+      "id": 1,
+      "prompt": "Tour my tracked working-tree changes since HEAD in Diffview, focusing on behavior rather than repetitive formatting edits.",
+      "expected_output": "A pinned-base worktree diff-tour artifact with concise, anchored stops in representative changed files, not every mechanical change.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "prompt": "Give me a Diffview tour from main to HEAD and explain the removed validation logic as well as the new path.",
+      "expected_output": "An exact commit-pair artifact with at least one valid left-side stop on deleted content and valid right-side stops, both refs pinned.",
+      "files": []
+    },
+    {
+      "id": 3,
+      "prompt": "Walk me through the important Vantage diff-tour changes in my current working tree. Skip unrelated infrastructure and repetitive wiring; I want a concise review I can navigate in Diffview.",
+      "expected_output": "A focused worktree artifact with 4–8 representative stops from the Vantage diff-tour theme, omitting unrelated changes and repetitive files.",
+      "files": []
+    }
+  ]
+}

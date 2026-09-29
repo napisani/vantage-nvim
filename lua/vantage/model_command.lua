@@ -9,6 +9,7 @@ local state = require("vantage.state")
 local tracker = require("vantage.request_tracker")
 local ui = require("vantage.ui")
 local walkthrough = require("vantage.walkthrough")
+local diff_tour = require("vantage.diff_tour")
 
 local M = {}
 
@@ -504,6 +505,52 @@ function M.generate_walkthrough(opts)
 		empty_message = "Vantage: walkthrough generation requires a prompt",
 		on_submit = function(prompt_text)
 			request_walkthrough(params, prompt_text)
+		end,
+	})
+end
+
+local function diff_tour_args(opts)
+	if opts.prompt then return opts.base, opts.target, opts.prompt end
+	local args = opts.args or ""
+	local refs, prompt = args:match("^%s*(.-)%s+%-%-%s*(.*)$")
+	if not refs then
+		prompt = args:match("^%s*%-%-%s*(.*)$")
+		refs = prompt and "" or args
+	end
+	if prompt and vim.trim(prompt) == "" then prompt = nil end
+	local parts = vim.split(vim.trim(refs), "%s+", { trimempty = true })
+	if #parts > 2 then return nil, nil, nil, "use [base [target]] -- <prompt>" end
+	return opts.base or parts[1], opts.target or parts[2], prompt
+end
+
+function M.generate_diff_tour(opts)
+	opts = opts or {}
+	local base, target, prompt, usage_error = diff_tour_args(opts)
+	if usage_error then vim.notify("Vantage: " .. usage_error, vim.log.levels.ERROR) return end
+	local params = scoped_context(opts)
+	params.base = base
+	params.target = target
+	prompt_authoring.resolve({
+		kind = "diffTour",
+		params = params,
+		command_opts = prompt and { args = prompt } or {},
+		empty_message = "Vantage: diff tour requires your prompt",
+		on_submit = function(text)
+			params.prompt = text
+			notify_requesting()
+			local started_at = vim.loop.hrtime()
+			backend.request("generateDiffTour", params, function(response)
+				local result, err = response_util.unwrap(response, "diffTour")
+				if not result then
+					vim.notify("Vantage: diff tour failed after " .. elapsed_since(started_at) .. ": "
+						.. response_util.error_message(response), vim.log.levels.ERROR)
+					ui.show_markdown(err)
+					return
+				end
+				vim.notify("Vantage: diff tour: " .. result.pointCount .. " points, "
+					.. result.inspectedFileCount .. "/" .. result.changedFileCount .. " changed files inspected", vim.log.levels.INFO)
+				diff_tour.load()
+			end)
 		end,
 	})
 end

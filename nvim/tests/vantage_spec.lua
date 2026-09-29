@@ -37,6 +37,7 @@ local SPECS = {
 	"annotation_status",
 	"search",
 	"walkthrough",
+	"diff_tour",
 	"lens",
 	"cancel",
 

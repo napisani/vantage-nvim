@@ -25,6 +25,8 @@ The session descriptions below default to `agent.runtime = "pi"`. With `agent.ru
 | `:VantageAnnotationClear` | Yes | No | None. | No model call; no agent tools. | Clears Vantage annotations in the current buffer. |
 | `:VantageSearch [query]` | Yes | Yes: `:10,20VantageSearch ...`, `:'<,'>VantageSearch ...` | A prompt is required. If `query` is omitted, including for range/visual search, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_search_results`. Results are curated through Vantage's structured contract; no file mutation tools. | Populates quickfix with final curated search locations. |
 | `:VantageGenerateWalkthrough [prompt]` | Yes | Yes: `:10,20VantageGenerateWalkthrough ...`, `:'<,'>VantageGenerateWalkthrough ...` | A prompt is required. If `prompt` is omitted, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_walkthrough`. No file mutation tools; Vantage writes the validated pointers to `.vantage/walkthrough.json` itself. | Writes `.vantage/walkthrough.json` and immediately runs `:VantageLoadWalkthrough`. |
+| `:VantageGenerateDiffTour [base [target]] -- [prompt]` | Yes | No | Requires a user-authored prompt; opens the floating prompt buffer when omitted. Refs can be given explicitly or inferred from the prompt; default is HEAD → tracked worktree. | Singleton buddy session; comparison selection, read-only code and selected Git patch tools, `submit_diff_tour`. No file mutation tools. | Writes `.vantage/diff-tour.json` on nonempty success, then opens the guided tour in optional Diffview. |
+| `:VantageLoadDiffTour` / `:VantageDiffTourNext` / `:VantageDiffTourPrev` / `:VantageDiffTourClear` | Yes | No | None. | No model call; requires Diffview for loading/navigating. | Open the pinned comparison, move among left/right diff-buffer notes, or clear only tour marks. |
 | `:VantageStatus` | Yes | No | None. | No model call; no agent tools. Reads local Vantage status only. | Opens the combined Agent Session, Agent Context, and Request status float (whichever of explain/question/edit/annotate is currently tracked). |
 | `:VantageSessionOutput` | Yes | No | None. | No model call; no agent tools. Polls Vantage's in-memory session-output history. | Opens a live-updating session activity float; `r` toggles raw details and `q` closes. |
 | `:VantageCancel` | Yes | No | None. | No new model call; cancels whatever request is currently tracked (explain/question/edit/annotate, whichever runtime served it) and interrupts the persistent agent session. | Cancels the current tracked request, if any, and the active agentic session, if any. |
@@ -58,6 +60,8 @@ All public Lua functions are available from `require("vantage")` and share the s
 | `clear_annotations()` | `:VantageAnnotationClear`. | No model call; no agent tools. |
 | `search(opts)` | `:VantageSearch`; `opts.args` is the inline query when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_search_results`. No file mutation tools. |
 | `generate_walkthrough(opts)` | `:VantageGenerateWalkthrough`; `opts.args` is the inline prompt when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_walkthrough`. No file mutation tools; writes `.vantage/walkthrough.json` and loads it. |
+| `generate_diff_tour(opts)` | `:VantageGenerateDiffTour`; `opts.base`, `opts.target` (`WORKTREE` or a Git ref), `opts.prompt` select the comparison and request. Missing prompt opens the prompt buffer. | Singleton buddy session; read-only inspection and `select_diff_comparison`, `read_diff_patch`, `submit_diff_tour`; writes `.vantage/diff-tour.json` and loads it. |
+| `load_diff_tour()` / `diff_tour_next()` / `diff_tour_prev()` / `clear_diff_tour()` | Same-named diff-tour Ex commands. | No model call; Diffview required only for loading/navigation. |
 | `status()` | `:VantageStatus`. | No model call; no agent tools. |
 | `session_output()` | `:VantageSessionOutput`. | No model call; no agent tools; polls in-memory session-output history. |
 | `cancel(opts)` | `:VantageCancel`. `opts.callback(err, result)` skips the markdown float and receives `result.markdown` directly. | No new model call; cancels the current tracked request (any runtime) and aborts the active agent session. |
@@ -752,6 +756,22 @@ The artifact is workspace/session state and is ignored by default (`.vantage/wal
 ```
 
 If `prompt` is omitted, the floating prompt buffer opens for input. Configure model options for this command under `commands.walkthrough`, the same shape as `commands.search`.
+
+## Guided Diff Tours
+
+Use `/skill:vantage-author-diff-tour` from an adjacent agent to author `.vantage/diff-tour.json`, then `:VantageLoadDiffTour` in Neovim. In the bundled dotfiles keymaps, `<leader>vc` loads the diff tour and `<leader>vC` generates one, mirroring `<leader>vw` and `<leader>vW` for ordinary walkthroughs. The more explicit `<leader>vdl`/`<leader>vdg` aliases remain available. Use `]c` and `[c` for the next and previous diff-tour stops, and `<leader>vdc` to clear the tour. Alternatively, let Vantage's buddy session investigate a comparison:
+
+```vim
+:VantageGenerateDiffTour main HEAD -- focus on the authentication flow
+:VantageGenerateDiffTour -- explain the key changes on this branch versus main
+:VantageDiffTourNext
+:VantageDiffTourPrev
+:VantageDiffTourClear
+```
+
+An inline prompt must follow `--`; omitting it opens the prompt buffer. Explicit base without target means base versus the tracked working tree; without refs the buddy resolves locally available refs mentioned in your prompt or defaults to HEAD versus tracked worktree. Comparisons are pinned to commit hashes when authored, and worktree drift is marked `[stale]` at the affected line. Stops may point at old (left) or new (right) lines, including removed code; a split two-pane Diffview layout is required. Explanations are wrapped at 80 display columns above their target lines. The tour is curated, not an exhaustive audit of every changed file. Binary, symlink and untracked files are excluded. Configure the command model via `commands.diff_tour`.
+
+[diffview.nvim](https://github.com/dlyongemallo/diffview.nvim) is an **optional dependency** for this feature; install the supported fork separately with your plugin manager (plus its requirements). Vantage never loads it for ordinary commands. If it is missing, diff-tour navigation reports an error without deleting the artifact. The diff-tour artifact is workspace/session state and should be git-ignored.
 
 ## Development
 

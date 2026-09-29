@@ -9,6 +9,7 @@ import {
 	AnnotateRangeParamsSchema,
 	SearchLocationsParamsSchema,
 	GenerateWalkthroughParamsSchema,
+	GenerateDiffTourParamsSchema,
 	AgentSessionOutputParamsSchema,
 	CompleteParamsSchema,
 } from './params';
@@ -21,6 +22,7 @@ import {
 	SearchLocationsResultSchema,
 	ListSkillsResultSchema,
 	WalkthroughResultSchema,
+	DiffTourResultSchema,
 	CompleteResultSchema,
 } from './results';
 
@@ -36,6 +38,7 @@ export const BackendRequestSchema = z.discriminatedUnion('method', [
 	z.object({ id: z.string(), method: z.literal('agentSessionOutput'), config: BackendRequestConfigSchema.optional(), params: AgentSessionOutputParamsSchema }),
 	z.object({ id: z.string(), method: z.literal('listSkills'), config: BackendRequestConfigSchema.optional(), params: BaseRequestParamsSchema }),
 	z.object({ id: z.string(), method: z.literal('generateWalkthrough'), config: BackendRequestConfigSchema.optional(), params: GenerateWalkthroughParamsSchema }),
+	z.object({ id: z.string(), method: z.literal('generateDiffTour'), config: BackendRequestConfigSchema.optional(), params: GenerateDiffTourParamsSchema }),
 	z.object({ id: z.string(), method: z.literal('complete'), config: BackendRequestConfigSchema.optional(), params: CompleteParamsSchema }),
 ]);
 
@@ -48,6 +51,7 @@ export const BackendResultSchema = z.discriminatedUnion('kind', [
 	SearchLocationsResultSchema,
 	ListSkillsResultSchema,
 	WalkthroughResultSchema,
+	DiffTourResultSchema,
 	CompleteResultSchema,
 ]);
 

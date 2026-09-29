@@ -17,6 +17,7 @@ local session_output = require("vantage.session_output")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 local walkthrough = require("vantage.walkthrough")
+local diff_tour = require("vantage.diff_tour")
 
 local M = {
 	CommandNames = CommandNames,
@@ -109,6 +110,26 @@ end
 
 function M.generate_walkthrough(opts)
 	model_command.generate_walkthrough(opts)
+end
+
+function M.generate_diff_tour(opts)
+	model_command.generate_diff_tour(opts)
+end
+
+function M.load_diff_tour()
+	diff_tour.load()
+end
+
+function M.diff_tour_next()
+	diff_tour.next()
+end
+
+function M.diff_tour_prev()
+	diff_tour.prev()
+end
+
+function M.clear_diff_tour()
+	diff_tour.clear()
 end
 
 function M.cancel(opts)
@@ -372,6 +393,22 @@ function M.register()
 	recreate_command(CommandNames.generate_walkthrough, function(opts)
 		M.generate_walkthrough(opts)
 	end, { range = true, nargs = "*" })
+
+	recreate_command(CommandNames.generate_diff_tour, function(opts)
+		M.generate_diff_tour(opts)
+	end, { nargs = "*" })
+	recreate_command(CommandNames.load_diff_tour, function()
+		M.load_diff_tour()
+	end)
+	recreate_command(CommandNames.diff_tour_next, function()
+		M.diff_tour_next()
+	end)
+	recreate_command(CommandNames.diff_tour_prev, function()
+		M.diff_tour_prev()
+	end)
+	recreate_command(CommandNames.clear_diff_tour, function()
+		M.clear_diff_tour()
+	end)
 
 	recreate_command(CommandNames.cancel, function()
 		M.cancel()

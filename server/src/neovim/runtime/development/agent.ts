@@ -9,6 +9,8 @@ import type {
 	ExplainSelectionParams,
 	ExplanationResult,
 	GenerateWalkthroughParams,
+	GenerateDiffTourParams,
+	DiffTourResult,
 	QuestionSelectionParams,
 	SearchLocationsParams,
 	SearchLocationsResult,
@@ -17,6 +19,7 @@ import type {
 	WalkthroughResult,
 } from '../../protocol';
 import type { AgentRuntime } from '../agent';
+import { openDiffTour, saveDiffTour, validateDiffTourPoints } from '../../diff-tour-git';
 
 export class DevelopmentAgentRuntime implements AgentRuntime {
 	explainSelection(params: ExplainSelectionParams): ExplanationResult {
@@ -179,6 +182,24 @@ export class DevelopmentAgentRuntime implements AgentRuntime {
 			path: walkthroughPath,
 			pointerCount: 1,
 		};
+	}
+
+	generateDiffTour(params: GenerateDiffTourParams): DiffTourResult {
+		const root = params.workspaceRoot || path.dirname(params.filePath);
+		const snapshot = openDiffTour(root, params.base || 'HEAD', params.target || 'WORKTREE');
+		const entry = snapshot.entries[0];
+		if (!entry) {
+			throw new Error('No tracked text changes to tour.');
+		}
+		const side = entry.status === 'D' ? 'left' : 'right';
+		const anchor = snapshot.line(entry.file, side, 1);
+		if (anchor === undefined) {
+			throw new Error('No text line available for a diff tour.');
+		}
+		const points = validateDiffTourPoints(snapshot, [{ file: entry.file, side, line: 1, anchor,
+			description: `Development diff tour: ${params.prompt}` }]);
+		return { kind: 'diffTour', path: saveDiffTour(root, { version: 1, comparison: snapshot.comparison, points }),
+			pointCount: 1, changedFileCount: snapshot.entries.length, inspectedFileCount: 1 };
 	}
 
 	listSkills(): ListSkillsResult {

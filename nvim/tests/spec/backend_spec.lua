@@ -153,6 +153,10 @@ process.stdin.on('data', (chunk) => {
 				include_lens = true,
 				options = vim.empty_dict(),
 			},
+			diff_tour = {
+				include_lens = true,
+				options = vim.empty_dict(),
+			},
 		},
 	})
 end)

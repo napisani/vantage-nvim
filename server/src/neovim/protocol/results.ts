@@ -107,6 +107,14 @@ export const WalkthroughResultSchema = z.object({
 	pointerCount: z.number(),
 });
 
+export const DiffTourResultSchema = z.object({
+	kind: z.literal('diffTour'),
+	path: z.string(),
+	pointCount: z.number().int().nonnegative(),
+	changedFileCount: z.number().int().nonnegative(),
+	inspectedFileCount: z.number().int().nonnegative(),
+});
+
 export const CompleteResultSchema = z.object({
 	kind: z.literal('completion'),
 	text: z.string(),
@@ -133,5 +141,6 @@ export type SkillDiagnosticSummary = z.infer<typeof SkillDiagnosticSummarySchema
 export type ListSkillsResult = z.infer<typeof ListSkillsResultSchema>;
 export type WalkthroughPointer = z.infer<typeof WalkthroughPointerSchema>;
 export type WalkthroughResult = z.infer<typeof WalkthroughResultSchema>;
+export type DiffTourResult = z.infer<typeof DiffTourResultSchema>;
 export type CompleteResult = z.infer<typeof CompleteResultSchema>;
 export type AgentRuntimeProgress = z.infer<typeof AgentRuntimeProgressSchema>;

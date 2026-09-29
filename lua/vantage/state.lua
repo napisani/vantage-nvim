@@ -55,6 +55,7 @@ end
 ---@field annotate? VantageAnnotateCommandConfig
 ---@field search? VantageSearchCommandConfig
 ---@field walkthrough? VantageCommandConfig
+---@field diff_tour? VantageCommandConfig
 
 ---@class VantageAgentContextConfig
 ---@field enabled? boolean
@@ -227,6 +228,10 @@ local function default_config()
 				options = {},
 			},
 			walkthrough = {
+				include_lens = true,
+				options = {},
+			},
+			diff_tour = {
 				include_lens = true,
 				options = {},
 			},

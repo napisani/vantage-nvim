@@ -76,6 +76,7 @@ test('createAgentRuntimeFromConfig passes model target, agent options, and comma
 					timeoutMs: 12_345,
 				},
 			},
+			diff_tour: { options: { timeoutMs: 120_000 } },
 		},
 	});
 
@@ -106,6 +107,7 @@ test('createAgentRuntimeFromConfig passes model target, agent options, and comma
 	assert.deepEqual(runtime.commandOptions.edit?.options, {
 		timeoutMs: 60_000,
 	});
+	assert.deepEqual(runtime.commandOptions.diff_tour?.options, { timeoutMs: 120_000 });
 });
 
 test('PiAgenticRuntime loads ESM Pi SDK without CommonJS require fallback', async () => {

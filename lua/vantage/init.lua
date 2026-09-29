@@ -58,6 +58,26 @@ function M.generate_walkthrough(opts)
 	commands.generate_walkthrough(opts or {})
 end
 
+function M.generate_diff_tour(opts)
+	commands.generate_diff_tour(opts or {})
+end
+
+function M.load_diff_tour()
+	commands.load_diff_tour()
+end
+
+function M.diff_tour_next()
+	commands.diff_tour_next()
+end
+
+function M.diff_tour_prev()
+	commands.diff_tour_prev()
+end
+
+function M.clear_diff_tour()
+	commands.clear_diff_tour()
+end
+
 function M.cancel(opts)
 	commands.cancel(opts or {})
 end

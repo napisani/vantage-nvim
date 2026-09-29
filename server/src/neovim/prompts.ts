@@ -5,10 +5,12 @@ import type {
 	EditSelectionParams,
 	ExplainSelectionParams,
 	GenerateWalkthroughParams,
+	GenerateDiffTourParams,
 	QuestionSelectionParams,
 	SearchLocationsParams,
 } from './protocol';
 import { codeBlock, numberedCodeBlock, candidateCodeBlock } from './markdown-utils';
+import type { DiffComparison, DiffEntry } from './diff-tour-git';
 
 export function buildExplainPrompt(params: ExplainSelectionParams): string {
 	return [
@@ -229,6 +231,35 @@ export function buildWalkthroughPrompt(params: GenerateWalkthroughParams): strin
 		renderRequestContext(params),
 		'Developer walkthrough request:',
 		params.prompt,
+	].join('\n\n');
+}
+
+export function buildDiffComparisonPrompt(params: GenerateDiffTourParams, hints: string[]): string {
+	return [
+		'Select the Git comparison for the user request. Use only locally available refs or HEAD~N expressions.',
+		`Available branches: ${hints.join(', ')}`,
+		`Explicit base: ${params.base || 'none'}; explicit target: ${params.target || 'none'}.`,
+		'Explicit refs determine the diff, but if the prompt contradicts them, explain the mismatch instead of selecting.',
+		'With no specified comparison use HEAD and WORKTREE. WORKTREE includes tracked staged and unstaged changes.',
+		'Call select_diff_comparison exactly once with {base,target}; no other output is needed.',
+		renderRequestContext(params),
+		`User request: ${params.prompt}`,
+	].join('\n\n');
+}
+
+export function buildDiffExplorationPrompt(params: GenerateDiffTourParams, comparison: DiffComparison, manifest: DiffEntry[]): string {
+	return [
+		'Explore this complete tracked-text diff manifest before submitting a short guided tour.',
+		'Select significant representative changes rather than every mechanical repetition.',
+		'Use read_diff_patch for relevant files and read-only code tools for supporting context.',
+		'Every stop must target a file in the manifest and an exact line in its left or right revision.',
+		'Unchanged context lines in changed files are permitted. Deletions should point to the left.',
+		'Call submit_diff_tour exactly once with ordered {file,side,line,anchor,description} points.',
+		'Never edit files; never quote secrets in descriptions. If no useful stops exist, explain why without submitting.',
+		`Comparison: ${JSON.stringify(comparison)}`,
+		`Manifest: ${JSON.stringify(manifest)}`,
+		renderRequestContext(params),
+		`User request: ${params.prompt}`,
 	].join('\n\n');
 }
 

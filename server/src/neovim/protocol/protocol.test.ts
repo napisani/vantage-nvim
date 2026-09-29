@@ -186,6 +186,17 @@ test('parseBackendRequest accepts a generateWalkthrough request', () => {
 	assert.equal(parsed.params.prompt, 'Walk me through how value flows into the report.');
 });
 
+test('diff-tour generation requires a prompt and accepts explicit revisions', () => {
+	const params = {
+		workspaceRoot: '/repo', filePath: '/repo/example.ts', language: 'typescript',
+		text: '', cursor: { line: 1, character: 1 }, prompt: 'Explain the auth changes', base: 'main', target: 'HEAD',
+	};
+	const parsed = parseBackendRequest({ id: 'diff-tour', method: 'generateDiffTour', params });
+	assert.equal(parsed.method, 'generateDiffTour');
+	assert.equal(parsed.params.base, 'main');
+	assert.throws(() => parseBackendRequest({ id: 'diff-tour', method: 'generateDiffTour', params: { ...params, prompt: '' } }));
+});
+
 test('parseBackendRequest accepts annotation candidate lines', () => {
 	const parsed = parseBackendRequest({
 		id: 'req-annotations',

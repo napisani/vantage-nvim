@@ -13,6 +13,7 @@ export const BACKEND_METHODS = [
 	'agentSessionOutput',
 	'listSkills',
 	'generateWalkthrough',
+	'generateDiffTour',
 	'complete',
 ] as const;
 
@@ -36,6 +37,7 @@ const commandHandlers: CommandHandlerMap = {
 	agentSessionOutput: (runtime, request, ctx) => runtime.agentSessionOutput(request.params, ctx),
 	listSkills: (runtime, request, ctx) => runtime.listSkills(request.params, ctx),
 	generateWalkthrough: (runtime, request, ctx) => runtime.generateWalkthrough(request.params, ctx),
+	generateDiffTour: (runtime, request, ctx) => runtime.generateDiffTour(request.params, ctx),
 	complete: () => {
 		throw new Error('complete is dispatched through CompletionRuntime, not runBackendCommand');
 	},

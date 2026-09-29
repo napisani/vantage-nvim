@@ -67,6 +67,12 @@ export const GenerateWalkthroughParamsSchema = BaseRequestParamsSchema.extend({
 	prompt: z.string().min(1),
 });
 
+export const GenerateDiffTourParamsSchema = BaseRequestParamsSchema.extend({
+	prompt: z.string().trim().min(1),
+	base: z.string().optional(),
+	target: z.string().optional(),
+});
+
 export const AgentSessionOutputParamsSchema = BaseRequestParamsSchema.extend({
 	raw: z.boolean().optional(),
 });
@@ -85,5 +91,6 @@ export type EditSelectionParams = z.infer<typeof EditSelectionParamsSchema>;
 export type AnnotateRangeParams = z.infer<typeof AnnotateRangeParamsSchema>;
 export type SearchLocationsParams = z.infer<typeof SearchLocationsParamsSchema>;
 export type GenerateWalkthroughParams = z.infer<typeof GenerateWalkthroughParamsSchema>;
+export type GenerateDiffTourParams = z.infer<typeof GenerateDiffTourParamsSchema>;
 export type AgentSessionOutputParams = z.infer<typeof AgentSessionOutputParamsSchema>;
 export type CompleteParams = z.infer<typeof CompleteParamsSchema>;

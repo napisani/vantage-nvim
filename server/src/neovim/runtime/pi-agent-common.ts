@@ -1,4 +1,5 @@
 import * as fs from 'node:fs';
+import { execFileSync } from 'node:child_process';
 import * as path from 'node:path';
 import type { AssistantMessage, TextContent, Type } from '@earendil-works/pi-ai';
 import { importPiCodingAgent, type PiCodingAgentModule } from './pi/module';
@@ -16,6 +17,8 @@ import type {
 	ExplainSelectionParams,
 	ExplanationResult,
 	GenerateWalkthroughParams,
+	GenerateDiffTourParams,
+	DiffTourResult,
 	QuestionSelectionParams,
 	SearchLocation,
 	SearchLocationsParams,
@@ -34,17 +37,20 @@ import {
 	buildQuestionPrompt,
 	buildSearchPrompt,
 	buildWalkthroughPrompt,
+	buildDiffComparisonPrompt,
+	buildDiffExplorationPrompt,
 } from '../prompts';
 import { errorMessage } from '../effect-errors';
 import type { AgentSessionHandle, AgentSessionStore } from './pi/session-store';
 import { createSubmitTools, parseSearchFallback, parseWalkthroughFallback, type SubmitToolSubmission } from '../submit-tools';
+import { openDiffTour, saveDiffTour, type DiffTourPoint } from '../diff-tour-git';
 
 interface CommandConfig {
 	include_lens?: boolean;
 	options?: AgentOptionsConfig;
 }
 
-type CommandKind = 'explain' | 'question' | 'edit' | 'annotate' | 'search' | 'walkthrough';
+type CommandKind = 'explain' | 'question' | 'edit' | 'annotate' | 'search' | 'walkthrough' | 'diff_tour';
 
 /** Command configuration shared by both Pi-backed runtimes. */
 export interface PiAgentOptions {
@@ -229,6 +235,53 @@ export class PiAgentCommon implements AgentRuntime {
 			throw new Error('Vantage walkthrough did not receive submit_walkthrough from the agent.');
 		}
 		return writeWalkthroughFile(workspaceRoot(params), submitted);
+	}
+
+	async generateDiffTour(params: GenerateDiffTourParams, context: AgentRuntimeRequestContext = {}): Promise<DiffTourResult> {
+		const root = workspaceRoot(params);
+		const hints = execFileSync('git', ['for-each-ref', '--format=%(refname:short)', 'refs/heads', 'refs/remotes'], {
+			cwd: root, encoding: 'utf8', maxBuffer: 256 * 1024,
+		}).trim().split('\n').slice(0, 100);
+		let chosen: { base: string; target: string } | undefined;
+		const promptParams = this.paramsForLens(params, this.includeLens('diff_tour', true));
+		await this.runPrompt('diff_tour', params, buildDiffComparisonPrompt(promptParams, hints),
+			context, ['select_diff_comparison'], false, params.prompt, {
+			params, handlers: { onDiffComparison: (refs) => { chosen = refs; } },
+		});
+		if (!chosen) {
+			throw new Error('Comparison is ambiguous; pass explicit base/target refs.');
+		}
+		const refs: { base: string; target: string } = chosen;
+		const snapshot = openDiffTour(root, refs.base, refs.target);
+		if (params.base && snapshot.comparison.base.commit !== openDiffTour(root, params.base, params.target || 'WORKTREE').comparison.base.commit) {
+			throw new Error('The prompt comparison conflicts with the explicit base ref.');
+		}
+		const explicitTarget = params.target && openDiffTour(root, params.base || 'HEAD', params.target).comparison.target;
+		if (explicitTarget && (explicitTarget.kind !== snapshot.comparison.target.kind ||
+			(explicitTarget.kind === 'commit' && snapshot.comparison.target.kind === 'commit' &&
+			 explicitTarget.commit !== snapshot.comparison.target.commit))) {
+			throw new Error('The prompt comparison conflicts with the explicit target ref.');
+		}
+		if (params.base && !params.target && refs.target !== 'WORKTREE') {
+			throw new Error('The prompt comparison conflicts with the explicit base-to-worktree comparison.');
+		}
+		if (snapshot.entries.length === 0) {
+			throw new Error('No tracked text changes in this comparison; previous tour preserved.');
+		}
+		let points: DiffTourPoint[] | undefined;
+		const inspectedFiles = new Set<string>();
+		await this.runPrompt('diff_tour', params,
+			buildDiffExplorationPrompt(promptParams, snapshot.comparison, snapshot.entries), context,
+			[...READ_ONLY_TOOLS, 'read_diff_patch', 'submit_diff_tour'], false, params.prompt,
+			{ params, diffSnapshot: snapshot, inspectedFiles, handlers: { onDiffTour: (submitted) => { points = submitted; } } });
+		if (!points) {
+			throw new Error('No useful diff-tour points were submitted; previous tour preserved.');
+		}
+		const accepted: DiffTourPoint[] = points;
+		context.signal?.throwIfAborted();
+		const filePath = saveDiffTour(root, { version: 1, comparison: snapshot.comparison, points: accepted });
+		return { kind: 'diffTour', path: filePath, pointCount: accepted.length,
+			changedFileCount: snapshot.entries.length, inspectedFileCount: inspectedFiles.size };
 	}
 
 	async agentCancel(): Promise<ExplanationResult> {

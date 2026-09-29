@@ -8,6 +8,8 @@ import type {
 	ExplainSelectionParams,
 	ExplanationResult,
 	GenerateWalkthroughParams,
+	GenerateDiffTourParams,
+	DiffTourResult,
 	QuestionSelectionParams,
 	SearchLocationsParams,
 	SearchLocationsResult,
@@ -36,4 +38,5 @@ export interface AgentRuntime {
 	agentSessionOutput(params: AgentSessionOutputParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ExplanationResult>;
 	listSkills(params: BaseRequestParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<ListSkillsResult>;
 	generateWalkthrough(params: GenerateWalkthroughParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<WalkthroughResult>;
+	generateDiffTour(params: GenerateDiffTourParams, context?: AgentRuntimeRequestContext): AgentRuntimeResult<DiffTourResult>;
 }

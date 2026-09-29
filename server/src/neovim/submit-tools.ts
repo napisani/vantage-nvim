@@ -7,17 +7,22 @@ import type { Annotation, AnnotateRangeParams, BaseRequestParams, SearchLocation
 import { parseAnnotationPayload } from './markdown-utils';
 import { errorMessage } from './effect-errors';
 import { JsonRecordSchema, JsonValueSchema, type JsonRecord, type JsonValue } from './utils';
+import { safeDiffPath, validateDiffTourPoints, type DiffTourPoint, type DiffTourSnapshot } from './diff-tour-git';
 
 export interface SubmitToolHandlers {
 	onSearch?: (locations: SearchLocation[]) => void;
 	onAnnotations?: (annotations: Annotation[]) => void;
 	onWalkthrough?: (pointers: WalkthroughPointer[]) => void;
+	onDiffComparison?: (refs: { base: string; target: string }) => void;
+	onDiffTour?: (points: DiffTourPoint[]) => void;
 }
 
 export interface SubmitToolSubmission {
 	params: BaseRequestParams;
 	handlers: SubmitToolHandlers;
 	outputEntryId?: string;
+	diffSnapshot?: DiffTourSnapshot;
+	inspectedFiles?: Set<string>;
 }
 
 export interface SubmitToolOutputRecorder {
@@ -176,7 +181,65 @@ export function createSubmitTools(options: CreateSubmitToolsOptions): ToolDefini
 			};
 		},
 	});
-	return [submitSearch, submitAnnotations, submitWalkthrough];
+	const selectComparison = options.defineTool({
+		name: 'select_diff_comparison', label: 'Select Diff Comparison',
+		description: 'Select local Git refs described by the user before inspecting the diff.',
+		parameters: options.Type.Object({
+			base: options.Type.String(),
+			target: options.Type.String({ description: 'A revision, or WORKTREE.' }),
+		}),
+		executionMode: 'sequential' as const,
+		execute: async (_id, payload) => {
+			const submission = options.requireSubmission('select_diff_comparison');
+			if (!submission.handlers.onDiffComparison) {
+				throw new Error('No comparison selection is active.');
+			}
+			const parsed = z.object({ base: z.string().min(1), target: z.string().min(1) }).parse(payload);
+			submission.handlers.onDiffComparison(parsed);
+			return { content: [{ type: 'text' as const, text: 'Comparison selected for Git verification.' }], details: parsed, terminate: true };
+		},
+	});
+	const readPatch = options.defineTool({
+		name: 'read_diff_patch', label: 'Read Diff Patch',
+		description: 'Read a page of the patch for a tracked text file in the selected comparison.',
+		parameters: options.Type.Object({ file: options.Type.String(), offset: options.Type.Optional(options.Type.Number()) }),
+		executionMode: 'sequential' as const,
+		execute: async (_id, payload) => {
+			const submission = options.requireSubmission('read_diff_patch');
+			if (!submission.diffSnapshot) {
+				throw new Error('No diff is active.');
+			}
+			const parsed = z.object({ file: z.string().refine(safeDiffPath), offset: z.number().int().nonnegative().optional() }).parse(payload);
+			const patch = submission.diffSnapshot.readPatch(parsed.file, parsed.offset);
+			submission.inspectedFiles?.add(parsed.file);
+			return { content: [{ type: 'text' as const, text: JSON.stringify(patch) }], details: { file: patch.file, nextOffset: patch.nextOffset } };
+		},
+	});
+	const submitDiffTour = options.defineTool({
+		name: 'submit_diff_tour', label: 'Submit Diff Tour',
+		description: 'Submit ordered, revision-side-aware stops for the selected diff.',
+		parameters: options.Type.Object({ points: options.Type.Array(options.Type.Object({
+			file: options.Type.String(), side: options.Type.Union([options.Type.Literal('left'), options.Type.Literal('right')]),
+			line: options.Type.Number(), anchor: options.Type.String(), description: options.Type.String(),
+		})) }),
+		executionMode: 'sequential' as const,
+		execute: async (_id, payload) => {
+			const submission = options.requireSubmission('submit_diff_tour');
+			if (!submission.diffSnapshot || !submission.handlers.onDiffTour) {
+				throw new Error('No diff-tour submission is active.');
+			}
+			const parsed = z.object({ points: z.array(z.object({
+				file: z.string(), side: z.enum(['left', 'right']), line: z.number(), anchor: z.string(), description: z.string(),
+			})) }).parse(payload);
+			const points = validateDiffTourPoints(submission.diffSnapshot, parsed.points);
+			submission.handlers.onDiffTour(points);
+			options.output.appendOutputEvent?.(submission.outputEntryId, {
+				type: 'submit_diff_tour', summary: `Accepted ${points.length} diff-tour point(s).`,
+			});
+			return { content: [{ type: 'text' as const, text: `Accepted ${points.length} diff-tour point(s).` }], details: { pointCount: points.length }, terminate: true };
+		},
+	});
+	return [submitSearch, submitAnnotations, submitWalkthrough, selectComparison, readPatch, submitDiffTour];
 }
 
 export function parseSearchFallback(workspaceRootPath: string, text: string): SearchLocation[] {

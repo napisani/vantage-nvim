@@ -41,6 +41,7 @@ export {
 	AnnotateRangeParamsSchema,
 	SearchLocationsParamsSchema,
 	GenerateWalkthroughParamsSchema,
+	GenerateDiffTourParamsSchema,
 	AgentSessionOutputParamsSchema,
 	CompleteParamsSchema,
 } from './params';
@@ -54,6 +55,7 @@ export type {
 	AnnotateRangeParams,
 	SearchLocationsParams,
 	GenerateWalkthroughParams,
+	GenerateDiffTourParams,
 	AgentSessionOutputParams,
 	CompleteParams,
 } from './params';
@@ -75,6 +77,7 @@ export {
 	ListSkillsResultSchema,
 	WalkthroughPointerSchema,
 	WalkthroughResultSchema,
+	DiffTourResultSchema,
 	CompleteResultSchema,
 	AgentRuntimeProgressSchema,
 } from './results';
@@ -94,6 +97,7 @@ export type {
 	ListSkillsResult,
 	WalkthroughPointer,
 	WalkthroughResult,
+	DiffTourResult,
 	CompleteResult,
 	AgentRuntimeProgress,
 } from './results';

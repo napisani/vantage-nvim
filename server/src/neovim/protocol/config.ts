@@ -49,6 +49,7 @@ export const CommandsConfigSchema = z.object({
 	annotate: AnnotateCommandConfigSchema.optional(),
 	search: CommandConfigSchema.optional(),
 	walkthrough: CommandConfigSchema.optional(),
+	diff_tour: CommandConfigSchema.optional(),
 });
 
 export const CompletionRuntimeConfigSchema = z.object({

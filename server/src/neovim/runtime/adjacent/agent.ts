@@ -24,6 +24,7 @@ export class AdjacentAgentRuntime implements AgentRuntime {
 	readonly annotateRange: PiAgentCommon['annotateRange'];
 	readonly searchLocations: PiAgentCommon['searchLocations'];
 	readonly generateWalkthrough: PiAgentCommon['generateWalkthrough'];
+	readonly generateDiffTour: PiAgentCommon['generateDiffTour'];
 	readonly agentCancel: PiAgentCommon['agentCancel'];
 	readonly agentSessionReset: PiAgentCommon['agentSessionReset'];
 	readonly agentSessionStatus: PiAgentCommon['agentSessionStatus'];
@@ -54,6 +55,7 @@ export class AdjacentAgentRuntime implements AgentRuntime {
 		this.annotateRange = this.common.annotateRange.bind(this.common);
 		this.searchLocations = this.common.searchLocations.bind(this.common);
 		this.generateWalkthrough = this.common.generateWalkthrough.bind(this.common);
+		this.generateDiffTour = this.common.generateDiffTour.bind(this.common);
 		this.agentCancel = this.common.agentCancel.bind(this.common);
 		this.agentSessionReset = this.common.agentSessionReset.bind(this.common);
 		this.agentSessionStatus = this.common.agentSessionStatus.bind(this.common);

@@ -9,6 +9,8 @@ import {
 	buildQuestionPrompt,
 	buildSearchPrompt,
 	buildWalkthroughPrompt,
+	buildDiffComparisonPrompt,
+	buildDiffExplorationPrompt,
 } from './prompts';
 import { parseEditResponse, parseAnnotationResponse } from './markdown-utils';
 
@@ -168,6 +170,25 @@ test('buildSearchPrompt requires submit_search_results with 1-based coordinates'
 	assert.match(prompt, /workspace-relative file paths and 1-based line and character coordinates/i);
 	assert.match(prompt, /find value factories/);
 	assert.match(prompt, /7\| const value = makeValue\(\);/);
+});
+
+test('diff tour prompts include the lens, comparison and complete manifest before selective reading', () => {
+	const params = {
+		filePath: '/repo/main.ts', language: 'typescript', text: '', cursor: { line: 1, character: 1 },
+		prompt: 'Focus on permissions', lens: { mode: 'learning' as const, text: 'Explain the invariant' },
+	};
+	const plan = buildDiffComparisonPrompt(params, ['main', 'topic']);
+	assert.match(plan, /select_diff_comparison/);
+	assert.match(plan, /main, topic/);
+	assert.match(plan, /Explain the invariant/);
+	const explore = buildDiffExplorationPrompt(params,
+		{ vcs: 'git', repoRoot: '.', base: { label: 'main', commit: 'a'.repeat(40) },
+			target: { kind: 'worktree', headAtAuthoring: 'b'.repeat(40) } },
+		[{ file: 'src/a.ts', status: 'M', added: 3, removed: 1 },
+			{ file: 'src/b.ts', status: 'M', added: 100, removed: 100 }]);
+	assert.match(explore, /src\/a.ts/);
+	assert.match(explore, /src\/b.ts/);
+	assert.match(explore, /read_diff_patch/);
 });
 
 test('buildWalkthroughPrompt asks the agent to submit_walkthrough with the developer request', () => {
