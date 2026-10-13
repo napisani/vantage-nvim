@@ -17,6 +17,7 @@ local session_output = require("vantage.session_output")
 local status_view = require("vantage.status")
 local ui = require("vantage.ui")
 local walkthrough = require("vantage.walkthrough")
+local last_turn = require("vantage.last_turn")
 local diff_tour = require("vantage.diff_tour")
 
 local M = {
@@ -102,6 +103,10 @@ end
 
 function M.load_walkthrough()
 	walkthrough.load()
+end
+
+function M.open_last_turn()
+	return last_turn.open()
 end
 
 function M.search(opts)
@@ -376,6 +381,10 @@ function M.register()
 
 	recreate_command(CommandNames.load_walkthrough, function()
 		M.load_walkthrough()
+	end)
+
+	recreate_command(CommandNames.last_turn, function()
+		M.open_last_turn()
 	end)
 
 	recreate_command(CommandNames.status, function()

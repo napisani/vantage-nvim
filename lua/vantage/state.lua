@@ -170,6 +170,7 @@ end
 ---@field monitor? VantageMonitorConfig Monitor-mode change detection and presentation.
 ---@field ui? VantageUiConfig UI hints passed to Neovim's standard UI APIs.
 ---@field agent_context? VantageAgentContextConfig
+---@field last_turn? { path?: string } Where /vantage-last-turn-to-doc writes. Default ".vantage/last-turn.md".
 ---@field debug? VantageDebugConfig
 
 local function default_config()

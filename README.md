@@ -25,6 +25,7 @@ The session descriptions below default to `agent.runtime = "pi"`. With `agent.ru
 | `:VantageAnnotationClear` | Yes | No | None. | No model call; no agent tools. | Clears Vantage annotations in the current buffer. |
 | `:VantageSearch [query]` | Yes | Yes: `:10,20VantageSearch ...`, `:'<,'>VantageSearch ...` | A prompt is required. If `query` is omitted, including for range/visual search, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_search_results`. Results are curated through Vantage's structured contract; no file mutation tools. | Populates quickfix with final curated search locations. |
 | `:VantageGenerateWalkthrough [prompt]` | Yes | Yes: `:10,20VantageGenerateWalkthrough ...`, `:'<,'>VantageGenerateWalkthrough ...` | A prompt is required. If `prompt` is omitted, opens the floating prompt buffer. | Uses the singleton buddy session with read-only tools plus `submit_walkthrough`. No file mutation tools; Vantage writes the validated pointers to `.vantage/walkthrough.json` itself. | Writes `.vantage/walkthrough.json` and immediately runs `:VantageLoadWalkthrough`. |
+| `:VantageLastTurn` | Yes | No | None. | No model call; no agent tools. | Opens `.vantage/last-turn.md` (written by the adjacent agent's `vantage-last-turn-to-doc` skill) in the current window as an editable buffer with `autoread`, so the agent's later edits reload. Notifies and does nothing when the doc is missing. |
 | `:VantageGenerateDiffTour [base [target]] -- [prompt]` | Yes | No | Requires a user-authored prompt; opens the floating prompt buffer when omitted. Refs can be given explicitly or inferred from the prompt; default is HEAD → tracked worktree. | Singleton buddy session; comparison selection, read-only code and selected Git patch tools, `submit_diff_tour`. No file mutation tools. | Writes `.vantage/diff-tour.json` on nonempty success, then opens the guided tour in optional Diffview. |
 | `:VantageLoadDiffTour` / `:VantageDiffTourNext` / `:VantageDiffTourPrev` / `:VantageDiffTourClear` | Yes | No | None. | No model call; requires Diffview for loading/navigating. | Open the pinned comparison, move among left/right diff-buffer notes, or clear only tour marks. |
 | `:VantageStatus` | Yes | No | None. | No model call; no agent tools. Reads local Vantage status only. | Opens the combined Agent Session, Agent Context, and Request status float (whichever of explain/question/edit/annotate is currently tracked). |
@@ -60,6 +61,7 @@ All public Lua functions are available from `require("vantage")` and share the s
 | `clear_annotations()` | `:VantageAnnotationClear`. | No model call; no agent tools. |
 | `search(opts)` | `:VantageSearch`; `opts.args` is the inline query when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_search_results`. No file mutation tools. |
 | `generate_walkthrough(opts)` | `:VantageGenerateWalkthrough`; `opts.args` is the inline prompt when present. Missing args open the prompt buffer. | Singleton buddy session; `read`, `grep`, `find`, `ls`, `submit_walkthrough`. No file mutation tools; writes `.vantage/walkthrough.json` and loads it. |
+| `open_last_turn()` | `:VantageLastTurn`. Returns the buffer, or `nil` when the doc is missing. | No model call; no agent tools. |
 | `generate_diff_tour(opts)` | `:VantageGenerateDiffTour`; `opts.base`, `opts.target` (`WORKTREE` or a Git ref), `opts.prompt` select the comparison and request. Missing prompt opens the prompt buffer. | Singleton buddy session; read-only inspection and `select_diff_comparison`, `read_diff_patch`, `submit_diff_tour`; writes `.vantage/diff-tour.json` and loads it. |
 | `load_diff_tour()` / `diff_tour_next()` / `diff_tour_prev()` / `clear_diff_tour()` | Same-named diff-tour Ex commands. | No model call; Diffview required only for loading/navigation. |
 | `status()` | `:VantageStatus`. | No model call; no agent tools. |
@@ -446,6 +448,7 @@ Config groups:
 - `ui.input.provider`: prompt provider for lens prompts. Question/Edit/Search use the floating prompt buffer when command text is omitted.
 - `ui.input.lens`: option table passed to the selected input provider, such as `prompt`, `default`, `completion`, `highlight`, and `scope`.
 - `agent_context`: workspace task snapshot settings.
+- `last_turn.path` (default `".vantage/last-turn.md"`): the doc `:VantageLastTurn` opens; keep it in sync with where the `vantage-last-turn-to-doc` skill writes.
 
 The active lens and command scope take precedence over Agent Task Context. Agent and completion runtimes have independent option bags; command-specific agent options layer over `agent.options`.
 
@@ -756,6 +759,20 @@ The artifact is workspace/session state and is ignored by default (`.vantage/wal
 ```
 
 If `prompt` is omitted, the floating prompt buffer opens for input. Configure model options for this command under `commands.walkthrough`, the same shape as `commands.search`.
+
+## Last-Turn Docs
+
+To mark up something the adjacent agent just said, have it copy its previous reply into a working doc, then open that doc in Neovim:
+
+```text
+/skill:vantage-last-turn-to-doc
+```
+
+```text
+:VantageLastTurn
+```
+
+The skill writes the reply verbatim to `.vantage/last-turn.md`, first moving any existing doc aside to `.vantage/last-turn-<YYYYMMDD-HHMMSS>.md`. `:VantageLastTurn` opens it as an ordinary editable buffer: write your comments and edits into it, then point the agent back at it (for example by sending `@.vantage/last-turn.md` from the composition buffer). The agent edits the same file on later turns, and the buffer has `autoread` set so those edits reload when Neovim next checks the file. Set `last_turn = { path = "..." }` to use a different location.
 
 ## Guided Diff Tours
 

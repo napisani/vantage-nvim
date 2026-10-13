@@ -50,6 +50,13 @@ function M.load_walkthrough()
 	commands.load_walkthrough()
 end
 
+---Opens the adjacent agent's last-turn doc (`last_turn.path`, default
+---`.vantage/last-turn.md`) as an editable buffer that reloads on agent writes.
+---@return integer? bufnr nil when the doc does not exist yet
+function M.open_last_turn()
+	return commands.open_last_turn()
+end
+
 function M.search(opts)
 	commands.search(opts or {})
 end
