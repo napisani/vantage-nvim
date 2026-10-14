@@ -8,6 +8,7 @@ const output = path.join(root, '.plugin-dist');
 const requiredDirectories = [
 	['plugin', 'plugin'],
 	['lua', 'lua'],
+	['syntax', 'syntax'],
 	['server/src', 'server/src', backendSourceFilter],
 ];
 

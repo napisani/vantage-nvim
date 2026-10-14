@@ -14,6 +14,75 @@ local toggle_prompt_buffer_runtime = helpers.toggle_prompt_buffer_runtime
 local prompt_buffer_footer_text = helpers.prompt_buffer_footer_text
 local capture_backend_request = helpers.capture_backend_request
 
+test("prompt entry points skip Markdown document setup and publish metadata before FileType", function()
+	local vantage = require("vantage")
+	vantage.setup({ backend = { mode = "development" } })
+	lua_buffer({ "local a = 1" })
+
+	local markdown_setups = 0
+	local prompt_setups = {}
+	local autocmd = vim.api.nvim_create_autocmd("FileType", {
+		pattern = { "markdown", "vantage_prompt" },
+		callback = function(event)
+			if event.match == "markdown" then
+				markdown_setups = markdown_setups + 1
+			else
+				table.insert(prompt_setups, {
+					marked = require("vantage.ui.prompt_buffer").is_prompt_buffer(event.buf),
+					kind = vim.b[event.buf].vantage_prompt_kind,
+					root = vim.b[event.buf].vantage_workspace_root,
+				})
+			end
+		end,
+	})
+	local ok, err = pcall(function()
+		for _, method in ipairs({ "question", "edit", "prompt" }) do
+			if method == "prompt" then
+				vantage.prompt({ kind = "composition-entry", params = { workspaceRoot = "/workspace" } })
+			else
+				vantage[method]()
+			end
+			local ui = require("vantage.ui")
+			assert(vim.api.nvim_win_is_valid(ui.last_float_win()), "expected prompt float")
+			vim.api.nvim_win_close(ui.last_float_win(), true)
+		end
+	end)
+	vim.api.nvim_del_autocmd(autocmd)
+	assert(ok, err)
+
+	eq(markdown_setups, 0)
+	eq(#prompt_setups, 3)
+	for _, setup in ipairs(prompt_setups) do
+		eq(setup.marked, true)
+		assert(type(setup.root) == "string")
+	end
+	eq(prompt_setups[1].kind, "question")
+	eq(prompt_setups[2].kind, "edit")
+	eq(prompt_setups[3].kind, "composition-entry")
+	eq(prompt_setups[3].root, "/workspace")
+end)
+
+test("prompt syntax highlights references without loading embedded document languages", function()
+	local vantage = require("vantage")
+	vantage.setup({ backend = { mode = "development" } })
+	lua_buffer({ "local a = 1" })
+	local buf, win = vantage.prompt({})
+	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "@lua/x.lua /review /skill:review", "# Heading", "`code`" })
+	vim.api.nvim_buf_call(buf, function()
+		vim.cmd("runtime syntax/vantage_prompt.vim")
+		eq(vim.b.current_syntax, "vantage_prompt")
+		local function group(line, col)
+			return vim.fn.synIDattr(vim.fn.synID(line, col, 1), "name")
+		end
+		eq(group(1, 1), "VantagePromptReference")
+		eq(group(1, 12), "VantagePromptSkill")
+		eq(group(1, 20), "VantagePromptSkill")
+		eq(group(2, 1), "VantagePromptHeading")
+		eq(group(3, 2), "VantagePromptCode")
+	end)
+	vim.api.nvim_win_close(win, true)
+end)
+
 test("VantageQuestion prompt buffer footer defaults to the checked agent runtime with keybind hints", function()
 	local vantage = require("vantage")
 

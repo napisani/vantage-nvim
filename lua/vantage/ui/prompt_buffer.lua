@@ -176,7 +176,6 @@ function M.open(opts)
 
 	local buf = vim.api.nvim_create_buf(false, true)
 	vim.bo[buf].bufhidden = "wipe"
-	vim.bo[buf].filetype = "markdown"
 	vim.bo[buf].swapfile = false
 	vim.bo[buf].modifiable = true
 	vim.api.nvim_buf_set_name(buf, "VantagePrompt")
@@ -187,6 +186,9 @@ function M.open(opts)
 	-- cwd's root rather than the one the prompt is about.
 	vim.api.nvim_buf_set_var(buf, "vantage_workspace_root", params.workspaceRoot or "")
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "" })
+	-- FileType handlers need the prompt identity and workspace already set.
+	-- Markdown document setup can load embedded-language syntax for empty input.
+	vim.bo[buf].filetype = "vantage_prompt"
 
 	local win = ui.open_float(buf, { height = 0.42, line_count = 12 })
 	win_util.apply_readable_options(win)
