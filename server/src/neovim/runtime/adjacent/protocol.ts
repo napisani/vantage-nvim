@@ -28,4 +28,7 @@ export const ResponseSchema = z.discriminatedUnion('kind', [
 ]);
 export type BridgeResponse = z.infer<typeof ResponseSchema>;
 export const MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
-export const IPC_TIMEOUT_MS = 5000;
+// A snapshot is serialized on the parent Pi's event loop, which a busy turn can
+// block well past the time a bare probe needs.
+export const PROBE_TIMEOUT_MS = 5000;
+export const SNAPSHOT_TIMEOUT_MS = 30000;

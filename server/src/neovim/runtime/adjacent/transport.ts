@@ -5,10 +5,11 @@ import { createHash } from 'node:crypto';
 import {
 	type BridgeRequest,
 	type BridgeResponse,
-	IPC_TIMEOUT_MS,
 	MAX_RESPONSE_BYTES,
+	PROBE_TIMEOUT_MS,
 	RequestSchema,
 	ResponseSchema,
+	SNAPSHOT_TIMEOUT_MS,
 	type Snapshot,
 } from './protocol';
 
@@ -44,7 +45,7 @@ export async function startBridge(
 	const sockets = new Set<net.Socket>();
 	const server = net.createServer((socket) => {
 		sockets.add(socket);
-		const timer = setTimeout(() => socket.destroy(), IPC_TIMEOUT_MS);
+		const timer = setTimeout(() => socket.destroy(), SNAPSHOT_TIMEOUT_MS);
 		socket.on('error', () => socket.destroy());
 		socket.on('close', () => {
 			clearTimeout(timer);
@@ -107,6 +108,12 @@ export async function startBridge(
 	};
 }
 
+/** Socket names end in the owning Pi's PID; naming it lets a wedged or busy Pi be found. */
+function describeOwner(socketPath: string): string {
+	const pid = /-(\d+)\.sock$/.exec(path.basename(socketPath))?.[1];
+	return pid ? `Owner Pi PID ${pid} may be busy or hung.` : 'The owning Pi may be busy or hung.';
+}
+
 export function requestBridge(
 	socketPath: string,
 	request: BridgeRequest,
@@ -135,7 +142,8 @@ export function requestBridge(
 			}
 		};
 		const abort = () => finish(new Error('Adjacent Pi request cancelled.'));
-		const timer = setTimeout(() => finish(new Error('Adjacent Pi IPC timed out.')), IPC_TIMEOUT_MS);
+		const timeoutMs = request.method === 'probe' ? PROBE_TIMEOUT_MS : SNAPSHOT_TIMEOUT_MS;
+		const timer = setTimeout(() => finish(new Error(`Adjacent Pi IPC timed out after ${timeoutMs / 1000}s: ${socketPath}. ${describeOwner(socketPath)}`)), timeoutMs);
 		signal?.addEventListener('abort', abort, { once: true });
 		socket.on('error', (error) => finish(error));
 		socket.on('end', () => finish(new Error('Adjacent Pi disconnected before replying.')));
