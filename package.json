@@ -1,0 +1,51 @@
+{
+  "name": "vantage.nvim",
+  "description": "A Neovim review and learning workflow with the adjacent Pi agent: ask, request changes, tours and annotations, answered by the agent that edits the code.",
+  "author": "Nick Pisani",
+  "license": "MIT",
+  "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/napisani/vantage-nvim"
+  },
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "pi": {
+    "extensions": [
+      "./pi-vantage-nvim/index.ts"
+    ]
+  },
+  "packageManager": "npm@11.19.1",
+  "keywords": [
+    "neovim",
+    "pi",
+    "ai",
+    "code-review",
+    "learning"
+  ],
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "oxlint .",
+    "test:ext": "node --test 'pi-vantage-nvim/test/*.test.ts'",
+    "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
+    "test": "npm run test:ext && npm run test:nvim",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "build:plugin": "node scripts/build-plugin-package.mjs"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "dependencies": {
+    "typebox": "1.3.27"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@oxlint/plugins": "1.78.0",
+    "@types/node": "24.19.2",
+    "oxlint": "^1.81.0",
+    "typescript": "5.9.3"
+  }
+}
