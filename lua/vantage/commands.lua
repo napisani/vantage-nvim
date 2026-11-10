@@ -1,24 +1,19 @@
-local annotation_command = require("vantage.annotation_command")
-local agent_context = require("vantage.agent_context")
-local backend = require("vantage.backend")
-local composition = require("vantage.composition")
-local history = require("vantage.history")
+-- Command implementations: scope the request in the editor, collect text, and
+-- hand it to the review core. Every function here backs a public Lua function
+-- in init.lua and, where one exists, a user command.
 local CommandNames = require("vantage.command_names")
+local anchors = require("vantage.review.anchors")
+local annotation_command = require("vantage.annotation_command")
+local composition = require("vantage.composition")
 local context = require("vantage.context")
-local debug_log = require("vantage.debug_log")
+local history = require("vantage.history")
 local input_ui = require("vantage.input")
-local model_command = require("vantage.model_command")
 local monitor = require("vantage.monitor")
-local response_util = require("vantage.response")
-local runtime_option = require("vantage.runtime_option")
-local tracker = require("vantage.request_tracker")
+local paths = require("vantage.paths")
+local prompt_authoring = require("vantage.prompt_authoring")
+local review = require("vantage.review")
 local state = require("vantage.state")
-local session_output = require("vantage.session_output")
-local status_view = require("vantage.status")
 local ui = require("vantage.ui")
-local walkthrough = require("vantage.walkthrough")
-local last_turn = require("vantage.last_turn")
-local diff_tour = require("vantage.diff_tour")
 
 local M = {
 	CommandNames = CommandNames,
@@ -28,33 +23,360 @@ local function trim(text)
 	return (text or ""):gsub("^%s+", ""):gsub("%s+$", "")
 end
 
---- The currently-tracked request's status (whichever command started it --
---- explain/question/edit/annotate), for :VantageStatus.
-function M.request_status()
-	return tracker.status()
+local function report(err)
+	vim.notify("Vantage: " .. tostring(err), vim.log.levels.ERROR)
 end
 
-function M.agent_context_status()
-	return agent_context.snapshot()
+local function lens_text()
+	local lens = state.get_lens()
+	return lens and lens.text or nil
 end
 
-local function agent_status_markdown(response)
-	local result = response_util.unwrap(response)
-	if result and result.markdown then
-		return result.markdown
+---Notifies the outcome of a sent action; `label` names what was sent.
+local function sent(label)
+	return function(err, ack)
+		if err then
+			return report(err)
+		end
+		local id = ack and ack.threadId
+		vim.notify("Vantage: " .. (id and (id .. " ") or "") .. label, vim.log.levels.INFO)
 	end
-	return "## Vantage Agent Session\n\n### Error\n\n" .. tostring(response_util.error_message(response))
+end
+
+local function views()
+	return {
+		signs = require("vantage.review.ui.signs"),
+		thread = require("vantage.review.ui.thread"),
+		sidebar = require("vantage.review.ui.sidebar"),
+		picker = require("vantage.review.ui.picker"),
+	}
+end
+
+---The thread the cursor is on: a thread buffer, a sidebar row, an anchored line,
+---or the thread shown in the split.
+---@return string?
+function M.thread_at_cursor()
+	local v = views()
+	return vim.b.vantage_thread_id or v.sidebar.id_at_cursor() or v.signs.at_cursor() or v.thread.open_id()
+end
+
+---Resolves the thread a command acts on, picking one when nothing is at the cursor.
+---@param opts table
+---@param cb fun(id: string)
+local function with_thread(opts, cb)
+	local id = opts.thread_id or (opts.args and trim(opts.args) ~= "" and trim(opts.args)) or M.thread_at_cursor()
+	if id then
+		return cb(id)
+	end
+	views().picker.pick(function(entry)
+		cb(entry.id)
+	end)
+end
+
+local function compose(kind, opts, params, on_text)
+	prompt_authoring.resolve({ kind = kind, command_opts = opts, params = params, title = opts.title, on_submit = on_text })
+end
+
+function M.ask(opts)
+	opts = opts or {}
+	local params = context.scoped(opts)
+	local anchor = not opts.workspace and anchors.from_context(params) or nil
+	compose("question", opts, params, function(text)
+		review.ask({ anchor = anchor, text = text, lens = lens_text() }, sent("asked"))
+	end)
+end
+
+function M.explain(opts)
+	opts = opts or {}
+	local params = context.scoped(opts)
+	local anchor = anchors.from_context(params)
+	if not anchor then
+		return report("explain needs lines of a file in the workspace")
+	end
+	review.ask({ anchor = anchor, text = "Explain this code.", lens = lens_text(), preset = "explain" }, sent("explain requested"))
+end
+
+local function request(opts, send_now)
+	opts = opts or {}
+	local params = context.scoped(opts)
+	local anchor = not opts.workspace and anchors.from_context(params) or nil
+	compose("change", opts, params, function(text)
+		review.request({ anchor = anchor, text = text, lens = lens_text(), send_now = send_now }, sent(send_now and "sent to the agent" or "queued; send the round when ready"))
+	end)
+end
+
+function M.request(opts)
+	request(opts, false)
+end
+
+function M.request_now(opts)
+	request(opts, true)
+end
+
+function M.send_round()
+	review.send_round(sent("round sent"))
+end
+
+function M.recall_round()
+	review.recall_round(sent("round recalled to pending"))
+end
+
+function M.reply(opts)
+	opts = opts or {}
+	with_thread(opts, function(id)
+		local thread = review.thread(id)
+		if not thread then
+			return report("no thread " .. id)
+		end
+		local pending = thread.status == "pending"
+		local last_user
+		for index = #thread.messages, 1, -1 do
+			if thread.messages[index].role == "user" then
+				last_user = thread.messages[index].text
+				break
+			end
+		end
+		prompt_authoring.resolve({
+			kind = pending and "change" or thread.kind,
+			command_opts = { args = opts.text },
+			params = { workspaceRoot = review.connection().root },
+			title = (pending and "Edit " or "Reply to ") .. id,
+			default = pending and last_user or nil,
+			on_submit = function(text)
+				if pending then
+					review.edit(id, text, sent("updated"))
+				else
+					review.follow_up(id, text, lens_text(), sent("follow-up sent"))
+				end
+			end,
+		})
+	end)
+end
+
+function M.edit_request(id)
+	M.reply({ thread_id = id })
+end
+
+function M.delete_request(id)
+	review.delete(id, sent("deleted"))
+end
+
+function M.cancel(opts)
+	opts = opts or {}
+	if not opts.thread_id and (not opts.args or trim(opts.args) == "") and not M.thread_at_cursor() and annotation_command.cancel() then
+		vim.notify("Vantage: annotation request cancelled", vim.log.levels.INFO)
+		return
+	end
+	with_thread(opts, function(id)
+		review.cancel(id, sent("cancelled"))
+	end)
+end
+
+function M.resolve(opts)
+	opts = opts or {}
+	with_thread(opts, function(id)
+		local thread = review.thread(id)
+		local resolved = not (thread and thread.resolved)
+		review.resolve(id, resolved, sent(resolved and "resolved" or "reopened"))
+	end)
+end
+
+function M.clear_resolved()
+	review.clear_resolved(sent("resolved threads cleared"))
+end
+
+function M.thread_peek()
+	local id = M.thread_at_cursor()
+	if not id then
+		return vim.notify("Vantage: no thread on this line", vim.log.levels.INFO)
+	end
+	views().thread.peek(id)
+end
+
+function M.thread_open(id)
+	with_thread({ thread_id = id }, function(thread_id)
+		views().thread.open(thread_id)
+	end)
+end
+
+function M.thread_next()
+	views().signs.jump(1)
+end
+
+function M.thread_prev()
+	views().signs.jump(-1)
+end
+
+---Loads the locations from a thread's latest agent answer into quickfix.
+function M.thread_refs_to_quickfix(id)
+	with_thread({ thread_id = id }, function(thread_id)
+		local thread = review.thread(thread_id)
+		local root = review.connection().root
+		local items = {}
+		for index = #(thread and thread.messages or {}), 1, -1 do
+			local message = thread.messages[index]
+			if message.role == "agent" and message.refs then
+				for _, ref in ipairs(message.refs) do
+					table.insert(items, { filename = paths.resolve(root, ref.path), lnum = ref.startLine, end_lnum = ref.endLine, col = 1, text = ref.note or "" })
+				end
+				break
+			end
+		end
+		if #items == 0 then
+			return vim.notify("Vantage: " .. thread_id .. " has no code locations", vim.log.levels.INFO)
+		end
+		vim.fn.setqflist({}, "r", { title = "Vantage " .. thread_id, items = items })
+		vim.cmd("copen")
+	end)
+end
+
+function M.pick_thread()
+	views().picker.pick()
+end
+
+function M.sidebar()
+	return views().sidebar.toggle()
+end
+
+function M.walkthrough(opts)
+	opts = opts or {}
+	local params = context.selected_range(opts)
+	local anchor = params and anchors.from_context(params) or nil
+	compose("walkthrough", opts, params or { workspaceRoot = paths.workspace_root() }, function(text)
+		review.walkthrough({ anchor = anchor, text = text, lens = lens_text() }, sent("walkthrough requested"))
+	end)
+end
+
+---Splits `[base [target]] -- [prompt]` command args. `--` separates only as a
+---standalone word with at most two refs before it, so a prompt may mention
+---`--force` freely. A single word with no `--` is a base ref.
+---@param args string
+---@return string? base, string? target, string prompt
+function M.parse_diff_tour_args(args)
+	local refs = {}
+	for word, finish in args:gmatch("(%S+)()") do
+		if word == "--" then
+			return refs[1], refs[2], (trim(args:sub(finish)))
+		end
+		if #refs == 2 then
+			break
+		end
+		table.insert(refs, word)
+	end
+	if not args:find("%s") and args ~= "" then
+		return args, nil, ""
+	end
+	return nil, nil, (trim(args))
+end
+
+function M.diff_tour(opts)
+	opts = opts or {}
+	local base, target, prompt = opts.base, opts.target, opts.prompt
+	if opts.args then
+		base, target, prompt = M.parse_diff_tour_args(opts.args)
+	end
+	compose("diff_tour", { args = prompt }, { workspaceRoot = paths.workspace_root() }, function(text)
+		review.diff_tour({ text = text, base = base, target = target, lens = lens_text() }, sent("diff tour requested"))
+	end)
+end
+
+function M.tour_next()
+	require("vantage.tours").next()
+end
+
+function M.tour_prev()
+	require("vantage.tours").prev()
+end
+
+function M.tour_clear()
+	require("vantage.tours").clear()
+end
+
+function M.set_review_base(opts)
+	opts = opts or {}
+	local ref, target = opts.ref, opts.target
+	if opts.fargs then
+		ref, target = opts.fargs[1], opts.fargs[2]
+	end
+	local root = review.workspace_root()
+	local base, err = require("vantage.review.git").base(root, ref, target)
+	if not base then
+		return report(err)
+	end
+	review.set_base(base, function(send_err)
+		if send_err then
+			return report(send_err)
+		end
+		vim.notify(string.format("Vantage: review base %s (%s)", base.ref, base.mergeBase:sub(1, 12)), vim.log.levels.INFO)
+	end)
+end
+
+function M.clear_review_base()
+	review.clear_base(sent("review base cleared"))
+end
+
+function M.review_files()
+	local current = review.state()
+	if not current or not current.base then
+		return report("set a review base first (:VantageReviewBase)")
+	end
+	local root = review.connection().root
+	local files, err = require("vantage.review.git").changed_files(root, current.base)
+	if not files then
+		return report(err)
+	end
+	if #files == 0 then
+		return vim.notify("Vantage: no changes against " .. current.base.ref, vim.log.levels.INFO)
+	end
+	vim.ui.select(files, { prompt = "Changed against " .. current.base.ref, kind = "vantage_review_file" }, function(file)
+		if not file then
+			return
+		end
+		local git = require("vantage.review.git")
+		local base_target = current.base.target
+		if not git.is_commit(current.base.mergeBase) or (base_target.kind == "commit" and not git.is_commit(base_target.commit)) then
+			return report("the review base holds an invalid commit; set it again with :VantageReviewBase")
+		end
+		if vim.fn.exists(":DiffviewOpen") == 2 then
+			local range = current.base.mergeBase
+			if current.base.target.kind == "commit" then
+				range = range .. ".." .. current.base.target.commit
+			end
+			vim.cmd("DiffviewOpen " .. range .. " -- " .. vim.fn.fnameescape(file))
+		else
+			vim.cmd("edit " .. vim.fn.fnameescape(paths.resolve(root, file)))
+		end
+	end)
+end
+
+function M.annotate(opts)
+	annotation_command.annotate(opts or {})
+end
+
+function M.clear_annotations()
+	annotation_command.clear()
+end
+
+function M.connect()
+	review.connect(function(err)
+		if err then
+			return report(err)
+		end
+		vim.notify("Vantage: connected to " .. (review.connection().socket or "the agent"), vim.log.levels.INFO)
+	end)
 end
 
 function M.show_status()
-	backend.request("agentSessionStatus", context.current_line(), function(response)
-		ui.show_markdown(status_view.combined({
-			agent_markdown = agent_status_markdown(response),
-			agent_context = M.agent_context_status(),
-			request = M.request_status(),
-		}))
-		vim.notify("Vantage status shown", vim.log.levels.INFO)
-	end)
+	local markdown = require("vantage.review.ui.status").markdown(require("vantage.tours").active())
+	local annotate = annotation_command.status()
+	if annotate then
+		markdown = markdown .. "\n- Last annotate: " .. annotate.status .. (annotate.message and (", " .. annotate.message) or "")
+	end
+	ui.show_markdown(markdown)
+end
+
+function M.statusline()
+	return review.statusline()
 end
 
 function M.set_lens(mode, text)
@@ -81,84 +403,12 @@ function M.clear_lens()
 	state.clear_lens()
 end
 
-function M.explain(opts)
-	model_command.explain(opts)
-end
-
-function M.question(opts)
-	model_command.question(opts)
-end
-
-function M.edit(opts)
-	model_command.edit(opts)
-end
-
-function M.clear_annotations()
-	annotation_command.clear()
-end
-
-function M.annotate(opts)
-	annotation_command.annotate(opts)
-end
-
-function M.load_walkthrough()
-	walkthrough.load()
-end
-
-function M.open_last_turn()
-	return last_turn.open()
-end
-
-function M.search(opts)
-	model_command.search(opts)
-end
-
-function M.generate_walkthrough(opts)
-	model_command.generate_walkthrough(opts)
-end
-
-function M.generate_diff_tour(opts)
-	model_command.generate_diff_tour(opts)
-end
-
-function M.load_diff_tour()
-	diff_tour.load()
-end
-
-function M.diff_tour_next()
-	diff_tour.next()
-end
-
-function M.diff_tour_prev()
-	diff_tour.prev()
-end
-
-function M.clear_diff_tour()
-	diff_tour.clear()
-end
-
-function M.cancel(opts)
-	model_command.cancel(opts)
-end
-
-function M.reset_agent_session(opts)
-	model_command.reset_agent_session(opts)
-end
-
-function M.session_output()
-	session_output.open()
-end
-
 function M.debug_log()
-	debug_log.open()
+	require("vantage.debug_log").open()
 end
 
 function M.health()
 	vim.cmd("checkhealth vantage")
-end
-
-function M.output_to_buffer(split_mode)
-	ui.promote_last_float(split_mode)
 end
 
 function M.compose()
@@ -184,10 +434,8 @@ end
 ---
 ---Vantage's scratch surfaces stamp `b:vantage_workspace_root` with the root they
 ---were opened against, because resolving a root from a pathless buffer yields
----the cwd's root instead. Everything else falls back to `agent_context`, which
----itself falls back to cwd and never returns nothing. An earlier version used
----"the workspace of the newest entry" here, which meant a scoped clear run from
----a prompt float could purge a *different* project's history.
+---the cwd's root instead. A scoped clear run from a prompt float must not purge
+---a different project's history.
 ---@return string
 local function current_workspace()
 	local buf = vim.api.nvim_get_current_buf()
@@ -195,7 +443,7 @@ local function current_workspace()
 	if ok and type(root) == "string" and root ~= "" then
 		return root
 	end
-	return require("vantage.agent_context").workspace_root() or ""
+	return paths.workspace_root()
 end
 
 ---Presents history via vim.ui.select. The chosen entry replaces a cycle-attached
@@ -241,73 +489,6 @@ function M.history_clear_all()
 	vim.notify("Vantage: cleared all " .. removed .. " history entr" .. (removed == 1 and "y" or "ies"), vim.log.levels.INFO)
 end
 
-function M.select_model(name)
-	if name then
-		local ok, label = state.select_model(name)
-		if not ok then
-			vim.notify("Vantage: " .. label, vim.log.levels.ERROR)
-			return
-		end
-		-- Reset the buddy session since Pi sessions are model-bound
-		model_command.reset_agent_session()
-		vim.notify("Vantage: switched to " .. label, vim.log.levels.INFO)
-		return
-	end
-
-	-- No args: open picker
-	local models = state.config.agent and state.config.agent.models or {}
-	if #models == 0 then
-		vim.notify("Vantage: no models configured", vim.log.levels.WARN)
-		return
-	end
-
-	local current = state.current_model
-	local labels = {}
-	for _, m in ipairs(models) do
-		local marker = (current and m.name == current.name) and " *" or ""
-		table.insert(labels, m.name .. " (" .. m.provider .. "/" .. m.model .. ")" .. marker)
-	end
-
-	vim.ui.select(labels, {
-		prompt = "Vantage model:",
-	}, function(choice)
-		if not choice then
-			return
-		end
-		-- Extract name from "name (provider/model)" or "name (provider/model) *"
-		local name = choice:match("^(.-)%s*%(")
-		if name then
-			M.select_model(name)
-		end
-	end)
-end
-
-local function recreate_command(name, command, opts)
-	pcall(vim.api.nvim_del_user_command, name)
-	vim.api.nvim_create_user_command(name, command, opts or {})
-end
-
-local function delete_commands(names)
-	for _, name in ipairs(names) do
-		pcall(vim.api.nvim_del_user_command, name)
-	end
-end
-
---- Wraps a user-command handler to first extract a `runtime=` token from its
---- args, setting `opts.runtime` before calling `handler`. Notifies and
---- aborts on an invalid runtime value instead of passing it through.
-local function with_runtime_option(handler)
-	return function(opts)
-		local runtime, remaining_opts, err = runtime_option.extract(opts)
-		if err then
-			vim.notify("Vantage: " .. err, vim.log.levels.ERROR)
-			return
-		end
-		remaining_opts.runtime = runtime
-		handler(remaining_opts)
-	end
-end
-
 ---Toggles monitor mode: a live feed of workspace edits made by something other
 ---than this Neovim instance. Wiring lives here rather than in `monitor.lua`,
 ---which stays free of any knowledge of presentation or git.
@@ -341,8 +522,14 @@ function M.monitor()
 	return started
 end
 
+local function command(name, fn, opts)
+	pcall(vim.api.nvim_del_user_command, name)
+	vim.api.nvim_create_user_command(name, fn, opts or {})
+end
+
 function M.register()
-	recreate_command(CommandNames.set_lens, function(opts)
+	local N = CommandNames
+	command(N.set_lens, function(opts)
 		local active_lens = state.get_lens()
 		local mode = opts.fargs[1] or (active_lens and active_lens.mode) or "general"
 		local text = trim(table.concat(vim.list_slice(opts.fargs, 2), " "))
@@ -352,125 +539,62 @@ function M.register()
 		end
 		M.set_lens(mode, text)
 	end, { nargs = "*" })
+	command(N.clear_lens, M.clear_lens)
 
-	recreate_command(CommandNames.clear_lens, function()
-		M.clear_lens()
-	end)
-
-	delete_commands({ "VantageExplainLine", "VantageExplainSelection" })
-	recreate_command(CommandNames.explain, with_runtime_option(function(opts)
-		M.explain(opts)
-	end), { range = true, nargs = "*" })
-
-	recreate_command(CommandNames.question, with_runtime_option(function(opts)
-		M.question(opts)
-	end), { range = true, nargs = "*" })
-
-	recreate_command(CommandNames.edit, with_runtime_option(function(opts)
-		M.edit(opts)
-	end), { range = true, nargs = "*" })
-
-	delete_commands({ "VantageToggleAnnotations" })
-	recreate_command(CommandNames.annotate, with_runtime_option(function(opts)
-		M.annotate(opts)
-	end), { range = true, nargs = "*" })
-
-	recreate_command(CommandNames.annotation_clear, function()
-		M.clear_annotations()
-	end)
-
-	recreate_command(CommandNames.load_walkthrough, function()
-		M.load_walkthrough()
-	end)
-
-	recreate_command(CommandNames.last_turn, function()
-		M.open_last_turn()
-	end)
-
-	recreate_command(CommandNames.status, function()
-		M.show_status()
-	end)
-
-	recreate_command(CommandNames.session_output, function()
-		M.session_output()
-	end)
-
-	recreate_command(CommandNames.search, function(opts)
-		M.search(opts)
-	end, { range = true, nargs = "*" })
-
-	recreate_command(CommandNames.generate_walkthrough, function(opts)
-		M.generate_walkthrough(opts)
-	end, { range = true, nargs = "*" })
-
-	recreate_command(CommandNames.generate_diff_tour, function(opts)
-		M.generate_diff_tour(opts)
+	command(N.ask, M.ask, { range = true, nargs = "*" })
+	command(N.explain, M.explain, { range = true })
+	command(N.request, M.request, { range = true, nargs = "*" })
+	command(N.request_now, M.request_now, { range = true, nargs = "*" })
+	command(N.send_round, M.send_round)
+	command(N.recall_round, M.recall_round)
+	command(N.reply, function(opts)
+		M.reply({ text = opts.args ~= "" and opts.args or nil })
 	end, { nargs = "*" })
-	recreate_command(CommandNames.load_diff_tour, function()
-		M.load_diff_tour()
-	end)
-	recreate_command(CommandNames.diff_tour_next, function()
-		M.diff_tour_next()
-	end)
-	recreate_command(CommandNames.diff_tour_prev, function()
-		M.diff_tour_prev()
-	end)
-	recreate_command(CommandNames.clear_diff_tour, function()
-		M.clear_diff_tour()
-	end)
-
-	recreate_command(CommandNames.cancel, function()
-		M.cancel()
-	end)
-
-	recreate_command(CommandNames.agent_reset, function()
-		M.reset_agent_session()
-	end)
-
-	recreate_command(CommandNames.debug_log, function()
-		M.debug_log()
-	end)
-
-	recreate_command(CommandNames.model, function(opts)
-		local name = opts.args ~= "" and opts.args or nil
-		M.select_model(name)
+	command(N.cancel, M.cancel, { nargs = "?" })
+	command(N.resolve, M.resolve, { nargs = "?" })
+	command(N.clear_resolved, M.clear_resolved)
+	command(N.thread_peek, M.thread_peek)
+	command(N.thread_open, function(opts)
+		M.thread_open(opts.args ~= "" and opts.args or nil)
 	end, { nargs = "?" })
-
-	recreate_command(CommandNames.output_to_buffer, function(opts)
-		local split_mode = opts.args == "vsplit" and "vsplit" or "split"
-		M.output_to_buffer(split_mode)
+	command(N.thread_next, M.thread_next)
+	command(N.thread_prev, M.thread_prev)
+	command(N.thread_quickfix, function(opts)
+		M.thread_refs_to_quickfix(opts.args ~= "" and opts.args or nil)
 	end, { nargs = "?" })
-
-	recreate_command(CommandNames.compose, function()
-		M.compose()
+	command(N.threads, M.pick_thread)
+	command(N.sidebar, function()
+		M.sidebar()
 	end)
 
-	recreate_command(CommandNames.compose_send, function()
+	command(N.walkthrough, M.walkthrough, { range = true, nargs = "*" })
+	command(N.diff_tour, M.diff_tour, { nargs = "*" })
+	command(N.tour_next, M.tour_next)
+	command(N.tour_prev, M.tour_prev)
+	command(N.tour_clear, M.tour_clear)
+
+	command(N.review_base, M.set_review_base, { nargs = "*" })
+	command(N.review_base_clear, M.clear_review_base)
+	command(N.review_files, M.review_files)
+
+	command(N.annotate, M.annotate, { range = true, nargs = "*" })
+	command(N.annotation_clear, M.clear_annotations)
+
+	command(N.connect, M.connect)
+	command(N.status, M.show_status)
+	command(N.health, M.health)
+	command(N.debug_log, M.debug_log)
+
+	command(N.compose, M.compose)
+	command(N.compose_send, function()
 		M.compose_send()
 	end)
-
-	recreate_command(CommandNames.compose_clear, function()
-		M.compose_clear()
-	end)
-
-	recreate_command(CommandNames.history, function()
-		M.history_pick()
-	end)
-
-	recreate_command(CommandNames.history_clear_workspace, function()
-		M.history_clear_workspace()
-	end)
-
-	recreate_command(CommandNames.history_clear_all, function()
-		M.history_clear_all()
-	end)
-
-	recreate_command(CommandNames.monitor, function()
+	command(N.compose_clear, M.compose_clear)
+	command(N.history, M.history_pick)
+	command(N.history_clear_workspace, M.history_clear_workspace)
+	command(N.history_clear_all, M.history_clear_all)
+	command(N.monitor, function()
 		M.monitor()
-	end)
-
-	recreate_command(CommandNames.health, function()
-		M.health()
 	end)
 end
 

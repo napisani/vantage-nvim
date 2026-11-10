@@ -1,6 +1,6 @@
 {
   "name": "vantage.nvim",
-  "description": "A Neovim-first AI review and learning assistant with a local TypeScript backend.",
+  "description": "A Neovim review and learning workflow with the adjacent Pi agent: ask, request changes, tours and annotations, answered by the agent that edits the code.",
   "author": "Nick Pisani",
   "license": "MIT",
   "version": "0.0.1",
@@ -9,39 +9,43 @@
     "url": "https://github.com/napisani/vantage-nvim"
   },
   "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22.18.0"
+  },
   "pi": {
-    "extensions": ["./server/src/neovim/runtime/adjacent/extension.ts"]
+    "extensions": [
+      "./pi-vantage-nvim/index.ts"
+    ]
   },
   "packageManager": "npm@11.19.1",
   "keywords": [
     "neovim",
+    "pi",
     "ai",
     "code-review",
     "learning"
   ],
   "scripts": {
-    "build:plugin": "npm run compile && node scripts/build-plugin-package.mjs",
-    "compile": "tsc -b server",
-    "clean:server": "node -e \"require('node:fs').rmSync('server/out', { recursive: true, force: true })\"",
-    "watch": "tsc -b server -w",
+    "typecheck": "tsc -p tsconfig.json",
     "lint": "oxlint .",
-    "test": "npm run test:mvp",
-    "dev": "nodemon --watch server/src --exec \"npm run compile\"",
-    "test:backend": "npm run clean:server && npm run compile && node --test 'server/out/neovim/**/*.test.js'",
+    "test:ext": "node --test 'pi-vantage-nvim/test/*.test.ts'",
     "test:nvim": "mkdir -p .nvim-dev/state/nvim && XDG_STATE_HOME=.nvim-dev/state NVIM_LOG_FILE=.nvim-dev/state/nvim/test.log nvim --headless -u nvim/tests/minimal_init.lua -c \"lua require('vantage_spec').run()\" -c qa",
-    "test:mvp": "npm run test:backend && npm run test:nvim"
+    "test": "npm run test:ext && npm run test:nvim",
+    "check": "npm run typecheck && npm run lint && npm test",
+    "build:plugin": "node scripts/build-plugin-package.mjs"
   },
-  "devDependencies": {
-    "@oxlint/plugins": "1.78.0",
-    "nodemon": "^3.1.14",
-    "oxlint": "^1.81.0"
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
   },
   "dependencies": {
-    "@earendil-works/pi-ai": "^0.85.1",
-    "@earendil-works/pi-coding-agent": "^0.85.1",
-    "@types/node": "^22.20.1",
-    "effect": "^3.22.1",
-    "typescript": "^5.9.3",
-    "zod": "^4.5.4"
+    "typebox": "1.3.27"
+  },
+  "devDependencies": {
+    "@earendil-works/pi-coding-agent": "1.4.0",
+    "@oxlint/plugins": "1.78.0",
+    "@types/node": "24.19.2",
+    "oxlint": "^1.81.0",
+    "typescript": "5.9.3"
   }
 }

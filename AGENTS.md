@@ -11,6 +11,35 @@ Pattern:
 
 When adding a new command, add all three in the same change. Do not add a command that only exists as a `vim.api.nvim_create_user_command` without a Lua entry point.
 
+## Two halves, one protocol
+
+Vantage is a Lua plugin plus the `pi-vantage-nvim` Pi extension in
+`pi-vantage-nvim/`. They talk over a Unix socket in JSON lines. Each part of
+the wire lives in one file per side; change both sides in the same commit:
+
+| What | TypeScript | Lua |
+| --- | --- | --- |
+| Version, framing, envelopes, server messages | `pi-vantage-nvim/protocol.ts` (`PROTOCOL_VERSION`, `ClientEnvelopeSchema`, `ServerMessage`) | `lua/vantage/review/protocol.lua` (`M.VERSION`, `encode`, `decode`) |
+| Action payloads Neovim sends | `pi-vantage-nvim/actions.ts` (TypeBox schemas) | `lua/vantage/review/init.lua` (one builder per action); `core.cancel_annotate` |
+| Handshake and request ids | `pi-vantage-nvim/server.ts` | `lua/vantage/review/client.lua` |
+| Socket directory and names | `pi-vantage-nvim/server.ts` (`socketDirectory`, `socketPath`) | `lua/vantage/review/protocol.lua`, owner check in `client.lua` |
+
+Each side stamps the version in one place (`stamp` in `protocol.ts`, `encode`
+in `protocol.lua`), so a version bump is the two constants. Bump them when an
+old client could misread a new message.
+
+- Review rules (statuses, rounds, withdrawal) live in the extension's reducer
+  (`state.ts`) and `review.ts`. Lua never decides them; it sends actions and
+  renders the state it is given. The one Lua table that maps statuses to
+  groups, highlights and order is `lua/vantage/review/statuses.lua`; when a
+  status is added in `state.ts`, add it there too.
+- `lua/vantage/review/core.lua` must not create windows, buffers or extmarks.
+  Views under `lua/vantage/review/ui/` read it through `require("vantage.review")`
+  and the `User VantageReviewChanged` event.
+- The extension's agent-facing text lives in `messages.ts` and the tool
+  descriptions in `tools.ts`; there is no skill. Keep each message ending with
+  what to do and which tool answers it.
+
 ## Documentation Guardrail
 
 Keep the public API documentation in `README.md` current with code changes.
@@ -20,7 +49,7 @@ Whenever you add, remove, rename, or change behavior for any public Vantage surf
 - user commands in `lua/vantage/command_names.lua` or `lua/vantage/commands.lua`
 - command modes/range support (`normal`, range, visual via `:'<,'>`)
 - prompt behavior, including whether a command requires inline args or opens the prompt buffer
-- agent/session/tool availability for each command and function, including read-only tools and Vantage submit tools
+- whether and when each command reaches the agent, and the extension's `vantage_*` reply tools
 - public Lua APIs exposed from `lua/vantage/init.lua`
 - keymaps/config that affect public command behavior
 
@@ -38,6 +67,12 @@ The Lua suite is one module per subject under `nvim/tests/spec/`, sharing a
 registry (`nvim/tests/support/harness.lua`) and fixtures
 (`nvim/tests/support/helpers.lua`). `nvim/tests/vantage_spec.lua` is only an
 aggregator: it requires every spec module, then runs.
+
+Specs that need an agent use `nvim/tests/support/extension.lua`: it starts the
+real extension on a real socket through `support/extension_host.ts` and lets
+the spec play the agent with `host:agent(op, params)`, where `op` names a reply
+tool without its `vantage_` prefix. Specs that only check what a command sends
+stub the core with `helpers.capture_actions`.
 
 When adding Lua tests:
 

@@ -10,7 +10,7 @@ local with_ui_input = helpers.with_ui_input
 test("VantageSetLens prompts for missing lens text", function()
 	local vantage = require("vantage")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 
 	with_ui_input(function(opts, callback)
 		eq(opts.prompt, "Vantage lens: ")
@@ -29,7 +29,6 @@ test("VantageSetLens prompt uses configured vim.ui.input options", function()
 	local vantage = require("vantage")
 
 	vantage.setup({
-		backend = { mode = "development" },
 		ui = {
 			input = {
 				lens = {

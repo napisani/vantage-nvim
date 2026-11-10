@@ -1,13 +1,49 @@
-local state = require("vantage.state")
+-- Public Lua API. Every user command is a thin wrapper over one of these.
 local commands = require("vantage.commands")
+local state = require("vantage.state")
 
 local M = {
 	CommandNames = commands.CommandNames,
 }
 
+-- Config keys from the Vantage that ran its own model. Named so a stale setup()
+-- says what changed instead of silently doing nothing.
+local REMOVED = {
+	agent = "Vantage no longer runs a model; the adjacent Pi agent answers everything",
+	backend = "there is no Node backend; Lua talks to the pi-vantage-nvim extension",
+	completion = "one-shot completions were removed",
+	commands = "per-command runtimes were removed",
+	agent_context = "the agent context file was removed",
+	last_turn = "the last-turn doc was removed",
+}
+
+local function warn_removed(config)
+	local found = {}
+	for key, reason in pairs(REMOVED) do
+		if config[key] ~= nil then
+			table.insert(found, key .. " (" .. reason .. ")")
+		end
+	end
+	if type(config.composition) == "table" and config.composition.on_send ~= nil then
+		table.insert(found, "composition.on_send (sends go to the agent as a thread)")
+	end
+	if #found > 0 then
+		table.sort(found)
+		vim.notify("Vantage: ignoring removed setup keys: " .. table.concat(found, "; "), vim.log.levels.WARN)
+	end
+end
+
 function M.setup(config)
+	config = config or {}
+	warn_removed(config)
 	state.setup(config)
 	commands.register()
+	-- Views register their autocmds on load, so they follow the review from the start.
+	require("vantage.review.ui.signs")
+	require("vantage.review.ui.thread")
+	require("vantage.review.ui.sidebar")
+	require("vantage.review.ui.reload")
+	require("vantage.tours")
 end
 
 function M.set_lens(mode, text)
@@ -26,126 +62,210 @@ function M.prompt_lens(mode)
 	commands.prompt_lens(mode)
 end
 
+---`:VantageAsk`. A question thread on the range, visual selection or cursor
+---line; `opts.workspace = true` asks about the workspace as a whole.
+---`opts.args` is the inline question; without it the prompt float opens.
+function M.ask(opts)
+	commands.ask(opts or {})
+end
+
+---`:VantageExplain`. A preset question: explain the scoped lines.
 function M.explain(opts)
 	commands.explain(opts or {})
 end
 
-function M.question(opts)
-	commands.question(opts or {})
+---`:VantageRequest`. Queues a change request; nothing reaches the agent until
+---the round is sent.
+function M.request(opts)
+	commands.request(opts or {})
 end
 
-function M.edit(opts)
-	commands.edit(opts or {})
+---`:VantageRequestNow`. A change request sent at once as its own round.
+function M.request_now(opts)
+	commands.request_now(opts or {})
 end
 
-function M.annotate(opts)
-	commands.annotate(opts or {})
+---`:VantageSendRound`. Sends every pending change request in one message.
+function M.send_round()
+	commands.send_round()
 end
 
-function M.clear_annotations()
-	commands.clear_annotations()
+---`:VantageRecallRound`. Pulls sent requests back to pending before the agent starts them.
+function M.recall_round()
+	commands.recall_round()
 end
 
-function M.load_walkthrough()
-	commands.load_walkthrough()
+---`:VantageReply`. Follows up on the thread at the cursor (`opts.thread_id`
+---names one), or edits it while it is still pending.
+function M.reply(opts)
+	commands.reply(opts or {})
 end
 
----Opens the adjacent agent's last-turn doc (`last_turn.path`, default
----`.vantage/last-turn.md`) as an editable buffer that reloads on agent writes.
----@return integer? bufnr nil when the doc does not exist yet
-function M.open_last_turn()
-	return commands.open_last_turn()
+---Edits a pending change request's text.
+---@param id string
+function M.edit_request(id)
+	commands.edit_request(id)
 end
 
-function M.search(opts)
-	commands.search(opts or {})
+---Deletes a pending change request.
+---@param id string
+function M.delete_request(id)
+	commands.delete_request(id)
 end
 
-function M.generate_walkthrough(opts)
-	commands.generate_walkthrough(opts or {})
-end
-
-function M.generate_diff_tour(opts)
-	commands.generate_diff_tour(opts or {})
-end
-
-function M.load_diff_tour()
-	commands.load_diff_tour()
-end
-
-function M.diff_tour_next()
-	commands.diff_tour_next()
-end
-
-function M.diff_tour_prev()
-	commands.diff_tour_prev()
-end
-
-function M.clear_diff_tour()
-	commands.clear_diff_tour()
-end
-
+---`:VantageCancel`. Withdraws the thread's request, or tells the agent to stop
+---if it already started. Never aborts the agent's turn.
 function M.cancel(opts)
 	commands.cancel(opts or {})
 end
 
-function M.agent_reset(opts)
-	commands.reset_agent_session(opts or {})
+---`:VantageResolve`. Toggles resolved: resolved threads hide their signs.
+function M.resolve(opts)
+	commands.resolve(opts or {})
 end
 
+---`:VantageClearResolved`.
+function M.clear_resolved()
+	commands.clear_resolved()
+end
+
+---`:VantageThreadPeek`. A read-only float for the thread on the cursor line.
+function M.thread_peek()
+	commands.thread_peek()
+end
+
+---`:VantageThreadOpen`. Shows a thread in the bottom split.
+---@param id string?
+function M.thread_open(id)
+	commands.thread_open(id)
+end
+
+---`:VantageThreadNext` / `:VantageThreadPrev`. Moves between threads in this buffer.
+function M.thread_next()
+	commands.thread_next()
+end
+
+function M.thread_prev()
+	commands.thread_prev()
+end
+
+---`:VantageThreadQuickfix`. Loads a thread's answer locations into quickfix.
+---@param id string?
+function M.thread_refs_to_quickfix(id)
+	commands.thread_refs_to_quickfix(id)
+end
+
+---Every thread as a flat entry list for a picker of your choice.
+---@param filter { status?: string, kind?: string, resolved?: boolean, path?: string }?
+---@return VantageThreadEntry[]
+function M.threads(filter)
+	return require("vantage.review").threads(filter)
+end
+
+---`:VantageThreads`. Picks a thread through vim.ui.select.
+function M.pick_thread()
+	commands.pick_thread()
+end
+
+---`:VantageSidebar`. Toggles the review sidebar; returns whether it is open.
+---@return boolean
+function M.sidebar()
+	return commands.sidebar()
+end
+
+---`:VantageWalkthrough`. Asks the agent for a walkthrough, starting from the
+---selected lines when there are any.
+function M.walkthrough(opts)
+	commands.walkthrough(opts or {})
+end
+
+---`:VantageDiffTour [base [target]] -- [prompt]`. `opts.base`, `opts.target`
+---and `opts.prompt` from Lua.
+function M.diff_tour(opts)
+	commands.diff_tour(opts or {})
+end
+
+---`:VantageTourNext` / `:VantageTourPrev` / `:VantageTourClear`.
+function M.tour_next()
+	commands.tour_next()
+end
+
+function M.tour_prev()
+	commands.tour_prev()
+end
+
+function M.tour_clear()
+	commands.tour_clear()
+end
+
+---`:VantageReviewBase [ref [target]]`. `opts = { ref?, target? }`; the default
+---ref is the default branch, the default target the working tree.
+function M.set_review_base(opts)
+	commands.set_review_base(opts or {})
+end
+
+---`:VantageReviewBaseClear`.
+function M.clear_review_base()
+	commands.clear_review_base()
+end
+
+---`:VantageReviewFiles`. Picks a file changed against the base and opens it.
+function M.review_files()
+	commands.review_files()
+end
+
+---`:VantageAnnotate [scope] [max]`.
+function M.annotate(opts)
+	commands.annotate(opts or {})
+end
+
+---`:VantageAnnotationClear`.
+function M.clear_annotations()
+	commands.clear_annotations()
+end
+
+---`:VantageConnect`. Finds the agent again, asking which when several run.
+function M.connect()
+	commands.connect()
+end
+
+---`:VantageStatus`.
 function M.status()
 	commands.show_status()
 end
 
-function M.session_output()
-	commands.session_output()
+---One line for a status line, empty before the first connection.
+---@return string
+function M.statusline()
+	return commands.statusline()
 end
 
-function M.debug_log()
-	commands.debug_log()
-end
-
-function M.model(name)
-	commands.select_model(name)
-end
-
-function M.select_model(name)
-	commands.select_model(name)
-end
-
-function M.output_to_buffer(split_mode)
-	commands.output_to_buffer(split_mode)
-end
-
+---`:VantageHealth`, the same as `:checkhealth vantage`.
 function M.health()
 	commands.health()
 end
 
----Opens or focuses the composition buffer: a persistent markdown split you
----accumulate entries into, then send once with `compose_send`.
+---`:VantageDebugLog`. Shows the socket frames logged to `debug.log_path`.
+function M.debug_log()
+	commands.debug_log()
+end
+
+---`:VantageCompose`. Toggles the composition buffer.
 function M.compose()
 	commands.compose()
 end
 
----Sends the staged composition through `composition.on_send`, or through
----Vantage's own question flow when no `on_send` is configured. Clears and closes
----per `composition.clear_on_send` / `close_on_send`; a failed send leaves the
----content staged.
+---`:VantageComposeSend`. Sends the staged text as a workspace thread: a
+---question or a change request, chosen when sending.
 function M.compose_send()
 	return commands.compose_send()
 end
 
----Empties the composition buffer without destroying it.
+---`:VantageComposeClear`.
 function M.compose_clear()
 	commands.compose_clear()
 end
 
----Appends an entry to the composition buffer, creating and showing it if needed.
----Separation between entries is handled here rather than by callers: pass
----`opts.separation = "blank"` for blank-line separation instead of a `---` rule.
----@param text string
----@param opts { separation?: "rule"|"blank" }?
----@return boolean appended false when `text` is nil or blank
 function M.compose_append(text, opts)
 	return require("vantage.composition").append(text, opts)
 end
@@ -163,15 +283,14 @@ end
 ---Opens Vantage's floating prompt buffer to collect multi-line input, without
 ---issuing a request of its own. Intended for integrations that compose their
 ---own prompt text and then either dispatch it through another Vantage function
----(`vantage.question({ args = text })`) or use it however they like.
+---(`vantage.ask({ args = text })`) or use it however they like.
 ---
----The submitted text has `@path` / `/skill` references expanded, resolved
----against `opts.params.workspaceRoot` -- pass `params` (e.g. from
----`require("vantage.context").scoped({})`) if you want that resolution.
+---The submitted text is returned as typed; `@path` and `/skill` references are
+---left for the agent to resolve. `opts.params.workspaceRoot` scopes history.
 ---`opts.title` renders a centered caption on the float's border, so a caller
 ---driving several distinct flows through this one surface can label them.
 ---`on_submit` is not called when the prompt is cancelled.
----@param opts { on_submit: fun(text: string, runtime: string), kind?: string, title?: string, params?: table, runtime?: string, show_runtime_toggle?: boolean }
+---@param opts { on_submit: fun(text: string), kind?: string, title?: string, params?: table }
 ---@return integer buf
 ---@return integer win
 function M.prompt(opts)

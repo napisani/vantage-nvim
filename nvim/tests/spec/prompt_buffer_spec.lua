@@ -10,13 +10,12 @@ local temp_workspace = helpers.temp_workspace
 local writefile = helpers.writefile
 local submit_prompt_buffer = helpers.submit_prompt_buffer
 local prompt_buffer_mapped = helpers.prompt_buffer_mapped
-local toggle_prompt_buffer_runtime = helpers.toggle_prompt_buffer_runtime
 local prompt_buffer_footer_text = helpers.prompt_buffer_footer_text
-local capture_backend_request = helpers.capture_backend_request
+local capture_actions = helpers.capture_actions
 
 test("prompt entry points skip Markdown document setup and publish metadata before FileType", function()
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
 	local markdown_setups = 0
@@ -36,7 +35,7 @@ test("prompt entry points skip Markdown document setup and publish metadata befo
 		end,
 	})
 	local ok, err = pcall(function()
-		for _, method in ipairs({ "question", "edit", "prompt" }) do
+		for _, method in ipairs({ "ask", "request", "prompt" }) do
 			if method == "prompt" then
 				vantage.prompt({ kind = "composition-entry", params = { workspaceRoot = "/workspace" } })
 			else
@@ -57,14 +56,14 @@ test("prompt entry points skip Markdown document setup and publish metadata befo
 		assert(type(setup.root) == "string")
 	end
 	eq(prompt_setups[1].kind, "question")
-	eq(prompt_setups[2].kind, "edit")
+	eq(prompt_setups[2].kind, "change")
 	eq(prompt_setups[3].kind, "composition-entry")
 	eq(prompt_setups[3].root, "/workspace")
 end)
 
 test("prompt syntax highlights references without loading embedded document languages", function()
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 	local buf, win = vantage.prompt({})
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "@lua/x.lua /review /skill:review", "# Heading", "`code`" })
@@ -83,97 +82,21 @@ test("prompt syntax highlights references without loading embedded document lang
 	vim.api.nvim_win_close(win, true)
 end)
 
-test("VantageQuestion prompt buffer footer defaults to the checked agent runtime with keybind hints", function()
+test("the prompt footer shows the submit key, and nothing when hints are off", function()
 	local vantage = require("vantage")
-
-	capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
+	capture_actions(function()
+		vantage.setup({})
 		lua_buffer({ "local a = 1" })
+		vim.cmd("VantageAsk")
+		eq(prompt_buffer_footer_text(), " submit <CR> ")
+		submit_prompt_buffer("what is a?")
 
-		vim.cmd("VantageQuestion")
-		eq(prompt_buffer_footer_text(), " [x] agent <C-r>  submit <CR> ")
+		vantage.setup({ ui = { keybind_hints = false } })
+		vim.cmd("VantageAsk")
+		eq(prompt_buffer_footer_text(), nil)
 		submit_prompt_buffer("what is a?")
 	end)
-end)
-
-test("VantageQuestion prompt buffer footer starts unchecked with runtime=completion", function()
-	local vantage = require("vantage")
-
-	capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
-		lua_buffer({ "local a = 1" })
-
-		vim.cmd("VantageQuestion runtime=completion")
-		eq(prompt_buffer_footer_text(), " [ ] agent <C-r>  submit <CR> ")
-		submit_prompt_buffer("what is a?")
-	end)
-end)
-
-test("VantageQuestion prompt buffer toggle_runtime keymap flips the runtime sent to the backend", function()
-	local vantage = require("vantage")
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
-		lua_buffer({ "local a = 1" })
-
-		vim.cmd("VantageQuestion")
-		eq(prompt_buffer_footer_text(), " [x] agent <C-r>  submit <CR> ")
-		toggle_prompt_buffer_runtime()
-		eq(prompt_buffer_footer_text(), " [ ] agent <C-r>  submit <CR> ")
-		submit_prompt_buffer("what is a?")
-	end)
-
-	eq(captured.params.runtime, "completion")
-end)
-
-test("VantageQuestion prompt buffer toggle_runtime keymap is configurable", function()
-	local vantage = require("vantage")
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.setup({
-			backend = { mode = "development" },
-			ui = { prompt = { keymaps = { toggle_runtime = "<C-t>" } } },
-		})
-		lua_buffer({ "local a = 1" })
-
-		vim.cmd("VantageQuestion")
-		local ui = require("vantage.ui")
-		local win = ui.last_float_win()
-		vim.api.nvim_set_current_win(win)
-		vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-t>", true, false, true), "x", false)
-		eq(prompt_buffer_footer_text(), " [ ] agent <C-t>  submit <CR> ")
-		submit_prompt_buffer("what is a?")
-	end)
-
-	eq(captured.params.runtime, "completion")
-end)
-
-test("VantageQuestion prompt buffer footer hides keybinds when ui.keybind_hints is false", function()
-	local vantage = require("vantage")
-
-	capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.setup({ backend = { mode = "development" }, ui = { keybind_hints = false } })
-		lua_buffer({ "local a = 1" })
-
-		vim.cmd("VantageQuestion")
-		eq(prompt_buffer_footer_text(), " [x] agent ")
-		submit_prompt_buffer("what is a?")
-	end)
+	vantage.setup({})
 end)
 
 test("vantage.format_reference emits the @ref syntax the prompt buffer parses", function()
@@ -191,40 +114,32 @@ test("vantage.format_reference emits the @ref syntax the prompt buffer parses", 
 	eq(vantage.format_reference(nil), nil)
 end)
 
-test("vantage.prompt collects multi-line input and expands references", function()
+test("vantage.prompt collects multi-line input and leaves references for the agent", function()
 	local vantage = require("vantage")
 	local root = temp_workspace()
 	writefile(root .. "/target.lua", "return 1\n")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
-	local submitted, submitted_runtime
+	local submitted
 	vantage.prompt({
 		kind = "memo",
 		params = { workspaceRoot = root },
-		on_submit = function(text, runtime)
+		on_submit = function(text)
 			submitted = text
-			submitted_runtime = runtime
 		end,
 	})
 
-	submit_prompt_buffer("look at @target.lua\nsecond line")
-
-	assert(submitted, "expected on_submit to receive the prompt text")
-	assert(submitted:match("look at @target.lua"), submitted)
-	assert(submitted:match("second line"), submitted)
-	-- Reference expansion resolved the @ref against params.workspaceRoot.
-	assert(submitted:match("## Vantage Prompt References"), submitted)
-	assert(submitted:match("target%.lua"), submitted)
-	eq(submitted_runtime, "agent")
+	submit_prompt_buffer("look at @target.lua with /skill:tdd\nsecond line")
+	eq(submitted, "look at @target.lua with /skill:tdd\nsecond line")
 end)
 
 test("vantage.prompt does not invoke on_submit when cancelled", function()
 	local vantage = require("vantage")
 	local ui = require("vantage.ui")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
 	local called = false
@@ -242,33 +157,11 @@ test("vantage.prompt does not invoke on_submit when cancelled", function()
 	assert(not called, "expected on_submit not to run on cancel")
 end)
 
-test("vantage.prompt can show the runtime toggle and report the chosen runtime", function()
-	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" } })
-	lua_buffer({ "local a = 1" })
-
-	local submitted_runtime
-	vantage.prompt({
-		runtime = "agent",
-		show_runtime_toggle = true,
-		on_submit = function(_, runtime)
-			submitted_runtime = runtime
-		end,
-	})
-
-	eq(prompt_buffer_footer_text(), " [x] agent <C-r>  submit <CR> ")
-	toggle_prompt_buffer_runtime()
-	submit_prompt_buffer("compose this")
-
-	eq(submitted_runtime, "completion")
-end)
-
 test("vantage.prompt renders an optional title on the float border", function()
 	local vantage = require("vantage")
 	local ui = require("vantage.ui")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
 	vantage.prompt({ title = "Instruction", on_submit = function() end })
@@ -285,10 +178,10 @@ test("Prompt buffer scopes cancel/close to normal mode so insert-mode <Esc> is n
 	local vantage = require("vantage")
 	local ui = require("vantage.ui")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
-	vim.cmd("VantageQuestion")
+	vim.cmd("VantageAsk")
 	local buf = ui.last_float_buf()
 
 	-- The bug: <Esc> was bound in insert mode too, so it closed the float
@@ -311,10 +204,10 @@ test("Prompt buffer cancels on <Esc> from normal mode", function()
 	local vantage = require("vantage")
 	local ui = require("vantage.ui")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
-	vim.cmd("VantageQuestion")
+	vim.cmd("VantageAsk")
 	local win = ui.last_float_win()
 	vim.api.nvim_set_current_win(win)
 
@@ -327,10 +220,10 @@ test("Prompt buffer aborts with q in normal mode", function()
 	local vantage = require("vantage")
 	local ui = require("vantage.ui")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "local a = 1" })
 
-	vim.cmd("VantageQuestion")
+	vim.cmd("VantageAsk")
 	local win = ui.last_float_win()
 	vim.api.nvim_set_current_win(win)
 
@@ -344,12 +237,11 @@ test("Prompt buffer close keymap is configurable", function()
 	local ui = require("vantage.ui")
 
 	vantage.setup({
-		backend = { mode = "development" },
 		ui = { prompt = { keymaps = { close = "Q" } } },
 	})
 	lua_buffer({ "local a = 1" })
 
-	vim.cmd("VantageQuestion")
+	vim.cmd("VantageAsk")
 	local win = ui.last_float_win()
 	local buf = ui.last_float_buf()
 	assert(prompt_buffer_mapped(buf, "n", "Q"), "expected the configured close key to be mapped")
@@ -361,60 +253,3 @@ test("Prompt buffer close keymap is configurable", function()
 	assert(not vim.api.nvim_win_is_valid(win), "expected the configured close key to abort the prompt")
 end)
 
-test("VantageEdit prompt buffer offers the runtime toggle", function()
-	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" } })
-	lua_buffer({ "local a = 1" })
-
-	vim.cmd("VantageEdit")
-	-- Edit accepts a runtime now, so it gets the same switch question has.
-	eq(prompt_buffer_footer_text(), " [x] agent <C-r>  submit <CR> ")
-	local ui = require("vantage.ui")
-	vim.api.nvim_win_close(ui.last_float_win(), true)
-end)
-
-test("VantageEdit prompt buffer reflects a configured completion runtime", function()
-	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" }, commands = { edit = { runtime = "completion" } } })
-	lua_buffer({ "local a = 1" })
-
-	vim.cmd("VantageEdit")
-	eq(prompt_buffer_footer_text(), " [ ] agent <C-r>  submit <CR> ")
-	local ui = require("vantage.ui")
-	vim.api.nvim_win_close(ui.last_float_win(), true)
-end)
-
-test("VantageEdit prompt buffer keeps the runtime checkbox when hints are off", function()
-	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" }, ui = { keybind_hints = false } })
-	lua_buffer({ "local a = 1" })
-
-	vim.cmd("VantageEdit")
-	-- A checkbox carries state, not just a hint, so it survives keybind_hints
-	-- being off -- only its key is dropped. Same rule as question.
-	eq(prompt_buffer_footer_text(), " [x] agent ")
-	local ui = require("vantage.ui")
-	vim.api.nvim_win_close(ui.last_float_win(), true)
-end)
-
-test("VantageEdit prompt buffer binds the runtime toggle key", function()
-	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" } })
-	lua_buffer({ "local a = 1" })
-
-	vim.cmd("VantageEdit")
-	local buf = vim.api.nvim_get_current_buf()
-	local found = false
-	for _, map in ipairs(vim.api.nvim_buf_get_keymap(buf, "n")) do
-		if (map.desc or ""):match("Toggle Vantage prompt runtime") then
-			found = true
-		end
-	end
-	assert(found, "expected the runtime toggle to be bound in the edit prompt buffer")
-	local ui = require("vantage.ui")
-	vim.api.nvim_win_close(ui.last_float_win(), true)
-end)

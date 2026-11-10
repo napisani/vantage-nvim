@@ -85,14 +85,6 @@ local function prompt_buffer_mapped(buf, mode, lhs)
 	return false
 end
 
-local function toggle_prompt_buffer_runtime()
-	local ui = require("vantage.ui")
-	local win = ui.last_float_win()
-	assert(win and vim.api.nvim_win_is_valid(win), "expected Vantage prompt window")
-	vim.api.nvim_set_current_win(win)
-	vim.api.nvim_feedkeys(vim.api.nvim_replace_termcodes("<C-r>", true, false, true), "x", false)
-end
-
 local function prompt_buffer_footer_text()
 	local ui = require("vantage.ui")
 	local win = ui.last_float_win()
@@ -116,23 +108,23 @@ local function capture_notifications(run)
 	return notifications
 end
 
-local function capture_backend_request(response, run)
-	local backend = require("vantage.backend")
-	local original_request = backend.request
+-- Captures every action the review core would send, acking each with `ack`
+-- (or `ack(action)`), so command specs run without an agent.
+local function capture_actions(run, ack)
+	local core = require("vantage.review.core")
+	local original = core.send
 	local captured = {}
 	local ok, err = pcall(function()
-		backend.request = function(method, params, callback)
-			captured.method = method
-			captured.params = params
-			if response and callback then
-				callback(response)
+		core.send = function(action, cb)
+			table.insert(captured, action)
+			if cb then
+				local reply = type(ack) == "function" and ack(action) or ack or {}
+				cb(nil, reply)
 			end
-			return "captured-request"
 		end
 		run(captured)
 	end)
-
-	backend.request = original_request
+	core.send = original
 	assert(ok, err)
 	return captured
 end
@@ -172,10 +164,9 @@ return {
 	last_float_text = last_float_text,
 	submit_prompt_buffer = submit_prompt_buffer,
 	prompt_buffer_mapped = prompt_buffer_mapped,
-	toggle_prompt_buffer_runtime = toggle_prompt_buffer_runtime,
 	prompt_buffer_footer_text = prompt_buffer_footer_text,
 	capture_notifications = capture_notifications,
-	capture_backend_request = capture_backend_request,
+	capture_actions = capture_actions,
 	with_ui_input = with_ui_input,
 	with_fn_input = with_fn_input,
 }

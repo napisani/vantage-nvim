@@ -27,6 +27,23 @@ local function read_log(path)
 	return data, nil
 end
 
+---Appends one socket frame to the debug log when `debug.log_path` is set.
+---@param direction "out"|"in"
+---@param line string the raw JSON line
+function M.frame(direction, line)
+	local path = log_path()
+	if not path then
+		return
+	end
+	local entry = vim.json.encode({ at = os.date("!%Y-%m-%dT%H:%M:%SZ"), direction = direction, frame = line:gsub("\n$", "") }) .. "\n"
+	-- 0600: frames carry code excerpts and conversation text.
+	local fd = vim.uv.fs_open(path, "a", 384)
+	if fd then
+		vim.uv.fs_write(fd, entry)
+		vim.uv.fs_close(fd)
+	end
+end
+
 function M.open()
 	local path = log_path()
 	if not path then

@@ -1,29 +1,34 @@
--- user-command registration
+-- user-command registration and the Lua API rule
 --
 -- Registers into the shared harness; run via nvim/tests/vantage_spec.lua.
 local test = require("support.harness").test
-local helpers = require("support.helpers")
 
-
-test("registers unified explain command without selection or line variants", function()
+test("every command name is registered", function()
 	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" } })
-
-	assert(vim.fn.exists(":VantageExplain") == 2, "expected VantageExplain command")
-	assert(vim.fn.exists(":VantageQuestion") == 2, "expected VantageQuestion command")
-	assert(vim.fn.exists(":VantageEdit") == 2, "expected VantageEdit command")
-	assert(vim.fn.exists(":VantageSessionOutput") == 2, "expected VantageSessionOutput command")
-	assert(vim.fn.exists(":VantageExplainSelection") == 0, "expected old selection command to be removed")
-	assert(vim.fn.exists(":VantageExplainLine") == 0, "expected old line command to be removed")
+	vantage.setup({})
+	for _, name in ipairs(vantage.CommandNames.all) do
+		assert(vim.fn.exists(":" .. name) == 2, "expected :" .. name)
+	end
 end)
 
-test("registers explicit annotation commands without toggle command", function()
+test("commands of the model-running Vantage are gone", function()
+	require("vantage").setup({})
+	for _, name in ipairs({ "VantageQuestion", "VantageEdit", "VantageSearch", "VantageSessionOutput", "VantageAgentReset", "VantageLastTurn", "VantageGenerateWalkthrough", "VantageLoadDiffTour", "VantageModel" }) do
+		assert(vim.fn.exists(":" .. name) == 0, "expected :" .. name .. " to be removed")
+	end
+end)
+
+test("every command has a public Lua function", function()
 	local vantage = require("vantage")
-
-	vantage.setup({ backend = { mode = "development" } })
-
-	assert(vim.fn.exists(":VantageAnnotate") == 2, "expected VantageAnnotate command")
-	assert(vim.fn.exists(":VantageAnnotationClear") == 2, "expected VantageAnnotationClear command")
-	assert(vim.fn.exists(":VantageToggleAnnotations") == 0, "expected old toggle command to be removed")
+	local functions = {
+		"set_lens", "clear_lens", "ask", "explain", "request", "request_now", "send_round", "recall_round", "reply", "cancel",
+		"resolve", "clear_resolved", "thread_peek", "thread_open", "thread_next", "thread_prev", "thread_refs_to_quickfix",
+		"pick_thread", "sidebar", "walkthrough", "diff_tour", "tour_next", "tour_prev", "tour_clear", "set_review_base",
+		"clear_review_base", "review_files", "annotate", "clear_annotations", "connect", "status", "health", "debug_log",
+		"compose", "compose_send", "compose_clear", "history_pick", "history_clear_workspace", "history_clear_all", "monitor",
+	}
+	for _, name in ipairs(functions) do
+		assert(type(vantage[name]) == "function", "expected vantage." .. name)
+	end
+	assert(#functions == #vantage.CommandNames.all, "one function per command")
 end)

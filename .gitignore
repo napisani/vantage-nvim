@@ -1,7 +1,5 @@
 out
 node_modules/
-server/node_modules
-server/out
 *.tsbuildinfo
 .nvim-dev/
 .plugin-dist/
@@ -9,7 +7,3 @@ server/out
 .worktrees/
 .understand-anything/
 auth.json
-.vantage/agent-context.md
-.vantage/walkthrough.json
-.vantage/diff-tour.json
-.vantage/last-turn*.md

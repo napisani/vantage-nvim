@@ -7,12 +7,12 @@ local helpers = require("support.helpers")
 local eq = helpers.eq
 local fresh_buffer = helpers.fresh_buffer
 local lua_buffer = helpers.lua_buffer
-local capture_backend_request = helpers.capture_backend_request
+local capture_actions = helpers.capture_actions
 
 test("context captures visible buffer text", function()
 	local vantage = require("vantage")
 	local context = require("vantage.context")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 
 	fresh_buffer()
 	vim.bo.filetype = "lua"
@@ -33,7 +33,7 @@ end)
 test("context uses absolute file path for relative buffer name", function()
 	local vantage = require("vantage")
 	local context = require("vantage.context")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 
 	fresh_buffer()
 	vim.api.nvim_buf_set_name(0, "nvim/tests/relative-context.lua")
@@ -107,7 +107,7 @@ end)
 test("context.selected_range prefers an explicit command range over a live selection", function()
 	local context = require("vantage.context")
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "l1", "l2", "l3", "l4", "l5" })
 	vim.api.nvim_win_set_cursor(0, { 1, 0 })
 
@@ -122,7 +122,7 @@ end)
 test("context.scoped falls back to the cursor line with no range and no selection", function()
 	local context = require("vantage.context")
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "l1", "l2", "l3" })
 	vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
@@ -135,15 +135,12 @@ end)
 test("vantage.explain called from a visual-mode Lua keymap sends the selection", function()
 	local vantage = require("vantage")
 
-	-- The bug this fixes: a keymap bound to a plain Lua function never commits
-	-- '< / '>, so opts.range is absent and every command silently degraded to
-	-- the cursor line instead of the user's selection.
-	local captured = capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "Selection explanation" },
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
+	-- A keymap bound to a plain Lua function never commits '< / '>, so opts.range
+	-- is absent; the live selection must still scope the request.
+	local captured = capture_actions(function()
+		vantage.setup({})
 		lua_buffer({ "local a = 1", "local b = 2", "local c = 3", "return c" })
+		vim.api.nvim_buf_set_name(0, vim.fn.getcwd() .. "/nvim/tests/explain-selection.lua")
 		vim.api.nvim_win_set_cursor(0, { 2, 0 })
 
 		vim.cmd("normal! vj")
@@ -151,16 +148,19 @@ test("vantage.explain called from a visual-mode Lua keymap sends the selection",
 		vim.cmd("normal! \27")
 	end)
 
-	eq(captured.method, "explainSelection")
-	eq(captured.params.text, "local b = 2\nlocal c = 3")
-	eq(captured.params.range.startLine, 2)
-	eq(captured.params.range.endLine, 3)
+	eq(captured[1].type, "ask")
+	eq(captured[1].preset, "explain")
+	eq(captured[1].anchor.text, "local b = 2\nlocal c = 3")
+	eq(captured[1].anchor.startLine, 2)
+	eq(captured[1].anchor.endLine, 3)
+	eq(captured[1].anchor.side, "current")
+	assert(captured[1].anchor.path:match("nvim/tests/explain%-selection%.lua$"), captured[1].anchor.path)
 end)
 
 test("vantage.context captures a live visual selection", function()
 	local vantage = require("vantage")
 
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	lua_buffer({ "l1", "l2", "l3", "l4" })
 	vim.api.nvim_win_set_cursor(0, { 2, 0 })
 

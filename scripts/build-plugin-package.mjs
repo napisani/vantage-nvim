@@ -9,15 +9,13 @@ const requiredDirectories = [
 	['plugin', 'plugin'],
 	['lua', 'lua'],
 	['syntax', 'syntax'],
-	['server/src', 'server/src', backendSourceFilter],
+	['pi-vantage-nvim', 'pi-vantage-nvim', extensionSourceFilter],
 ];
 
 const requiredFiles = [
 	'README.md',
 	'package.json',
 	'package-lock.json',
-	'tsconfig.json',
-	'server/tsconfig.json',
 ];
 
 const optionalFiles = [
@@ -46,7 +44,7 @@ console.log(`Built plugin package at ${path.relative(root, output)}`);
 async function copyDirectory(sourceRelative, destinationRelative, filter) {
 	const source = path.join(root, sourceRelative);
 	const destination = path.join(output, destinationRelative);
-	await assertExists(source, `${sourceRelative} does not exist. Run npm run compile before packaging.`);
+	await assertExists(source, `${sourceRelative} does not exist.`);
 	await fs.mkdir(path.dirname(destination), { recursive: true });
 	await fs.cp(source, destination, { recursive: true, filter });
 }
@@ -74,6 +72,6 @@ async function exists(filePath) {
 	}
 }
 
-function backendSourceFilter(source) {
-	return !source.endsWith('.test.ts');
+function extensionSourceFilter(source) {
+	return !source.endsWith('.test.ts') && !source.includes(`${path.sep}test${path.sep}`) && !source.endsWith(`${path.sep}test`);
 }

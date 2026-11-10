@@ -1,11 +1,9 @@
+-- :VantageAnnotate: picks the scope and the annotation budget, asks the agent,
+-- and draws the blocks it returns. Results stay on screen only.
 local annotations = require("vantage.annotations")
-local backend = require("vantage.backend")
 local context = require("vantage.context")
-local response_util = require("vantage.response")
+local review = require("vantage.review")
 local state = require("vantage.state")
-local tracker = require("vantage.request_tracker")
-local ui = require("vantage.ui")
-local walkthrough = require("vantage.walkthrough")
 
 local M = {}
 
@@ -17,101 +15,22 @@ local BUFFER_ANNOTATION_PERCENT = 0.15
 local BUFFER_ANNOTATION_MIN = 3
 local BUFFER_ANNOTATION_MAX = 24
 
-local function annotation_count(value)
-	if type(value) == "table" then
-		return #value
-	end
-	return 0
-end
+-- The annotate request in flight, if any: { annotate_id, bufnr, timer, started }.
+local inflight = nil
+local last_status = nil
 
-local function annotation_agent()
-	local backend_config = state.config.backend or {}
-	local mode = backend_config.mode or "stdio"
-	if mode == "development" then
-		return {
-			name = "development",
-			label = "development",
-		}
-	end
-
-	local agent_config = state.config.agent or {}
-	local provider = agent_config.provider or "openai"
-	local model = agent_config.model or "gpt-4o-mini"
-	local label = provider .. "/" .. model
-
-	return {
-		name = "pi",
-		label = label,
-	}
-end
-
-local function waiting_message_ms()
-	local commands = state.config.commands or {}
-	local config = commands.annotate or {}
-	local value = config.waiting_message_ms
-	if type(value) == "number" and value >= 0 then
-		return value
-	end
-	return 30000
-end
-
-local function annotation_request_timeout_ms()
-	local commands = state.config.commands or {}
-	local annotate = commands.annotate or {}
-	local options = annotate.options or {}
-	local value = options.timeoutMs
+local function timeout_ms()
+	local value = (state.config.review or {}).annotate_timeout_ms
 	if type(value) == "number" and value > 0 then
 		return value
 	end
 	return 300000
 end
 
-local function format_elapsed(seconds)
-	if seconds < 10 then
-		return string.format("%.1fs", seconds)
-	end
-	return tostring(math.floor(seconds + 0.5)) .. "s"
-end
-
-local function telemetry_suffix(result)
-	local telemetry = result and result.telemetry
-	if type(telemetry) ~= "table" then
-		return ""
-	end
-
-	local details = {}
-	if type(telemetry.totalDurationMs) == "number" then
-		table.insert(details, "runtime " .. format_elapsed(telemetry.totalDurationMs / 1000))
-	end
-	if type(telemetry.promptEvalCount) == "number" then
-		table.insert(details, "prompt tokens " .. tostring(telemetry.promptEvalCount))
-	end
-	if type(telemetry.evalCount) == "number" then
-		table.insert(details, "output tokens " .. tostring(telemetry.evalCount))
-	end
-	if type(telemetry.promptChars) == "number" then
-		table.insert(details, "prompt chars " .. tostring(telemetry.promptChars))
-	end
-
-	if #details == 0 then
-		return ""
-	end
-	return " (" .. table.concat(details, ", ") .. ")"
-end
-
-local function no_annotations_markdown()
-	return table.concat({
-		"## No annotations",
-		"",
-		"The agent runtime did not return visible annotations for this window.",
-	}, "\n")
-end
-
 local function split_lines(text)
 	if text == "" then
 		return { "" }
 	end
-
 	local lines = {}
 	for line in (text .. "\n"):gmatch("(.-)\n") do
 		table.insert(lines, line)
@@ -119,16 +38,8 @@ local function split_lines(text)
 	return lines
 end
 
-local function line_count(text)
-	return #split_lines(text or "")
-end
-
-local function trim_start(text)
-	return (text or ""):gsub("^%s+", "")
-end
-
 local function is_annotation_candidate(line)
-	local trimmed = trim_start(line)
+	local trimmed = (line or ""):gsub("^%s+", "")
 	return trimmed ~= ""
 		and not vim.startswith(trimmed, "--")
 		and not vim.startswith(trimmed, "//")
@@ -137,17 +48,14 @@ local function is_annotation_candidate(line)
 		and not vim.startswith(trimmed, "*")
 end
 
-local function annotation_candidate_lines(params)
-	local lines = split_lines(params.text or "")
+local function candidate_lines(params)
 	local candidates = {}
 	local base_line = params.range and params.range.startLine or params.visibleRange and params.visibleRange.startLine or 1
-
-	for index, line in ipairs(lines) do
-		if line and is_annotation_candidate(line) then
+	for index, line in ipairs(split_lines(params.text or "")) do
+		if is_annotation_candidate(line) then
 			table.insert(candidates, { line = base_line + index - 1, text = line })
 		end
 	end
-
 	return candidates
 end
 
@@ -159,14 +67,9 @@ local function parse_positive_integer(text)
 	return nil
 end
 
-local function parse_annotation_options(opts)
-	local args = opts and opts.fargs or {}
-	local parsed = {
-		scope = nil,
-		max_annotations = nil,
-	}
-
-	for _, arg in ipairs(args) do
+local function parse_options(opts)
+	local parsed = { scope = nil, max_annotations = nil }
+	for _, arg in ipairs(opts and opts.fargs or {}) do
 		local max_annotations = parse_positive_integer(arg)
 		if max_annotations then
 			parsed.max_annotations = max_annotations
@@ -176,178 +79,163 @@ local function parse_annotation_options(opts)
 			return nil, 'unsupported annotation option "' .. tostring(arg) .. '"'
 		end
 	end
-
 	return parsed, nil
 end
 
-local function annotation_context(opts, annotation_options)
-	if annotation_options.scope == "line" then
+local function scoped_context(opts, options)
+	if options.scope == "line" then
 		return context.current_line(), "line"
 	end
-
-	if annotation_options.scope == "visible" then
+	if options.scope == "visible" then
 		return context.visible(), "visible"
 	end
-
-	if annotation_options.scope == "buffer" then
+	if options.scope == "buffer" then
 		return context.buffer(), "buffer"
 	end
-
-	local selected_range = context.selected_range(opts)
-	if selected_range then
-		return selected_range, "range"
+	local selected = context.selected_range(opts)
+	if selected then
+		return selected, "range"
 	end
-
 	return context.current_line(), "line"
 end
 
-local function percentage_budget(candidate_count, percent, minimum, maximum)
-	local budget = math.ceil(math.max(0, candidate_count or 0) * percent)
+local function percentage_budget(count, percent, minimum, maximum)
+	local budget = math.ceil(math.max(0, count or 0) * percent)
 	return math.max(minimum, math.min(maximum, budget))
 end
 
-local function annotation_limit(annotation_options, scope_kind, candidate_count)
-	if annotation_options.max_annotations then
-		return annotation_options.max_annotations
+local function budget(options, scope, count)
+	if options.max_annotations then
+		return options.max_annotations
 	end
-	if scope_kind == "line" then
+	if scope == "line" then
 		return LINE_ANNOTATION_LIMIT
 	end
-	if scope_kind == "buffer" then
-		return percentage_budget(candidate_count, BUFFER_ANNOTATION_PERCENT, BUFFER_ANNOTATION_MIN, BUFFER_ANNOTATION_MAX)
+	if scope == "buffer" then
+		return percentage_budget(count, BUFFER_ANNOTATION_PERCENT, BUFFER_ANNOTATION_MIN, BUFFER_ANNOTATION_MAX)
 	end
-	return percentage_budget(candidate_count, SCOPE_ANNOTATION_PERCENT, SCOPE_ANNOTATION_MIN, SCOPE_ANNOTATION_MAX)
+	return percentage_budget(count, SCOPE_ANNOTATION_PERCENT, SCOPE_ANNOTATION_MIN, SCOPE_ANNOTATION_MAX)
+end
+
+---Ends the request in flight. `withdraw` asks the extension to drop it too, so a
+---cancelled or timed-out request does not still cost the agent a turn.
+local function finish(status, withdraw)
+	if inflight then
+		if inflight.timer then
+			inflight.timer:stop()
+			inflight.timer:close()
+		end
+		if withdraw and inflight.annotate_id then
+			review.cancel_annotate(inflight.annotate_id)
+		end
+	end
+	inflight = nil
+	last_status = status
+end
+
+local function elapsed(started)
+	return string.format("%.1fs", (vim.uv.now() - started) / 1000)
+end
+
+---The last annotate request's outcome, for :VantageStatus.
+---@return table? status { status, message }
+function M.status()
+	if inflight then
+		return { status = "waiting", message = "Waiting for annotations (" .. elapsed(inflight.started) .. ")." }
+	end
+	return last_status
+end
+
+---Abandons the annotate request in flight and withdraws it from the agent.
+---@return boolean cancelled
+function M.cancel()
+	if not inflight then
+		return false
+	end
+	finish({ status = "cancelled", message = "Annotation request cancelled." }, true)
+	return true
 end
 
 function M.clear()
-	tracker.cancel("Vantage: cancelled annotation request to")
-	walkthrough.disarm()
+	M.cancel()
+	require("vantage.walkthrough").disarm()
 	annotations.clear_all()
 	vim.notify("Vantage: cleared annotations", vim.log.levels.INFO)
 end
 
-function M.annotate(opts)
-	tracker.cancel("Vantage: cancelled annotation request to")
+local function on_result(bufnr, started, message)
+	if message.kind == "annotateFailed" then
+		finish({ status = "failed", message = message.reason })
+		vim.notify("Vantage: annotation failed: " .. tostring(message.reason), vim.log.levels.ERROR)
+		return
+	end
+	local blocks = {}
+	for _, block in ipairs(message.blocks or {}) do
+		table.insert(blocks, { range = { startLine = block.line, startCharacter = 1 }, text = block.text })
+	end
+	local count = vim.api.nvim_buf_is_valid(bufnr) and annotations.render(bufnr, blocks) or 0
+	local time = elapsed(started)
+	finish({ status = count > 0 and "rendered" or "no_visible_annotations", message = string.format("Rendered %d of %d annotations in %s.", count, #blocks, time) })
+	vim.notify(string.format("Vantage: rendered %d annotation%s in %s", count, count == 1 and "" or "s", time), count > 0 and vim.log.levels.INFO or vim.log.levels.WARN)
+end
 
-	local bufnr = vim.api.nvim_get_current_buf()
-	local annotation_options, parse_error = parse_annotation_options(opts)
-	if not annotation_options then
+function M.annotate(opts)
+	M.cancel()
+	local options, parse_error = parse_options(opts)
+	if not options then
 		vim.notify("Vantage: " .. parse_error, vim.log.levels.ERROR)
 		return
 	end
-	local params, scope_kind = annotation_context(opts, annotation_options)
-	params.scopeText = params.text
-	params.runtime = (opts and opts.runtime) or state.command_runtime("annotate")
-	local candidate_lines = annotation_candidate_lines(params)
-	params.maxAnnotations = annotation_limit(annotation_options, scope_kind, #candidate_lines)
-	if #candidate_lines > 0 and #candidate_lines <= params.maxAnnotations then
-		params.candidateLines = candidate_lines
+	local bufnr = vim.api.nvim_get_current_buf()
+	local params, scope = scoped_context(opts, options)
+	local path = require("vantage.paths").relative(params.workspaceRoot, params.filePath or "")
+	if not path then
+		vim.notify("Vantage: annotate needs a file inside the workspace", vim.log.levels.WARN)
+		return
 	end
-	local agent = annotation_agent()
-	local request_details = {
-		method = "annotateRange",
-		scope = annotation_options.scope or scope_kind,
-		scope_kind = scope_kind,
-		selected_line_count = line_count(params.scopeText or params.text or ""),
-		max_annotations = params.maxAnnotations,
-		candidate_line_count = #candidate_lines,
-		timeout_ms = annotation_request_timeout_ms(),
-		waiting_message_ms = waiting_message_ms(),
-		backend_mode = state.config.backend and state.config.backend.mode or "stdio",
-		file_path = params.filePath,
-		workspace_root = params.workspaceRoot,
+	local candidates = candidate_lines(params)
+	if #candidates == 0 then
+		vim.notify("Vantage: no code lines to annotate here", vim.log.levels.INFO)
+		return
+	end
+	local lens = state.get_lens()
+	local started = vim.uv.now()
+	local request = {
+		path = path,
+		scope = scope,
+		lines = candidates,
+		budget = budget(options, scope, #candidates),
+		lens = lens and lens.text or nil,
 	}
-	local token = tracker.begin(agent, request_details, { label = "annotations", waiting_message_ms = waiting_message_ms() })
-	tracker.schedule_timeout(token, annotation_request_timeout_ms(), function(status)
-		ui.show_markdown("## Error\n\n" .. status.error)
-	end)
-
-	local backend_id = backend.request("annotateRange", params, function(response)
-		local elapsed = tracker.complete(token)
-		if not elapsed then
-			return
-		end
-
-		if not response or not response.ok then
-			local error_message = response_util.error_message(response)
-			tracker.set_result_status({
-				status = "failed",
-				agent = agent.label,
-				elapsed = elapsed,
-				error = error_message,
-				message = "Annotation request failed after " .. elapsed .. ".",
-			})
-			vim.notify(
-				"Vantage: annotation request from " .. agent.label .. " failed after " .. elapsed,
-				vim.log.levels.ERROR
-			)
-			ui.show_markdown(response_util.error_markdown(response))
-			return
-		end
-
-		local returned_annotations = response.result.annotations or {}
-		local received_count = annotation_count(returned_annotations)
-		local count = annotations.render(bufnr, returned_annotations)
-		if count == 0 then
-			local skipped = math.max(0, received_count - count)
-			local message
-			if received_count == 0 then
-				message = "Agent runtime returned no annotations."
-			else
-				message = "Agent runtime returned "
-					.. tostring(received_count)
-					.. " annotation(s), but they were not visible in this buffer."
+	inflight = { bufnr = bufnr, started = started }
+	local mine = inflight
+	review.annotate(request, function(err, annotate_id)
+		if inflight ~= mine then
+			-- Cancelled before the extension acknowledged it: withdraw it now.
+			if annotate_id then
+				review.cancel_annotate(annotate_id)
 			end
-			tracker.set_result_status({
-				status = "no_visible_annotations",
-				agent = agent.label,
-				elapsed = elapsed,
-				received = received_count,
-				rendered = count,
-				skipped = skipped,
-				message = message,
-			})
-			vim.notify(
-				"Vantage: "
-					.. agent.label
-					.. " rendered 0 of "
-					.. tostring(received_count)
-					.. " returned annotations after "
-					.. elapsed,
-				vim.log.levels.WARN
-			)
-			ui.show_markdown(no_annotations_markdown())
 			return
 		end
-
-		local suffix = count == 1 and "" or "s"
-		tracker.set_result_status({
-			status = "rendered",
-			agent = agent.label,
-			elapsed = elapsed,
-			received = received_count,
-			rendered = count,
-			skipped = math.max(0, received_count - count),
-			message = "Rendered " .. tostring(count) .. " annotation" .. suffix .. ".",
-		})
-		vim.notify(
-			"Vantage: rendered "
-				.. tostring(count)
-				.. " annotation"
-				.. suffix
-				.. " from "
-				.. agent.label
-				.. " in "
-				.. elapsed
-				.. telemetry_suffix(response.result),
-			vim.log.levels.INFO
-		)
-	end, {
-		on_progress = function(progress)
-			tracker.push_progress(token, progress)
-		end,
-	})
-	tracker.set_backend_id(token, backend_id)
+		if err then
+			finish({ status = "failed", message = err })
+			vim.notify("Vantage: " .. err, vim.log.levels.ERROR)
+			return
+		end
+		mine.annotate_id = annotate_id
+		mine.timer = vim.uv.new_timer()
+		mine.timer:start(timeout_ms(), 0, vim.schedule_wrap(function()
+			if inflight == mine then
+				finish({ status = "timed_out", message = "No annotations after " .. elapsed(started) .. "." }, true)
+				vim.notify("Vantage: annotation request timed out", vim.log.levels.WARN)
+			end
+		end))
+		vim.notify(string.format("Vantage: asked the agent to annotate %d line%s (budget %d)", #candidates, #candidates == 1 and "" or "s", request.budget), vim.log.levels.INFO)
+	end, function(message)
+		if inflight == mine then
+			on_result(bufnr, started, message)
+		end
+	end)
 end
 
 return M

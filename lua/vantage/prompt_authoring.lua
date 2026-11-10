@@ -1,3 +1,5 @@
+-- Turns inline command text or the prompt float into the text sent to the
+-- agent. References like @path and /skill:name pass through as typed.
 local prompt_buffer = require("vantage.ui.prompt_buffer")
 
 local M = {}
@@ -14,6 +16,9 @@ function M.command_text(opts)
 	return text
 end
 
+---Uses the command's inline text when present, else opens the prompt float.
+---@param opts { kind: string, command_opts?: table, params?: table, title?: string, default?: string, on_submit: fun(text: string) }
+---@return boolean inline whether the inline text was used
 function M.resolve(opts)
 	opts = opts or {}
 	local text = M.command_text(opts.command_opts)
@@ -28,26 +33,24 @@ function M.resolve(opts)
 			workspaceRoot = (opts.params or {}).workspaceRoot,
 			filePath = (opts.params or {}).filePath,
 		})
-		opts.on_submit(text, opts.runtime)
+		opts.on_submit(text)
 		return true
 	end
 
-	prompt_buffer.open({
+	local _, win = prompt_buffer.open({
 		kind = opts.kind or "prompt",
 		params = opts.params or {},
-		runtime = opts.runtime,
-		show_runtime_toggle = opts.show_runtime_toggle,
-		on_submit = function(input, runtime)
+		title = opts.title,
+		on_submit = function(input)
 			local submitted = M.command_text({ args = input })
-			if not submitted then
-				if opts.empty_message then
-					vim.notify(opts.empty_message, vim.log.levels.WARN)
-				end
-				return
+			if submitted then
+				opts.on_submit(submitted)
 			end
-			opts.on_submit(submitted, runtime)
 		end,
 	})
+	if opts.default and opts.default ~= "" and win and vim.api.nvim_win_is_valid(win) then
+		vim.api.nvim_buf_set_lines(vim.api.nvim_win_get_buf(win), 0, -1, false, vim.split(opts.default, "\n", { plain = true }))
+	end
 	return false
 end
 

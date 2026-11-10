@@ -1,136 +1,63 @@
-local state = require("vantage.state")
-local agent_context = require("vantage.agent_context")
-
+-- :checkhealth vantage: Neovim, git, Diffview, and whether a Pi agent with
+-- pi-vantage-nvim answers for this workspace.
 local M = {}
 
-local function check_backend()
-	local backend_cfg = state.config.backend or {}
-
-	if backend_cfg.mode == "development" then
-		vim.health.ok("Backend mode: development (no external process required)")
-		return
-	end
-
-	if vim.fn.executable("node") == 1 then
-		vim.health.ok("node executable found on PATH")
+local function check_neovim()
+	if vim.fn.has("nvim-0.10") == 1 then
+		vim.health.ok("Neovim " .. tostring(vim.version()))
 	else
-		vim.health.error("node executable not found on PATH", "Install Node.js 22+ (required to run the Vantage backend).")
+		vim.health.error("Neovim 0.10 or newer is required")
 	end
-
-	local command = backend_cfg.command
-	if type(command) ~= "table" or #command == 0 then
-		vim.health.error("backend.command is not configured")
-		return
-	end
-
-	local server_path = command[#command]
-	if type(server_path) == "string" and vim.loop.fs_stat(server_path) then
-		vim.health.ok("Backend server script found: " .. server_path)
+	if vim.fn.executable("git") == 1 then
+		vim.health.ok("git found")
 	else
-		vim.health.error(
-			"Backend server script not found: " .. tostring(server_path),
-			"Run `npm ci --omit=dev && npm run compile` in the plugin directory."
+		vim.health.error("git not found on PATH", "Review bases and changed-file lists need git.")
+	end
+	if vim.fn.exists(":DiffviewOpen") == 2 or pcall(require, "diffview") then
+		vim.health.ok("Diffview available for diff tours and review files")
+	else
+		vim.health.info("Diffview not loaded; diff tours need diffview.nvim")
+	end
+end
+
+local function check_agent()
+	local paths = require("vantage.paths")
+	local protocol = require("vantage.review.protocol")
+	local root = paths.workspace_root()
+	vim.health.info("Workspace: " .. root)
+	vim.health.info("Socket directory: " .. protocol.socket_directory() .. " (prefix " .. protocol.workspace_prefix(root) .. ")")
+	local done, candidates, refused = false, {}, nil
+	require("vantage.review.client").discover(root, function(err, found)
+		candidates = found or {}
+		refused = err
+		done = true
+	end)
+	vim.wait(3000, function()
+		return done
+	end, 20)
+	if refused then
+		vim.health.error(refused, "Remove that path and restart pi; it recreates the directory owner-only.")
+	elseif not done then
+		vim.health.warn("Agent discovery timed out")
+	elseif #candidates == 0 then
+		vim.health.warn(
+			"No Pi agent with pi-vantage-nvim answers for this workspace",
+			"Start `pi` in " .. root .. " with the pi-vantage-nvim extension installed (`pi install <vantage-nvim dir>`)."
 		)
-	end
-end
-
-local function check_model()
-	local model = state.current_model or state.resolve_model()
-	if model then
-		vim.health.ok("Model target resolves: " .. model.provider .. "/" .. model.model)
 	else
-		vim.health.error("No model target configured", "Add at least one entry to agent.models in setup().")
-	end
-end
-
--- Mirrors PiOAuthCredentialResolver's own default candidate order
--- (server/src/neovim/pi-oauth-auth.ts) minus the cwd/workspaceRoot
--- candidates, which are session-relative rather than a fixed "default
--- location" this health check can meaningfully report on.
-local function default_auth_paths()
-	return {
-		vim.fn.expand("~/.pi/agent/auth.json"),
-		vim.fn.expand("~/.config/pi/auth.json"),
-		vim.fn.expand("~/.config/pi-ai/auth.json"),
-	}
-end
-
-local function check_auth()
-	local auth_cfg = (state.config.agent and state.config.agent.auth) or {}
-	local configured_path = auth_cfg.path
-
-	if configured_path then
-		if vim.loop.fs_stat(configured_path) then
-			vim.health.ok("Pi OAuth auth file found: " .. configured_path)
-		else
-			vim.health.warn(
-				"Configured agent.auth.path not found: " .. configured_path,
-				"Run `npx @earendil-works/pi-ai login <provider>`, or confirm the provider uses an API key instead."
-			)
-		end
-		return
-	end
-
-	local default_paths = default_auth_paths()
-	for _, path in ipairs(default_paths) do
-		if vim.loop.fs_stat(path) then
-			vim.health.ok("Pi OAuth auth file found at default location: " .. path)
-			return
+		for _, candidate in ipairs(candidates) do
+			vim.health.ok(string.format("Pi agent: %s (pid %d), protocol %d", candidate.session_name or candidate.session_id, candidate.pid, protocol.VERSION))
 		end
 	end
-
-	vim.health.info(
-		"No Pi OAuth auth file found at "
-			.. table.concat(default_paths, ", ")
-			.. " — fine if your configured provider(s) use API keys instead."
-	)
-end
-
-local function check_agent_context()
-	local snapshot = agent_context.snapshot()
-
-	if not snapshot.enabled then
-		vim.health.info("Agent Context File integration disabled (agent_context.enabled = false)")
-		return
-	end
-
-	if snapshot.status == "missing" then
-		vim.health.info(
-			"Agent Context File not found at " .. snapshot.path .. " (fine if you haven't run an adjacent coding agent yet)"
-		)
-		return
-	end
-
-	if snapshot.status == "unavailable" then
-		vim.health.warn("Agent Context File unavailable: " .. tostring(snapshot.error))
-		return
-	end
-
-	vim.health.ok(
-		"Agent Context File found: "
-			.. snapshot.path
-			.. " ("
-			.. tostring(snapshot.size_bytes)
-			.. " bytes, modified "
-			.. tostring(snapshot.modified_at)
-			.. ")"
-	)
+	local connection = require("vantage.review").connection()
+	vim.health.info("Connection: " .. connection.status .. (connection.socket and (" via " .. connection.socket) or ""))
 end
 
 function M.check()
 	vim.health.start("vantage.nvim")
-
-	vim.health.start("Backend")
-	check_backend()
-
-	vim.health.start("Model target")
-	check_model()
-
-	vim.health.start("Pi auth")
-	check_auth()
-
-	vim.health.start("Agent Context File")
-	check_agent_context()
+	check_neovim()
+	vim.health.start("Adjacent Pi agent")
+	check_agent()
 end
 
 return M

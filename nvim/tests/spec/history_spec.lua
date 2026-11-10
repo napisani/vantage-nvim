@@ -14,7 +14,7 @@ local history_store = require("vantage.history_store")
 ---@return table store the fake store, for asserting what was persisted
 local function reset_history(config)
 	local vantage = require("vantage")
-	vantage.setup(vim.tbl_deep_extend("force", { backend = { mode = "development" } }, config or {}))
+	vantage.setup(config or {})
 	local store = history_store.fake()
 	history._set_store(store)
 	return store
@@ -218,7 +218,7 @@ end)
 
 test("history loads existing entries from the store on first use", function()
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+	vantage.setup({})
 	history._set_store(history_store.fake({
 		{ kind = "question", text = "from disk", workspaceRoot = "/w", submitted = true, timestamp = 1 },
 	}))
@@ -253,7 +253,7 @@ local lua_buffer = helpers.lua_buffer
 local temp_workspace = helpers.temp_workspace
 local set_buffer_path = helpers.set_buffer_path
 local prompt_buffer_mapped = helpers.prompt_buffer_mapped
-local capture_backend_request = helpers.capture_backend_request
+local capture_actions = helpers.capture_actions
 
 ---A workspace-scoped fixture: a real file in a real git root, so params carry a
 ---workspaceRoot that cycling can filter on.
@@ -269,7 +269,7 @@ local function float_buf()
 	return require("vantage.ui").last_float_buf()
 end
 
-test("submitting the prompt float records the raw text, not the expanded text", function()
+test("submitting the prompt float records the text as typed", function()
 	local vantage = require("vantage")
 	in_workspace()
 
@@ -278,7 +278,6 @@ test("submitting the prompt float records the raw text, not the expanded text", 
 
 	local entries = history.entries()
 	eq(#entries, 1)
-	-- The submitted text is expanded with a references block; history must not be.
 	eq(entries[1].text, "look at @mod.lua")
 	assert(not entries[1].text:match("Vantage Prompt References"), entries[1].text)
 end)
@@ -313,11 +312,8 @@ end)
 test("the inline-args command path records without opening a buffer", function()
 	in_workspace()
 
-	capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vim.cmd("VantageQuestion why is this slow")
+	capture_actions(function()
+		vim.cmd("VantageAsk why is this slow")
 	end)
 
 	local entries = history.entries()
@@ -328,10 +324,12 @@ end)
 
 test("composition send records the staged text as a composition entry", function()
 	local vantage = require("vantage")
-	in_workspace({ composition = { on_send = function() return true end } })
+	in_workspace()
 
 	vantage.compose_append("staged work")
-	vantage.compose_send()
+	capture_actions(function()
+		require("vantage.composition").send({ kind = "question" })
+	end)
 
 	local entries = history.entries()
 	eq(#entries, 1)
@@ -399,7 +397,7 @@ test("history.enabled = false leaves previously recorded entries unreachable by 
 	local params = require("vantage.context").scoped({})
 	history.record({ kind = "question", text = "recorded while on", workspaceRoot = params.workspaceRoot })
 
-	vantage.setup({ backend = { mode = "development" }, history = { enabled = false } })
+	vantage.setup({ history = { enabled = false } })
 	vantage.prompt({ params = params, on_submit = function() end })
 	local buf = float_buf()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "untouched" })
@@ -557,7 +555,7 @@ end)
 
 test("clearing one workspace preserves on-disk entries beyond this session's cap", function()
 	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" }, history = { limit = 5 } })
+	vantage.setup({ history = { limit = 5 } })
 	local seed = {}
 	for index = 1, 6 do
 		table.insert(seed, { text = "a" .. index, workspaceRoot = "/wsA", kind = "question", submitted = true })
@@ -684,14 +682,16 @@ end)
 
 test("composition send with no prior append records the real workspace", function()
 	local vantage = require("vantage")
-	in_workspace({ composition = { on_send = function() return true end } })
+	in_workspace()
 	local expected = require("vantage.context").scoped({}).workspaceRoot
 
 	-- No compose_append first, so origin_context is never populated.
 	vantage.compose()
 	local buf = require("vantage.composition").get_bufnr()
 	vim.api.nvim_buf_set_lines(buf, 0, -1, false, { "typed straight in" })
-	vantage.compose_send()
+	capture_actions(function()
+		require("vantage.composition").send({ kind = "question" })
+	end)
 
 	local entries = history.entries()
 	eq(#entries, 1)
@@ -706,7 +706,6 @@ test("composition refresh rebinds the history cycle keys from new config", funct
 	eq(prompt_buffer_mapped(buf, "n", "<Up>"), true)
 
 	vantage.setup({
-		backend = { mode = "development" },
 		ui = { composition = { keymaps = { history_prev = "<C-p>" } } },
 	})
 

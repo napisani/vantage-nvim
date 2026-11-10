@@ -9,47 +9,38 @@
 -- iterating:
 --
 --   nvim --headless -u nvim/tests/minimal_init.lua \
---     -c "lua require('spec.explain_spec'); require('support.harness').run()" -c qa
+--     -c "lua require('spec.review_spec'); require('support.harness').run()" -c qa
 local harness = require("support.harness")
 
 local SPECS = {
 	-- plumbing
-	"response",
-	"backend",
 	"state",
 	"history",
 	"history_store",
 	"monitor",
 	"monitor_ring",
-	"search_replace",
 	"monitor_source",
 	"context",
-	"agent_context",
 	"input",
 	"commands",
+	"protocol",
+	"anchors",
+	"statuses",
+	"debug_log",
 
-	-- commands
-	"explain",
-	"question",
-	"edit",
+	-- the review with the agent
+	"review",
 	"annotation",
 	"annotation_render",
-	"annotation_status",
-	"search",
 	"walkthrough",
-	"last_turn",
 	"diff_tour",
 	"lens",
-	"cancel",
 
 	-- surfaces
 	"prompt_buffer",
 	"composition",
 	"monitor_navigate",
 	"monitor_lifecycle",
-	"output",
-	"session_output",
-	"status",
 	"health",
 }
 

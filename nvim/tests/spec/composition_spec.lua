@@ -8,10 +8,7 @@ local eq = helpers.eq
 local composition = require("vantage.composition")
 local lua_buffer = helpers.lua_buffer
 local capture_notifications = helpers.capture_notifications
-local capture_backend_request = helpers.capture_backend_request
 local prompt_buffer_mapped = helpers.prompt_buffer_mapped
-local temp_workspace = helpers.temp_workspace
-local writefile = helpers.writefile
 
 ---Fresh composition state: wipe any existing composition buffer so each test
 ---starts from "nothing staged", since the module intentionally keeps one global
@@ -23,7 +20,8 @@ local function reset_composition(config)
 		pcall(vim.api.nvim_buf_delete, existing, { force = true })
 	end
 	lua_buffer({ "local a = 1" })
-	vantage.setup(vim.tbl_deep_extend("force", { backend = { mode = "development" } }, config or {}))
+	vantage.setup(config or {})
+	vantage.clear_lens()
 	return vantage
 end
 
@@ -170,106 +168,102 @@ test("compose_clear empties the buffer without destroying it", function()
 	eq(require("vantage.composition").get_bufnr(), buf)
 end)
 
-test("compose_send on an empty composition warns and does not call on_send", function()
-	local called = false
-	local vantage = reset_composition({
-		composition = {
-			on_send = function()
-				called = true
-			end,
-		},
-	})
+local function capture_sends(run, respond)
+	local core = require("vantage.review.core")
+	local original = core.send
+	local sent = {}
+	core.send = function(action, cb)
+		table.insert(sent, action)
+		if respond then
+			respond(action, cb)
+		else
+			cb(nil, { threadId = action.type == "ask" and "Q1" or "R1" })
+		end
+	end
+	local ok, err = pcall(run)
+	core.send = original
+	assert(ok, err)
+	return sent
+end
 
-	local notifications = capture_notifications(function()
-		vantage.compose_send()
+test("compose_send on an empty composition warns and sends nothing", function()
+	local vantage = reset_composition()
+	local sent = capture_sends(function()
+		local notifications = capture_notifications(function()
+			vantage.compose_send()
+		end)
+		assert(notifications[1] and notifications[1]:match("empty"), vim.inspect(notifications))
 	end)
-
-	assert(not called, "expected on_send not to run for an empty composition")
-	assert(notifications[1] and notifications[1]:match("empty"), vim.inspect(notifications))
+	eq(#sent, 0)
 end)
 
-test("compose_send passes the trimmed staged text to on_send", function()
-	local received
-	local vantage = reset_composition({
-		composition = {
-			on_send = function(text)
-				received = text
-				return true
-			end,
-		},
-	})
-
+test("compose_send asks which kind of thread, then sends the staged text about the workspace", function()
+	local vantage = reset_composition()
 	vantage.compose_append("first")
 	vantage.compose_append("second")
-	vantage.compose_send()
-
-	eq(received, "first\n\n---\n\nsecond")
-end)
-
-test("compose_send clears and closes after a successful on_send", function()
-	local vantage = reset_composition({
-		composition = {
-			on_send = function()
-				return true
-			end,
-		},
-	})
-
-	vantage.compose_append("send me")
-	eq(vantage.compose_send(), true)
-
+	local offered
+	local original_select = vim.ui.select
+	vim.ui.select = function(items, opts, on_choice)
+		offered = vim.tbl_map(opts.format_item, items)
+		on_choice(items[1])
+	end
+	local sent = capture_sends(function()
+		vantage.compose_send()
+	end)
+	vim.ui.select = original_select
+	eq(offered, { "Ask a question", "Queue a change request", "Send a change request now" })
+	eq(sent[1], { type = "ask", text = "first\n\n---\n\nsecond" })
 	eq(composition.is_empty(), true)
 	eq(composition_win(), nil)
 end)
 
-test("compose_send leaves content staged when on_send returns false", function()
-	local vantage = reset_composition({
-		composition = {
-			on_send = function()
-				return false
-			end,
-		},
-	})
+test("compose_send can send a change request now", function()
+	local vantage = reset_composition()
+	vantage.compose_append("rename the module")
+	local sent = capture_sends(function()
+		composition.send({ kind = "change_now" })
+	end)
+	eq(sent[1], { type = "request", text = "rename the module", sendNow = true })
+end)
 
+test("compose_send leaves content staged when the agent cannot be reached", function()
+	local vantage = reset_composition()
 	vantage.compose_append("keep me on failure")
-	eq(vantage.compose_send(), false)
-
-	-- Clearing on a failed send would lose the user's staged work.
+	capture_sends(function()
+		capture_notifications(function()
+			composition.send({ kind = "question" })
+		end)
+	end, function(_, cb)
+		cb("no Pi agent", nil)
+	end)
 	eq(composition.content(), "keep me on failure")
 end)
 
-test("compose_send respects clear_on_send and close_on_send being disabled", function()
-	local vantage = reset_composition({
-		composition = {
-			clear_on_send = false,
-			close_on_send = false,
-			on_send = function()
-				return true
-			end,
-		},
-	})
-
-	vantage.compose_append("persist")
-	vantage.compose()
-	vantage.compose_send()
-
-	eq(composition.content(), "persist")
-	assert(composition_win(), "expected the window to stay open")
+test("compose_send only clears once the agent's extension accepts the thread", function()
+	local vantage = reset_composition()
+	vantage.compose_append("staged")
+	local respond
+	capture_sends(function()
+		composition.send({ kind = "question" })
+		eq(composition.content(), "staged")
+		respond({ threadId = "Q1" })
+	end, function(_, cb)
+		respond = function(ack)
+			cb(nil, ack)
+		end
+	end)
+	eq(composition.is_empty(), true)
 end)
 
-test("compose_send with no on_send routes through the question flow", function()
-	local vantage = reset_composition()
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.compose_append("what does this do?")
-		vantage.compose_send()
+test("compose_send respects clear_on_send and close_on_send being disabled", function()
+	local vantage = reset_composition({ composition = { clear_on_send = false, close_on_send = false } })
+	vantage.compose_append("persist")
+	vantage.compose()
+	capture_sends(function()
+		composition.send({ kind = "question" })
 	end)
-
-	eq(captured.method, "questionSelection")
-	eq(captured.params.question, "what does this do?")
+	eq(composition.content(), "persist")
+	assert(composition_win(), "expected the window to stay open")
 end)
 
 test("is_composition_buffer identifies the composition buffer only", function()
@@ -325,61 +319,6 @@ test("compose_append warns on an unknown separation and falls back to the rule",
 	eq(composition.content(), "first\n\n---\n\nsecond")
 end)
 
-test("compose_send refuses a non-function on_send instead of routing to the model", function()
-	local vantage = reset_composition({ composition = { on_send = "not a function" } })
-	vantage.compose_append("staged")
-
-	local captured = capture_backend_request(nil, function()
-		local notifications = capture_notifications(function()
-			eq(vantage.compose_send(), false)
-		end)
-		assert(notifications[1] and notifications[1]:match("must be a function"), vim.inspect(notifications))
-	end)
-
-	eq(captured.method, nil)
-	eq(composition.content(), "staged")
-end)
-
-test("compose_send attributes the unconfigured fallback to the origin buffer, not the composition buffer", function()
-	local vantage = reset_composition()
-	local root = temp_workspace()
-	writefile(root .. "/origin.lua", "local a = 1\n")
-	vim.cmd("edit " .. root .. "/origin.lua")
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = { kind = "explanation", markdown = "answer" },
-	}, function()
-		vantage.compose_append("what does this do?")
-		vantage.compose_send()
-	end)
-
-	eq(captured.method, "questionSelection")
-	assert(captured.params.filePath:match("origin%.lua"), captured.params.filePath)
-	assert(not captured.params.filePath:match("VantageComposition"), captured.params.filePath)
-end)
-
-test("compose_send only clears after the unconfigured fallback responds", function()
-	local vantage = reset_composition()
-	local backend = require("vantage.backend")
-	local original = backend.request
-	local respond
-	backend.request = function(_, _, cb)
-		respond = cb
-		return "pending"
-	end
-
-	vantage.compose_append("staged")
-	vantage.compose_send()
-
-	-- Request in flight: the staged text must still be recoverable.
-	eq(composition.content(), "staged")
-	respond({ ok = true, result = { kind = "explanation", markdown = "answer" } })
-	eq(composition.is_empty(), true)
-
-	backend.request = original
-end)
-
 test("composition window lookup is scoped to the current tabpage", function()
 	local vantage = reset_composition()
 	vantage.compose_append("staged")
@@ -406,7 +345,7 @@ test("composition refresh rebinds keymaps after a later setup", function()
 	local buf = composition.get_bufnr()
 	eq(prompt_buffer_mapped(buf, "n", "<C-g>"), true)
 
-	vantage.setup({ backend = { mode = "development" }, ui = { composition = { keymaps = { send = "<C-s>" } } } })
+	vantage.setup({ ui = { composition = { keymaps = { send = "<C-s>" } } } })
 
 	eq(prompt_buffer_mapped(buf, "n", "<C-s>"), true)
 	eq(prompt_buffer_mapped(buf, "n", "<C-g>"), false)

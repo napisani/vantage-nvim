@@ -1,20 +1,18 @@
-local backend = require("vantage.backend")
-local context = require("vantage.context")
-local response_util = require("vantage.response")
-
+-- The adjacent agent's skills, for `/skill` completion in prompt buffers.
+-- Fetched once per connection; an unreachable agent yields an empty list.
 local M = {}
 
 local cached = nil
 local loading = false
 local waiters = {}
 
-local function complete(skills)
-	cached = skills or {}
+local function complete(skills, keep)
+	cached = keep and skills or nil
 	loading = false
 	local callbacks = waiters
 	waiters = {}
 	for _, callback in ipairs(callbacks) do
-		callback(cached)
+		callback(skills)
 	end
 end
 
@@ -28,9 +26,9 @@ function M.list(callback)
 		return
 	end
 	loading = true
-	backend.request("listSkills", context.current_line(), function(response)
-		local result = response_util.unwrap(response, "skills")
-		complete(result and result.skills or {})
+	require("vantage.review").skills(function(err, skills)
+		-- A failed lookup is not cached, so connecting later fills the list.
+		complete(not err and skills or {}, not err)
 	end)
 end
 

@@ -6,10 +6,8 @@
 -- markdown split you append references, selections, and instructions to across
 -- many actions before dispatching the whole thing.
 --
--- The destination is deliberately not Vantage's business: `composition.on_send`
--- receives the staged text and can route it anywhere. With no `on_send`
--- configured it falls back to Vantage's own question flow, so the feature works
--- out of the box.
+-- Sending opens a workspace-level thread with the adjacent agent: a question or
+-- a change request, chosen at send time.
 local history = require("vantage.history")
 local history_keymap = require("vantage.ui.history_keymap")
 local state = require("vantage.state")
@@ -28,9 +26,8 @@ local BUFFER_VAR = "vantage_composition"
 local bufnr = nil
 
 -- Context of the buffer the user was actually working in when they last staged
--- something. The no-`on_send` fallback needs it because by the time `send()`
--- runs the current buffer is usually the composition buffer itself, so asking
--- the model about "the current file" would ask about the staging scratchpad.
+-- something. By the time `send()` runs the current buffer is usually the
+-- composition buffer itself, whose path would resolve to the wrong project.
 ---@type table|nil
 local origin_context = nil
 
@@ -105,7 +102,7 @@ local function history_workspace()
 		end
 	end
 
-	return require("vantage.agent_context").workspace_root() or ""
+	return require("vantage.paths").workspace_root()
 end
 
 ---Records which project the user is working in, whenever they reach the
@@ -414,21 +411,24 @@ function M.close()
 	end
 end
 
----Sends the staged text.
----
----Routes through `composition.on_send` when configured; otherwise falls back to
----Vantage's own question flow so the feature is useful unconfigured. A literal
----`false` from `on_send` means the send failed, and staged work is left alone --
----clearing on failure would lose it.
----@return boolean sent
-function M.send()
+local KINDS = {
+	{ kind = "question", label = "Ask a question" },
+	{ kind = "change", label = "Queue a change request" },
+	{ kind = "change_now", label = "Send a change request now" },
+}
+
+---Sends the staged text to the agent as a thread about the workspace as a
+---whole. Asks which kind of thread; `opts.kind` skips the question. The content
+---stays staged until the agent's extension accepts it.
+---@param opts { kind?: "question"|"change"|"change_now" }?
+---@return boolean started
+function M.send(opts)
+	opts = opts or {}
 	local text = M.content()
 	if text == "" then
 		vim.notify("Vantage composition is empty", vim.log.levels.WARN)
 		return false
 	end
-
-	local cfg = config()
 
 	-- Recorded before dispatch: a send that fails should still leave the composed
 	-- text recallable. pcall'd so history can never break a send.
@@ -440,42 +440,39 @@ function M.send()
 	})
 	reset_cycle()
 
-	-- A misplaced or mistyped on_send (it is easy to nest under `ui.composition`
-	-- by mistake) must not silently redirect staged content to the model.
-	if cfg.on_send ~= nil and type(cfg.on_send) ~= "function" then
-		vim.notify(
-			"Vantage: composition.on_send must be a function, got " .. type(cfg.on_send) .. "; refusing to send",
-			vim.log.levels.ERROR
-		)
-		return false
+	local function dispatch(kind)
+		local review = require("vantage.review")
+		local lens = state.get_lens()
+		local spec = { text = text, lens = lens and lens.text or nil }
+		local function done(err, ack)
+			if err then
+				vim.notify("Vantage: " .. err, vim.log.levels.ERROR)
+				return
+			end
+			vim.notify("Vantage: sent " .. tostring(ack and ack.threadId or "composition"), vim.log.levels.INFO)
+			M.finish_send()
+		end
+		if kind == "question" then
+			review.ask(spec, done)
+		else
+			spec.send_now = kind == "change_now"
+			review.request(spec, done)
+		end
 	end
 
-	if type(cfg.on_send) == "function" then
-		if cfg.on_send(text) == false then
-			return false
-		end
-		M.finish_send()
+	if opts.kind then
+		dispatch(opts.kind)
 		return true
 	end
-
-	-- No destination configured: ask Vantage itself. Scoped to the buffer the
-	-- user was working in, not the composition buffer, and only cleared once the
-	-- request actually comes back.
-	vim.notify("Vantage: composition -> Vantage agent (no composition.on_send configured)", vim.log.levels.INFO)
-
-	local params = vim.tbl_extend("force", origin_context or require("vantage.context").scoped({}), {
-		question = text,
-	})
-	params.selectedText = params.selectedText or params.text
-
-	require("vantage.model_command").request_question_params(params, function(err, result)
-		if err then
-			require("vantage.ui").show_markdown(err)
-			return
+	vim.ui.select(KINDS, {
+		prompt = "Send the composition as",
+		format_item = function(item)
+			return item.label
+		end,
+	}, function(choice)
+		if choice then
+			dispatch(choice.kind)
 		end
-		-- The callback form suppresses the default float, so render it here.
-		require("vantage.ui").show_markdown(result and result.markdown or "")
-		M.finish_send()
 	end)
 	return true
 end

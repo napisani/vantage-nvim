@@ -1,4 +1,5 @@
--- walkthrough generation, loading, and rendering
+-- walkthroughs from review state: quickfix, notes on open buffers, navigation,
+-- and the :VantageWalkthrough request
 --
 -- Registers into the shared harness; run via nvim/tests/vantage_spec.lua.
 local test = require("support.harness").test
@@ -6,171 +7,97 @@ local helpers = require("support.helpers")
 
 local eq = helpers.eq
 local fresh_buffer = helpers.fresh_buffer
-local lua_buffer = helpers.lua_buffer
 local temp_workspace = helpers.temp_workspace
 local set_buffer_path = helpers.set_buffer_path
 local writefile = helpers.writefile
-local submit_prompt_buffer = helpers.submit_prompt_buffer
-local capture_backend_request = helpers.capture_backend_request
+local capture_actions = helpers.capture_actions
 
-local function setup_walkthrough(root, buffer_lines, pointers)
-	local vantage = require("vantage")
-	vantage.setup({ backend = { mode = "development" } })
+local function open_fixture(root, lines)
+	require("vantage").setup({})
 	require("vantage.walkthrough").disarm()
 	require("vantage.annotations").clear_all()
 	fresh_buffer()
 	vim.fn.mkdir(root .. "/lua", "p")
 	local file = root .. "/lua/example.lua"
-	writefile(file, table.concat(buffer_lines, "\n") .. "\n")
+	writefile(file, table.concat(lines, "\n") .. "\n")
 	set_buffer_path(file)
-	vim.api.nvim_buf_set_lines(0, 0, -1, false, buffer_lines)
-	writefile(root .. "/.vantage/walkthrough.json", vim.json.encode({ version = 1, pointers = pointers }))
+	vim.api.nvim_buf_set_lines(0, 0, -1, false, lines)
 	return vim.api.nvim_get_current_buf()
 end
 
-test("VantageLoadWalkthrough populates quickfix and annotates open buffers", function()
+local function tour(stops)
+	return { id = "tour-1", kind = "walkthrough", title = "Derivation", summary = "s", stops = stops, createdAt = "" }
+end
+
+local function stop(line, title, note)
+	return { ref = { path = "lua/example.lua", startLine = line, endLine = line, side = "current" }, title = title, note = note }
+end
+
+test("loading a walkthrough fills quickfix and draws notes on open buffers", function()
 	local annotations = require("vantage.annotations")
 	local root = temp_workspace()
-	local bufnr = setup_walkthrough(root, { "local a = 1", "local b = a + 1" }, {
-		{ file = "lua/example.lua", line = 2, anchor = "local b = a + 1", description = "b derives from a." },
-	})
+	local bufnr = open_fixture(root, { "local a = 1", "local b = a + 1" })
+	require("vantage.walkthrough").load(tour({ stop(2, "Derive", "b derives from a.") }), root)
 
-	vim.cmd("VantageLoadWalkthrough")
-
-	local qf = vim.fn.getqflist()
-	assert(#qf == 1, vim.inspect(qf))
-	eq(qf[1].lnum, 2)
-	eq(qf[1].text, "b derives from a.")
-
+	local qf = vim.fn.getqflist({ title = 1, items = 1 })
+	eq(qf.title, "Vantage walkthrough: Derivation")
+	eq(#qf.items, 1)
+	eq(qf.items[1].lnum, 2)
+	eq(qf.items[1].text, "Derive: b derives from a.")
 	local marks = annotations.current_marks(bufnr)
-	assert(#marks == 1, vim.inspect(marks))
-	eq(marks[1][4].virt_lines[1][1][1], "b derives from a.")
+	eq(#marks, 1)
+	eq(marks[1][4].virt_lines[1][1][1], "Derive: b derives from a.")
 	eq(marks[1][4].virt_lines_above, true)
-
-	vim.cmd("cclose")
 	require("vantage.walkthrough").disarm()
 	annotations.clear_all()
 end)
 
-test("VantageLoadWalkthrough marks pointers whose anchor drifted as stale", function()
+test("notes render on buffer entry and VantageAnnotationClear disarms them", function()
 	local annotations = require("vantage.annotations")
 	local root = temp_workspace()
-	local bufnr = setup_walkthrough(root, { "local a = 1", "local b = a + 999" }, {
-		{ file = "lua/example.lua", line = 2, anchor = "local b = a + 1", description = "b derives from a." },
-	})
+	local bufnr = open_fixture(root, { "local a = 1", "local b = a + 1" })
+	require("vantage.walkthrough").load(tour({ stop(2, "Derive", "b derives from a.") }), root)
 
-	vim.cmd("VantageLoadWalkthrough")
-
-	local marks = annotations.current_marks(bufnr)
-	assert(#marks == 1, vim.inspect(marks))
-	eq(marks[1][4].virt_lines[1][1][1], "[stale] b derives from a.")
-
-	vim.cmd("cclose")
-	require("vantage.walkthrough").disarm()
-	annotations.clear_all()
-end)
-
-test("walkthrough renders on buffer entry and VantageAnnotationClear disarms it", function()
-	local annotations = require("vantage.annotations")
-	local root = temp_workspace()
-	local bufnr = setup_walkthrough(root, { "local a = 1", "local b = a + 1" }, {
-		{ file = "lua/example.lua", line = 2, anchor = "local b = a + 1", description = "b derives from a." },
-	})
-
-	vim.cmd("VantageLoadWalkthrough")
-	vim.cmd("cclose")
-
-	-- Wipe just this buffer's marks, then re-entering it should re-render via the autocmd.
 	annotations.clear(bufnr)
-	assert(#annotations.current_marks(bufnr) == 0, "expected a clean buffer")
 	vim.cmd("enew")
 	vim.api.nvim_set_current_buf(bufnr)
-	assert(#annotations.current_marks(bufnr) == 1, "expected autocmd to re-render on entry")
+	eq(#annotations.current_marks(bufnr), 1)
 
-	-- Clearing disarms: a later entry must not re-render.
 	vim.cmd("VantageAnnotationClear")
-	assert(#annotations.current_marks(bufnr) == 0, "expected clear to remove marks")
+	eq(#annotations.current_marks(bufnr), 0)
 	vim.cmd("enew")
 	vim.api.nvim_set_current_buf(bufnr)
-	assert(#annotations.current_marks(bufnr) == 0, "expected no re-render after disarm")
-
-	require("vantage.walkthrough").disarm()
-	annotations.clear_all()
+	eq(#annotations.current_marks(bufnr), 0)
 end)
 
-test("VantageGenerateWalkthrough sends a generateWalkthrough request and loads the written walkthrough", function()
-	local vantage = require("vantage")
+test("next and prev move between stops through quickfix", function()
 	local root = temp_workspace()
-	vim.fn.mkdir(root .. "/lua", "p")
-	local file = root .. "/lua/example.lua"
-	writefile(file, "local a = 1\nlocal b = a + 1\n")
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = {
-			kind = "walkthrough",
-			path = root .. "/.vantage/walkthrough.json",
-			pointerCount = 1,
-		},
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
-		require("vantage.walkthrough").disarm()
-		require("vantage.annotations").clear_all()
-		fresh_buffer()
-		set_buffer_path(file)
-		vim.api.nvim_buf_set_lines(0, 0, -1, false, { "local a = 1", "local b = a + 1" })
-
-		-- Stand in for the pi agent actually writing the artifact before responding.
-		writefile(root .. "/.vantage/walkthrough.json", vim.json.encode({
-			version = 1,
-			pointers = {
-				{ file = "lua/example.lua", line = 2, anchor = "local b = a + 1", description = "b derives from a." },
-			},
-		}))
-
-		vim.cmd("VantageGenerateWalkthrough explain how b is derived")
-	end)
-
-	eq(captured.method, "generateWalkthrough")
-	eq(captured.params.prompt, "explain how b is derived")
-
-	local qf = vim.fn.getqflist()
-	assert(#qf == 1, vim.inspect(qf))
-	eq(qf[1].lnum, 2)
-	eq(qf[1].text, "b derives from a.")
-
+	open_fixture(root, { "local a = 1", "local b = a + 1", "return b" })
+	local walkthrough = require("vantage.walkthrough")
+	walkthrough.load(tour({ stop(1, "A", "first"), stop(3, "C", "last") }), root, { open = true })
+	vim.cmd("wincmd p")
+	eq(vim.api.nvim_win_get_cursor(0)[1], 1)
+	walkthrough.next()
+	eq(vim.api.nvim_win_get_cursor(0)[1], 3)
+	walkthrough.prev()
+	eq(vim.api.nvim_win_get_cursor(0)[1], 1)
 	vim.cmd("cclose")
-	require("vantage.walkthrough").disarm()
+	walkthrough.disarm()
 	require("vantage.annotations").clear_all()
 end)
 
-test("ranged VantageGenerateWalkthrough requires an explicit prompt", function()
-	local vantage = require("vantage")
-
-	local captured = capture_backend_request({
-		ok = true,
-		result = {
-			kind = "walkthrough",
-			path = "/tmp/does-not-exist/.vantage/walkthrough.json",
-			pointerCount = 0,
-		},
-	}, function()
-		vantage.setup({ backend = { mode = "development" } })
-		lua_buffer({
-			"local value = 1",
-			"return value",
-		})
-
-		vim.cmd("1,2VantageGenerateWalkthrough")
-		submit_prompt_buffer("walk through how value is used")
-	end)
-
-	eq(captured.method, "generateWalkthrough")
-	eq(captured.params.prompt, "walk through how value is used")
-	eq(captured.params.range, {
-		startLine = 1,
-		startCharacter = 1,
-		endLine = 2,
-		endCharacter = 12,
-	})
+test(":VantageWalkthrough sends the prompt, anchored to a selected range", function()
+	local captured = capture_actions(function()
+		require("vantage").setup({})
+		helpers.lua_buffer({ "local a = 1", "local b = a + 1" })
+		vim.api.nvim_buf_set_name(0, vim.fn.getcwd() .. "/nvim/tests/walkthrough-fixture.lua")
+		vim.cmd("VantageWalkthrough how does this start?")
+		vim.cmd("1,2VantageWalkthrough explain how b is derived")
+	end, { threadId = "W1" })
+	eq(captured[1].type, "walkthrough")
+	eq(captured[1].text, "how does this start?")
+	eq(captured[1].anchor, nil)
+	eq(captured[2].text, "explain how b is derived")
+	eq(captured[2].anchor.startLine, 1)
+	eq(captured[2].anchor.endLine, 2)
 end)

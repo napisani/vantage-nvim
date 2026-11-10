@@ -1,5 +1,5 @@
+local paths = require("vantage.paths")
 local state = require("vantage.state")
-local agent_context = require("vantage.agent_context")
 local visual = require("vantage.visual")
 local M = {}
 
@@ -18,39 +18,29 @@ local function range_for_lines(start_line, end_line, lines)
 	}
 end
 
+local function base(text, range)
+	return {
+		workspaceRoot = paths.workspace_root(),
+		filePath = vim.api.nvim_buf_get_name(0),
+		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
+		text = text,
+		cursor = cursor(),
+		visibleRange = range,
+		lens = state.get_lens(),
+	}
+end
+
 function M.visible()
 	local start_line = vim.fn.line("w0")
 	local end_line = vim.fn.line("w$")
 	local lines = vim.api.nvim_buf_get_lines(0, start_line - 1, end_line, false)
-	local snapshot = agent_context.snapshot()
-
-	return {
-		workspaceRoot = snapshot.workspace_root,
-		filePath = vim.api.nvim_buf_get_name(0),
-		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
-		text = table.concat(lines, "\n"),
-		cursor = cursor(),
-		visibleRange = range_for_lines(start_line, end_line, lines),
-		lens = state.get_lens(),
-		agentContext = snapshot.context,
-	}
+	return base(table.concat(lines, "\n"), range_for_lines(start_line, end_line, lines))
 end
 
 function M.buffer()
 	local line_count = vim.api.nvim_buf_line_count(0)
 	local lines = vim.api.nvim_buf_get_lines(0, 0, line_count, false)
-	local snapshot = agent_context.snapshot()
-
-	return {
-		workspaceRoot = snapshot.workspace_root,
-		filePath = vim.api.nvim_buf_get_name(0),
-		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
-		text = table.concat(lines, "\n"),
-		cursor = cursor(),
-		visibleRange = range_for_lines(1, math.max(1, line_count), lines),
-		lens = state.get_lens(),
-		agentContext = snapshot.context,
-	}
+	return base(table.concat(lines, "\n"), range_for_lines(1, math.max(1, line_count), lines))
 end
 
 function M.line_range(start_line, end_line)
@@ -60,20 +50,10 @@ function M.line_range(start_line, end_line)
 	local lines = vim.api.nvim_buf_get_lines(0, first_line - 1, last_line, false)
 	local text = table.concat(lines, "\n")
 	local range = range_for_lines(first_line, last_line, lines)
-	local snapshot = agent_context.snapshot()
-
-	return {
-		workspaceRoot = snapshot.workspace_root,
-		filePath = vim.api.nvim_buf_get_name(0),
-		language = vim.bo.filetype ~= "" and vim.bo.filetype or "text",
-		text = text,
-		cursor = cursor(),
-		visibleRange = range,
-		range = range,
-		selectedText = text,
-		lens = state.get_lens(),
-		agentContext = snapshot.context,
-	}
+	local params = base(text, range)
+	params.range = range
+	params.selectedText = text
+	return params
 end
 
 function M.current_line()

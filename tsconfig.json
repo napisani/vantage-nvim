@@ -1,8 +1,16 @@
 {
-	"files": [],
-	"references": [
-		{
-			"path": "./server"
-		}
-	]
+  "compilerOptions": {
+    "target": "ES2023",
+    "module": "Preserve",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2023"],
+    "strict": true,
+    "noEmit": true,
+    "allowImportingTsExtensions": true,
+    "erasableSyntaxOnly": true,
+    "verbatimModuleSyntax": true,
+    "skipLibCheck": true,
+    "types": ["node"]
+  },
+  "include": ["pi-vantage-nvim", "nvim/tests/support/*.ts"]
 }
